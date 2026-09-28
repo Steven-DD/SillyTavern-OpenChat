@@ -146,17 +146,28 @@ async function send() {
   await chat.send(text)
 }
 
-function scrollToEnd() {
+function scrollToEnd(force = false) {
   void nextTick(() => {
-    listEl.value?.scrollTo({ top: listEl.value.scrollHeight, behavior: 'smooth' })
+    const el = listEl.value
+    if (!el) return
+    // 粘底判断（P2）：流式期间用户向上翻历史时不被强行拽回底部；
+    // 距底 120px 以内视为"在底部"。切会话时强制滚底。
+    if (!force) {
+      const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+      if (fromBottom > 120) return
+    }
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
   })
 }
 
 watch(
   () => chat.messages.map((m) => m.content.length).join(','),
-  scrollToEnd,
+  () => scrollToEnd(),
 )
-watch(() => chat.currentFile, scrollToEnd)
+watch(
+  () => chat.currentFile,
+  () => scrollToEnd(true),
+)
 </script>
 
 <template>

@@ -54,13 +54,12 @@ export function priceOf(model: string): TokenPrice | null {
   return PRICES.find((p) => m.includes(p.match)) ?? null
 }
 
-/** 本地 token 估算：CJK 字符 ≈1 tok/字，其余 ≈4 字符/tok */
-export function estimateTokens(text: string): number {
-  if (!text) return 0
-  let cjk = 0
-  for (const ch of text) if (/[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/.test(ch)) cjk++
-  return Math.ceil(cjk + (text.length - cjk) / 4)
-}
+/**
+ * 本地 token 估算（P2 口径统一）：转调 prompt.ts 的实现。
+ * 此前本文件与 prompt.ts 各有一套 CJK 范围不同的估算 —— 裁剪用的 token 数
+ * 与计费用估算对不上。所有调用方经此处转发，保证同一口径。
+ */
+export { estimateTokens } from '@/services/st/prompt'
 
 /** 估算一轮费用（USD）；模型无价格数据返回 null */
 export function calcCost(model: string, usage: UsagePair): number | null {

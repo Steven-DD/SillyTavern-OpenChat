@@ -135,7 +135,15 @@ const note = (s) => console.log(`  ${s}`)
   const r3 = formatInstructChat(messages, ins3, '小明', '雪儿')
   ok(r3.text.includes('<<FIRST>> \nU1'), '首条 user 用 first_input')
   ok(r3.text.includes('<<LAST>> \nU2'), '末条 user 用 last_input')
-  ok(r3.text.includes('<<FOUT>> \nA1'), '首条 assistant 用 first_output')
+  // P1-2 对齐 ST（script.js:4784-4787）：first_* 只作用于历史第 0 条。
+  // 此处第 0 条（system 之后的首条）是 user U1，assistant A1 不该带 first_output
+  ok(!r3.text.includes('<<FOUT>>'), 'first_output 不落在非第 0 条的 assistant（对齐 ST）')
+  // 历史第 0 条是 assistant（开场白场景）→ first_output 生效于它
+  const r5 = formatInstructChat(
+    [{ role: 'assistant', content: 'GREET' }, { role: 'user', content: 'U1' }],
+    ins3, '小明', '雪儿',
+  )
+  ok(r5.text.includes('<<FOUT>> \nGREET'), '第 0 条为 assistant（开场白）时 first_output 生效')
   // wrap=false 直接连接（suffix 不含换行时整段无 \n）
   const r4 = formatInstructChat(
     [{ role: 'user', content: 'X' }],

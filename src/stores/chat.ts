@@ -242,8 +242,7 @@ export const useChatStore = defineStore('chat', {
     newChatOpen: false,
 
     /** 消息翻译结果（键 = 消息下标；再点一次删除） */
-    translations: {} as Record<number, string>,
-    /** 正在朗读的消息下标（-1 = 无） */
+    translations: {} as Record<number, string>,    /** 正在朗读的消息下标（-1 = 无） */
     speakingIndex: -1,
     /** 快捷回复按钮（extension_settings.stchat_quick_replies） */
     quickReplies: [] as { label: string; message: string; enabled: boolean; mode?: 'send' | 'insert' }[],
@@ -275,6 +274,8 @@ export const useChatStore = defineStore('chat', {
     /** 群聊自动发言（ST is_group_automode_enabled；间隔 = group.auto_mode_delay 秒） */
     groupAutoMode: false,
     groupAutoModeTimer: null as ReturnType<typeof setInterval> | null,
+    /** 会话列表延迟刷新定时器（P2：每条消息落盘后全量拉 recentChats 太重，合并之） */
+    sessionsRefreshTimer: null as ReturnType<typeof setTimeout> | null,
     /** ST Instruct 模板设置（power_user.instruct；undefined = 未加载） */
     instructData: undefined as InstructSettings | undefined,
     /** auto-continue（M-19）：回复 token 数低于目标时自动续写 */
@@ -543,6 +544,8 @@ export const useChatStore = defineStore('chat', {
 
     async openSession(avatar: string, fileId: string) {
       if (this.streaming) return
+      // 切会话前把 400ms 防抖窗口内的变量变更落盘（P2：否则旧会话丢改动）
+      await this.flushChatVariables()
       this.loadingChat = true
       this.error = ''
       try {
@@ -758,7 +761,9 @@ export const useChatStore = defineStore('chat', {
             wiEntries,
             s.maxContext,
             { recursive },
-            { state: this.timedState, turn: this.messages.length },
+            // turn 基准对齐 ST（world-info.js 用含 header 的 chat.length）：App 的
+            // messages 不含 header，+1 保证 sticky/cooldown 区间与网页端一致
+            { state: this.timedState, turn: this.messages.length + 1 },
           )
           wiActivated = res.activated.length
           if (res.before || res.after || res.depthEntries.length) {
@@ -779,8 +784,7 @@ export const useChatStore = defineStore('chat', {
                 await saveChat(avatar, file, raw)
               }
             })
-          }
-        }
+          }        }
       } catch {
         wiActivated = 0 // 世界书失败不阻断生成
       }
@@ -1309,17 +1313,18 @@ export const useChatStore = defineStore('chat', {
       const m = this.messages[index]
       if (!m) return
       if (this.speakingIndex === index) {
-        stopSpeech()
-        this.speakingIndex = -1
+        stopSpeech() // releaseCurrent 会触发 onEnded 复位指示
         return
       }
       this.speakingIndex = index
       try {
-        await speakText(m.content)
+        // 指示在真正播完/被打断时才复位（此前 play() 一 resolve 就复位，朗读期间无高亮）
+        await speakText(m.content, () => {
+          if (this.speakingIndex === index) this.speakingIndex = -1
+        })
       } catch (e) {
         this.lastError = e instanceof Error ? e.message : String(e)
-      } finally {
-        this.speakingIndex = -1
+        if (this.speakingIndex === index) this.speakingIndex = -1
       }
     },
 
@@ -1529,6 +1534,8 @@ export const useChatStore = defineStore('chat', {
     /** 打开群聊会话（group_chats/<chatId>.jsonl，与 ST 网页端同一份数据） */
     async openGroupSession(groupId: string, chatId: string) {
       if (this.streaming) return
+      // 切会话前把防抖窗口内的变量变更落盘（与 openSession 同理）
+      await this.flushChatVariables()
       this.loadingChat = true
       this.error = ''
       try {
@@ -1879,6 +1886,10 @@ export const useChatStore = defineStore('chat', {
         this.lastError = '群聊正在生成回复，请先停止生成再删除'
         return
       }
+      // 删除当前群时停掉自动发言定时器（P2：此前定时器残留，下个群会被自动接上）
+      if (this.group?.id === id && this.groupAutoMode) {
+        await this.toggleGroupAutoMode(false)
+      }
       try {
         await deleteGroup(id, deleteChats)
         if (this.group?.id === id) {
@@ -2117,6 +2128,10 @@ export const useChatStore = defineStore('chat', {
           ops.push({ op: 'delete', index: li })
         }
         this.messages.splice(index + 1)
+        // 译文按消息下标存储：被移除的尾部消息译文一并丢弃（P2 同 removeMessage）
+        for (const k of Object.keys(this.translations)) {
+          if (Number(k) > index) delete this.translations[Number(k)]
+        }
         if (allKnown && this.currentAvatar && this.currentFile) {
           try {
             await chatMutateLines(this.currentAvatar, this.currentFile, ops)
@@ -2144,8 +2159,10 @@ export const useChatStore = defineStore('chat', {
         .filter((x) => x.content.trim() && !x.error && !x.pending)
       if (!prefix.length) return
       const newFile = `${file} - branch ${stTimestamp()}`
+      // 保留原会话 chat_metadata（P2：副本此前丢失人设锁/AN/摘要/变量）
+      const chatMetadata = await this.readChatMetadata(avatar, file)
       const header: StChatMessage = {
-        chat_metadata: {},
+        chat_metadata: chatMetadata,
         user_name: this.userName,
         character_name: charName,
       }
@@ -2169,8 +2186,10 @@ export const useChatStore = defineStore('chat', {
       const all = this.messages.filter((x) => x.content.trim() && !x.error && !x.pending)
       if (!all.length) return
       const newFile = `${file} - ${stTimestamp()}`
+      // 保留原会话 chat_metadata（P2：书签副本此前丢失人设锁/AN/摘要/变量）
+      const chatMetadata = await this.readChatMetadata(avatar, file)
       const header: StChatMessage = {
-        chat_metadata: {},
+        chat_metadata: chatMetadata,
         user_name: this.userName,
         character_name: charName,
       }
@@ -2211,11 +2230,13 @@ export const useChatStore = defineStore('chat', {
           m.lineIndex = undefined
         }
         this.messages.splice(index, 1)
+        this.reindexTranslationsAfterRemoval(index)
         await this.saveGroupLines()
         return
       }
       const opLine = m.lineIndex
       this.messages.splice(index, 1)
+      this.reindexTranslationsAfterRemoval(index)
       if (opLine !== undefined) this.shiftLineIndexes(opLine, -1)
       if (opLine !== undefined && this.currentAvatar && this.currentFile) {
         try {
@@ -2284,14 +2305,18 @@ export const useChatStore = defineStore('chat', {
         await this.saveGroupLines()
         return
       }
-      // 行级落盘：追加到会话尾部（新行 index = 消息数 + 1，0 为 header）
-      const lineIndex = this.currentFile && this.currentAvatar ? this.messages.length + 1 : undefined
-      if (lineIndex !== undefined) msg.lineIndex = lineIndex
+      // 行级落盘：追加到会话文件尾部。行号按「已知最大行号 +1」推算（error 气泡等
+      // 占位消息不入文件也无行号，此前 messages.length+1 会算出越界/错位行号），
+      // 用 insert（Rust 侧允许追加到末尾）
+      const at = this.currentFile && this.currentAvatar
+        ? Math.max(-1, ...this.messages.map((x) => x.lineIndex ?? -1)) + 1
+        : -1
+      if (at >= 0) msg.lineIndex = at
       this.messages.push(msg)
-      if (lineIndex !== undefined) {
+      if (at >= 0) {
         try {
           await chatMutateLines(this.currentAvatar, this.currentFile, [
-            { op: 'replace', index: lineIndex, json: this.currentMessageJson(msg) },
+            { op: 'insert', index: at, json: this.currentMessageJson(msg) },
           ])
           return
         } catch (e) {
@@ -2392,6 +2417,51 @@ export const useChatStore = defineStore('chat', {
       }, 400)
     },
 
+    /** 有未落盘的变量变更时立即写回（切会话/关窗前调用，防防抖窗口丢改动） */
+    async flushChatVariables(): Promise<void> {
+      if (this.chatVarFlushTimer) {
+        clearTimeout(this.chatVarFlushTimer)
+        this.chatVarFlushTimer = null
+        await this.persistChatVariables()
+      }
+    },
+
+    /** 读会话文件 header 的 chat_metadata（书签/分支副本用；读不到返回空对象） */
+    async readChatMetadata(
+      avatar: string,
+      file: string,
+    ): Promise<Record<string, unknown>> {
+      try {
+        const raw = await getChat(avatar, file)
+        const head = raw[0] as Record<string, unknown> | undefined
+        const meta = head?.chat_metadata
+        return meta && typeof meta === 'object' ? { ...(meta as Record<string, unknown>) } : {}
+      } catch {
+        return {}
+      }
+    },
+
+    /** 会话列表延迟刷新（P2：send 每轮全量拉 recentChats 太重，500ms 合并） */
+    scheduleSessionListRefresh(): void {
+      if (this.sessionsRefreshTimer) return
+      this.sessionsRefreshTimer = setTimeout(() => {
+        this.sessionsRefreshTimer = null
+        void this.loadSessions()
+      }, 500)
+    },
+
+    /** 删除消息后重排 translations 键（P2：按消息下标存储，删中间消息后残留译文会贴错气泡） */
+    reindexTranslationsAfterRemoval(removedIndex: number): void {
+      if (!Object.keys(this.translations).length) return
+      const next: Record<number, string> = {}
+      for (const [k, v] of Object.entries(this.translations)) {
+        const i = Number(k)
+        if (i === removedIndex) continue
+        next[i > removedIndex ? i - 1 : i] = v
+      }
+      this.translations = next
+    },
+
     /** 把 chat_metadata.variables 写回当前会话文件（单聊走 getChat+saveChat，群聊随 header） */
     async persistChatVariables(): Promise<void> {
       try {
@@ -2462,7 +2532,8 @@ export const useChatStore = defineStore('chat', {
           }
           this.dirty = false
         })
-        await this.loadSessions()
+        // 延迟合并刷新（P2：每条消息全量拉 recentChats 太重）
+        this.scheduleSessionListRefresh()
       } catch (e) {
         this.error = e instanceof Error ? e.message : String(e)
       } finally {

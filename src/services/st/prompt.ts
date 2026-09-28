@@ -467,15 +467,21 @@ export function buildPrompt(opts: BuildPromptOptions): PromptResult {
   }
 
   const sysTokens = estimateTokens(sys)
-  const totalOf = (h: PromptMessage[]) =>
-    sysTokens + h.reduce((n, m) => n + estimateTokens(m.content), 0)
-
-  let kept = historyMsgs
-  let trimmed = 0
-  while (kept.length > 1 && totalOf(kept) > budget) {
-    kept = kept.slice(1)
-    trimmed++
+  // 裁剪（P2 性能）：每条消息 token 只算一次 + 后缀和，指针扫描。
+  // 此前 while + slice 每丢一条就对全部保留消息重跑逐字符估算 —— 几千条消息的
+  // 会话首次裁剪会 O(n²) 卡 UI 线程数秒。
+  const histTokens = historyMsgs.map((m) => estimateTokens(m.content))
+  const suffixSum = new Array<number>(historyMsgs.length + 1)
+  suffixSum[historyMsgs.length] = 0
+  for (let i = historyMsgs.length - 1; i >= 0; i--) {
+    suffixSum[i] = histTokens[i]! + suffixSum[i + 1]!
   }
+  let start = 0
+  while (historyMsgs.length - start > 1 && sysTokens + suffixSum[start]! > budget) {
+    start++
+  }
+  const kept = historyMsgs.slice(start)
+  const trimmed = start
 
   let messages: PromptMessage[] = [
     { role: 'system', content: sys },
@@ -497,12 +503,17 @@ export function buildPrompt(opts: BuildPromptOptions): PromptResult {
     ]
   }
 
-  // 世界书 @Depth 条目：同样从末尾往前数 depth 条插入（同 ST 的深度注入位）
+  // 世界书 @Depth 条目：同样从末尾往前数 depth 条插入（同 ST 的深度注入位）。
+  // 条目内容跑宏（P2：ST 对 WI 内容执行宏替换，{{random}}/{{getvar}} 等此前原样注入）
   for (const d of worldInfo?.depthEntries ?? []) {
     if (!d.content.trim()) continue
     const depth = Math.max(0, Math.min(d.depth, messages.length - 1))
     const at = Math.max(1, messages.length - depth)
-    messages = [...messages.slice(0, at), { role: d.role, content: d.content }, ...messages.slice(at)]
+    messages = [
+      ...messages.slice(0, at),
+      { role: d.role, content: runMacros(d.content, macroCtx) },
+      ...messages.slice(at),
+    ]
   }
 
   // 作者注释「聊天内 @Depth」（position 1，ST 默认位；深度/角色可配）
@@ -563,7 +574,7 @@ export function buildPrompt(opts: BuildPromptOptions): PromptResult {
   return {
     messages,
     systemPrompt: sys,
-    inputTokens: totalOf(kept),
+    inputTokens: sysTokens + suffixSum[start]!,
     trimmed,
     examplesDropped,
     bannedWords: macroCtx.bannedWords,

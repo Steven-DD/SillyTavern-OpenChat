@@ -55,6 +55,21 @@ export function parseSendDate(v?: string | number): number | undefined {
   }
   const n = Number(v)
   if (Number.isFinite(n) && n > 1e6) return n < 1e12 ? n * 1000 : n
+  // humanized 格式回退解析（`September 28, 2026 3:04pm` —— 非标准格式，
+  // 部分 JS 引擎的 Date.parse 不认，显式解析保证双向兼容）
+  const hm = /^([A-Za-z]+) (\d{1,2}), (\d{4}) (\d{1,2}):(\d{2})(am|pm)$/i.exec(v.trim())
+  if (hm) {
+    const months = [
+      'january', 'february', 'march', 'april', 'may', 'june',
+      'july', 'august', 'september', 'october', 'november', 'december',
+    ]
+    const mi = months.indexOf(hm[1]!.toLowerCase())
+    if (mi >= 0) {
+      let h = Number(hm[4]) % 12
+      if (hm[6]!.toLowerCase() === 'pm') h += 12
+      return new Date(Number(hm[3]), mi, Number(hm[2]), h, Number(hm[5])).getTime()
+    }
+  }
   const t = Date.parse(v)
   return Number.isNaN(t) ? undefined : t
 }
@@ -105,9 +120,11 @@ export function toStMessages(
 ): StChatMessage[] {
   return msgs.map((m) => {
     const base: StChatMessage = {
-      name: m.role === 'user' ? m.name : characterName,
+      // is_system 旁白行保留自身名字（P2：此前被改写成角色名，网页端显示不一致）
+      name: m.role === 'user' || m.isSystem ? m.name : characterName,
       is_user: m.role === 'user',
-      send_date: new Date(m.sendDate ?? Date.now()).toISOString(),
+      // ST 网页端为 humanized 格式（parseSendDate 双向兼容，网页端气泡显示一致）
+      send_date: humanizedSendDate(new Date(m.sendDate ?? Date.now())),
       mes: m.content,
       extra: m.extra ?? {},
     }
@@ -120,6 +137,18 @@ export function toStMessages(
     }
     return base
   })
+}
+
+/** ST 网页端的 send_date humanized 格式：`September 28, 2026 3:04pm`（util.js 同款） */
+export function humanizedSendDate(d = new Date()): string {
+  const months = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
+  ]
+  const h24 = d.getHours()
+  const h = h24 % 12 === 0 ? 12 : h24 % 12
+  const min = String(d.getMinutes()).padStart(2, '0')
+  return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()} ${h}:${min}${h24 >= 12 ? 'pm' : 'am'}`
 }
 
 /** ST 会话时间戳格式：`2023-5-12 @21h 32m 29s 224ms`（与 ST 自身命名一致，便于生态互通） */

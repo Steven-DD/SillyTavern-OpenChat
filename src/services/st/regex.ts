@@ -88,13 +88,22 @@ export async function saveRegexScripts(scripts: RegexScript[]): Promise<void> {
 }
 
 /** /pattern/flags 写法 → RegExp；裸正则补 gu 全局标志（同 ST regexFromString） */
+/** 编译缓存（P2 性能）：同一脚本每条消息都会执行，重复 new RegExp 浪费明显。
+ *  键 = 宏替换后的 find 串（substituteRegex 展开结果），脚本数量有限无增长风险。 */
+const compileCache = new Map<string, RegExp | null>()
+
 function regexFromString(find: string): RegExp | null {
+  const hit = compileCache.get(find)
+  if (hit !== undefined) return hit
   const m = /^\/([\s\S]+)\/([gimsuy]*)$/.exec(find.trim())
+  let re: RegExp | null
   try {
-    return m ? new RegExp(m[1]!, m[2] ?? '') : new RegExp(find, 'gu')
+    re = m ? new RegExp(m[1]!, m[2] ?? '') : new RegExp(find, 'gu')
   } catch {
-    return null
+    re = null
   }
+  compileCache.set(find, re)
+  return re
 }
 
 export interface RegexRunOptions {

@@ -327,8 +327,11 @@ export function checkWorldInfo(
       if (turn >= eff.end) {
         delete bucket[key]
         if (type === 'sticky' && Number(entry.cooldown) > 0) {
-          // sticky 结束那一刻立起 cooldown（protected，:518-528），本轮立即跳过
-          bucket[key] = { hash: hashOf(key), start: turn, end: turn + Number(entry.cooldown), protected: true }
+          // sticky 结束那一刻立起 cooldown（protected，:518-528），本轮立即跳过。
+          // ⚠ 记录必须写进 **cooldown 桶**（ST :525 写 timedWorldInfo.cooldown）——
+          //   此前误写回 sticky 桶，条目被 sticky 无限续期强制激活、冷却永不生效
+          const cdBucket = (tState.cooldown ??= {})
+          cdBucket[key] = { hash: hashOf(key), start: turn, end: turn + Number(entry.cooldown), protected: true }
           cooldownActive.add(key)
         }
         continue

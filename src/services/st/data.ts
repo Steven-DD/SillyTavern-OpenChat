@@ -482,18 +482,39 @@ export async function renameChat(
  * 设置
  * ------------------------------------------------------------------ */
 
+/**
+ * settings.json 读缓存：/api/settings/get 是**全量下载**（文件可达数百 KB），
+ * 而记忆/向量/PM/正则/翻译等模块每轮生成都会各拉一次。
+ * 5s TTL + 写后立即失效；跨进程（网页端）改动最迟 5s 可见 ——
+ * App 是 settings.json 的单一写入方（已知约束，见盘点 v2.0）。
+ */
+let settingsCache: StSettingsLite | null = null
+let settingsCacheAt = 0
+const SETTINGS_TTL_MS = 5000
+
+/** 手动失效（写 settings 的非标准通路需要时调用） */
+export function invalidateSettingsCache(): void {
+  settingsCache = null
+}
+
 /** ST 全局设置。后端把 settings 存成 JSON 字符串，这里解开 */
 export async function getSettings(): Promise<StSettingsLite> {
+  if (settingsCache && Date.now() - settingsCacheAt < SETTINGS_TTL_MS) return settingsCache
   const data = await stPostJson<{ settings?: string | StSettingsLite }>('/api/settings/get')
   const raw = data?.settings
+  let parsed: StSettingsLite
   if (typeof raw === 'string') {
     try {
-      return JSON.parse(raw) as StSettingsLite
+      parsed = JSON.parse(raw) as StSettingsLite
     } catch {
       return {}
     }
+  } else {
+    parsed = (raw ?? {}) as StSettingsLite
   }
-  return (raw ?? {}) as StSettingsLite
+  settingsCache = parsed
+  settingsCacheAt = Date.now()
+  return parsed
 }
 
 /**
@@ -502,6 +523,7 @@ export async function getSettings(): Promise<StSettingsLite> {
  * 「读全量 → 合并 → 写全量」。
  */
 export async function saveSettingsFull(settings: unknown): Promise<void> {
+  invalidateSettingsCache()
   await stPostVoid('/api/settings/save', settings as Record<string, unknown>)
 }
 

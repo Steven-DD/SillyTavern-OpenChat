@@ -26,32 +26,46 @@ const mk = (uid, p = {}) => ({
   eq(r2.activated.length, 1, 'delay: turn>=3 激活')
 }
 
-/* ---- timedEffects: sticky（激活后强制保持 N 轮） ---- */
+/* ---- timedEffects: sticky（ST 区间语义，world-info.js:604-655：end = 触发轮 + N，
+ *      chat.length >= end 即过期【排他】→ sticky=N = 触发轮后再强制 N-1 轮） ---- */
 {
   const entries = [mk(1, { key: ['关键词'], sticky: 2 })]
   const state = {}
   const r1 = checkWorldInfo(['无关文本'], entries, 8192, {}, { state, turn: 10 })
   eq(r1.activated.length, 0, 'sticky: 未命中不激活')
-  checkWorldInfo(['关键词'], entries, 8192, {}, { state, turn: 11 })
+  checkWorldInfo(['关键词'], entries, 8192, {}, { state, turn: 11 }) // 触发，记录 {start:11, end:13}
   const r2 = checkWorldInfo(['无关文本'], entries, 8192, {}, { state, turn: 12 })
-  eq(r2.activated.length, 1, 'sticky: 第 1 轮强制激活')
+  eq(r2.activated.length, 1, 'sticky: 触发后 1 轮内强制（12 < 13）')
   const r3 = checkWorldInfo(['无关文本'], entries, 8192, {}, { state, turn: 13 })
-  eq(r3.activated.length, 1, 'sticky: 第 2 轮仍强制（sticky=2）')
+  eq(r3.activated.length, 0, 'sticky: 到 end 轮过期（排他区间，world-info.js:651）')
   const r4 = checkWorldInfo(['无关文本'], entries, 8192, {}, { state, turn: 14 })
-  eq(r4.activated.length, 0, 'sticky: 计数耗尽失效')
+  eq(r4.activated.length, 0, 'sticky: 过期后保持失效')
 }
 
-/* ---- timedEffects: cooldown（激活后 N 轮内不可激活） ---- */
+/* ---- timedEffects: cooldown（记录 {start, end=start+N}，区间内跳过、到 end 轮恢复） ---- */
 {
   const entries = [mk(1, { key: ['关键词'], cooldown: 2 })]
   const state = {}
-  checkWorldInfo(['关键词'], entries, 8192, {}, { state, turn: 1 })
+  checkWorldInfo(['关键词'], entries, 8192, {}, { state, turn: 1 }) // 触发，记录 {start:1, end:3}
   const r2 = checkWorldInfo(['关键词'], entries, 8192, {}, { state, turn: 2 })
-  eq(r2.activated.length, 0, 'cooldown: 激活后第 1 轮跳过')
+  eq(r2.activated.length, 0, 'cooldown: 触发后第 1 轮跳过（2 < 3）')
   const r3 = checkWorldInfo(['关键词'], entries, 8192, {}, { state, turn: 3 })
-  eq(r3.activated.length, 0, 'cooldown: 第 2 轮仍跳过')
-  const r4 = checkWorldInfo(['关键词'], entries, 8192, {}, { state, turn: 4 })
-  eq(r4.activated.length, 1, 'cooldown: 冷却结束恢复激活')
+  eq(r3.activated.length, 1, 'cooldown: 到 end 轮恢复激活（world-info.js:651）')
+}
+
+/* ---- sticky → cooldown 链：sticky 到期那一刻立即进入 protected cooldown（onEnded，:518-528） ---- */
+{
+  const entries = [mk(1, { key: ['关键词'], sticky: 2, cooldown: 2 })]
+  const state = {}
+  checkWorldInfo(['关键词'], entries, 8192, {}, { state, turn: 11 }) // 触发 sticky {11,13}
+  const r2 = checkWorldInfo(['无关文本'], entries, 8192, {}, { state, turn: 12 })
+  eq(r2.activated.length, 1, 'sticky→cd: sticky 区间内强制')
+  const r3 = checkWorldInfo(['无关文本'], entries, 8192, {}, { state, turn: 13 })
+  eq(r3.activated.length, 0, 'sticky→cd: sticky 到期当轮即被 cooldown 压制（立即生效）')
+  const r4 = checkWorldInfo(['关键词'], entries, 8192, {}, { state, turn: 14 })
+  eq(r4.activated.length, 0, 'sticky→cd: cooldown 区间内关键词命中也不激活')
+  const r5 = checkWorldInfo(['关键词'], entries, 8192, {}, { state, turn: 15 })
+  eq(r5.activated.length, 1, 'sticky→cd: cooldown 到期恢复激活（end=15 排他）')
 }
 
 /* ---- 递归扫描：二跳激活 ---- */

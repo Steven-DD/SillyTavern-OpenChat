@@ -71,7 +71,7 @@ const imp = withImpersonate(msgs(), '老板', '你是{{user}}的秘书', emptyCo
 eq(imp[imp.length - 1].role, 'system', 'impersonate: 模板为 system')
 eq(imp[imp.length - 1].content, '你是老板的秘书', 'impersonate: 模板宏替换')
 const imp2 = withImpersonate(msgs(), '老板')
-eq(imp2[imp2.length - 1].role, 'user', 'impersonate: 无模板走内置指令')
+eq(imp2[imp2.length - 1].role, 'system', 'impersonate: 无模板回落 ST 默认 impersonation prompt（P1-7，system 轮）')
 
 function msgs() {
   return [{ role: 'system', content: 'S' }, { role: 'user', content: 'U' }]

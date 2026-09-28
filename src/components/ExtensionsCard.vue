@@ -230,10 +230,12 @@ async function testTts(): Promise<void> {
 
 onMounted(async () => {
   instruct.value = await loadInstruct().catch(() => null)
-  await Promise.all([reloadScripts(), reloadQrs(), reloadPresets(), loadTranslateSettings(true), loadSpeechSettings(true)])
-  provider.value = (await loadTranslateSettings()).provider
-  targetLang.value = (await loadTranslateSettings()).target_language
-  ttsModel.value = (await loadSpeechSettings()).model
+  await Promise.all([reloadScripts(), reloadQrs(), reloadPresets()])
+  // 各读一次（P2：此前 loadTranslateSettings/loadSpeechSettings 各被调 2-3 次）
+  const [t, s] = await Promise.all([loadTranslateSettings(true), loadSpeechSettings(true)])
+  provider.value = t.provider
+  targetLang.value = t.target_language
+  ttsModel.value = s.model
   // 记忆 / 向量（B3）
   memEnabled.value = await loadMemoryAppEnabled()
   const mem = await loadMemorySettings(true)
@@ -402,6 +404,7 @@ onMounted(async () => {
         </button>
       </div>
       <p class="hint">首次合成会下载语音模型（较慢）。消息工具条点 🔊 朗读 / 再点停止。</p>
+    </div>
 
     <!-- 记忆（Summarize） -->
     <div class="sub">
@@ -464,7 +467,6 @@ onMounted(async () => {
         消息自动向量化（ST 服务端本地嵌入），生成前按当前输入检索相关历史并注入。
         数据存 ST 服务端 vectors/ 目录。
       </p>
-    </div>
     </div>
 
     <p v-if="msg" class="rsp" :class="msgOk ? 'okish' : 'err'">{{ msg }}</p>

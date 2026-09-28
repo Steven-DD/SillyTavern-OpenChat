@@ -183,86 +183,91 @@ export async function stStream(
   const decoder = new TextDecoder()
   let buf = ''
 
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buf += decoder.decode(value, { stream: true })
-
-    // SSE 事件以空行分隔：兼容 \n\n 与 \r\n\r\n（Google 使用后者）
+  try {
     for (;;) {
-      const sepMatch = /\r?\n\r?\n/.exec(buf)
-      if (!sepMatch) break
-      const raw = buf.slice(0, sepMatch.index)
-      buf = buf.slice(sepMatch.index + sepMatch[0].length)
-      for (const line of raw.split(/\r?\n/)) {
-        if (!line.startsWith('data:')) continue
-        const payload = line.slice(5).trim()
-        if (!payload || payload === '[DONE]') continue
-        try {
-          const chunk = JSON.parse(payload) as {
-            // OpenAI 兼容格式（reasoning_content：DeepSeek 等；reasoning：OpenRouter）
-            choices?: {
-              delta?: { content?: string; reasoning_content?: string; reasoning?: string }
-              text?: string
-            }[]
-            // Google 原生格式（thought === true 的 part 是思考内容）
-            candidates?: {
-              content?: { parts?: { text?: string; thought?: boolean }[] }
-              finishReason?: string
-            }[]
-            // token 用量（OpenAI 兼容：流式尾帧 usage；Google：usageMetadata 每帧携带）
-            usage?: { prompt_tokens?: number; completion_tokens?: number }
-            usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number }
-            // 错误
-            error?: { message?: string; status?: string }
-            message?: string
-          }
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
 
-          if (chunk.error) {
-            throw new Error(`ST 返回错误（${chunk.error.message ?? chunk.error.status}）`)
-          }
-          if (chunk.message && !chunk.choices && !chunk.candidates) {
-            throw new Error(`ST 返回错误（${chunk.message}）`)
-          }
-
-          let delta =
-            chunk.choices?.[0]?.delta?.content ?? chunk.choices?.[0]?.text ?? ''
-
-          // Google 原生：合并同一 chunk 内的多个 part（thought part 是思考内容，分流）
-          if (chunk.candidates) {
-            const parts = chunk.candidates[0]?.content?.parts ?? []
-            const thought = parts
-              .filter((p) => p.thought)
-              .map((p) => p.text ?? '')
-              .join('')
-            if (thought && onReasoning) onReasoning(thought)
-            delta = delta || parts.filter((p) => !p.thought).map((p) => p.text ?? '').join('')
-          }
-
-          // OpenAI 兼容思考增量
-          const reasoningDelta =
-            chunk.choices?.[0]?.delta?.reasoning_content ??
-            chunk.choices?.[0]?.delta?.reasoning ??
-            ''
-          if (reasoningDelta && onReasoning) onReasoning(reasoningDelta)
-
-          // token 用量：两种格式都在尾部/每帧携带，重复回调无妨（调用方取最后一次）
-          if (onUsage) {
-            const u = chunk.usage
-            const g = chunk.usageMetadata
-            if (u && (typeof u.prompt_tokens === 'number' || typeof u.completion_tokens === 'number')) {
-              onUsage({ prompt: u.prompt_tokens ?? 0, completion: u.completion_tokens ?? 0 })
-            } else if (g && (typeof g.promptTokenCount === 'number' || typeof g.candidatesTokenCount === 'number')) {
-              onUsage({ prompt: g.promptTokenCount ?? 0, completion: g.candidatesTokenCount ?? 0 })
+      // SSE 事件以空行分隔：兼容 \n\n 与 \r\n\r\n（Google 使用后者）
+      for (;;) {
+        const sepMatch = /\r?\n\r?\n/.exec(buf)
+        if (!sepMatch) break
+        const raw = buf.slice(0, sepMatch.index)
+        buf = buf.slice(sepMatch.index + sepMatch[0].length)
+        for (const line of raw.split(/\r?\n/)) {
+          if (!line.startsWith('data:')) continue
+          const payload = line.slice(5).trim()
+          if (!payload || payload === '[DONE]') continue
+          try {
+            const chunk = JSON.parse(payload) as {
+              // OpenAI 兼容格式（reasoning_content：DeepSeek 等；reasoning：OpenRouter）
+              choices?: {
+                delta?: { content?: string; reasoning_content?: string; reasoning?: string }
+                text?: string
+              }[]
+              // Google 原生格式（thought === true 的 part 是思考内容）
+              candidates?: {
+                content?: { parts?: { text?: string; thought?: boolean }[] }
+                finishReason?: string
+              }[]
+              // token 用量（OpenAI 兼容：流式尾帧 usage；Google：usageMetadata 每帧携带）
+              usage?: { prompt_tokens?: number; completion_tokens?: number }
+              usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number }
+              // 错误
+              error?: { message?: string; status?: string }
+              message?: string
             }
-          }
 
-          if (delta) onDelta(delta)
-        } catch (e) {
-          if (e instanceof SyntaxError) continue // 非 JSON 心跳行，忽略
-          throw e
+            if (chunk.error) {
+              throw new Error(`ST 返回错误（${chunk.error.message ?? chunk.error.status}）`)
+            }
+            if (chunk.message && !chunk.choices && !chunk.candidates) {
+              throw new Error(`ST 返回错误（${chunk.message}）`)
+            }
+
+            let delta =
+              chunk.choices?.[0]?.delta?.content ?? chunk.choices?.[0]?.text ?? ''
+
+            // Google 原生：合并同一 chunk 内的多个 part（thought part 是思考内容，分流）
+            if (chunk.candidates) {
+              const parts = chunk.candidates[0]?.content?.parts ?? []
+              const thought = parts
+                .filter((p) => p.thought)
+                .map((p) => p.text ?? '')
+                .join('')
+              if (thought && onReasoning) onReasoning(thought)
+              delta = delta || parts.filter((p) => !p.thought).map((p) => p.text ?? '').join('')
+            }
+
+            // OpenAI 兼容思考增量
+            const reasoningDelta =
+              chunk.choices?.[0]?.delta?.reasoning_content ??
+              chunk.choices?.[0]?.delta?.reasoning ??
+              ''
+            if (reasoningDelta && onReasoning) onReasoning(reasoningDelta)
+
+            // token 用量：两种格式都在尾部/每帧携带，重复回调无妨（调用方取最后一次）
+            if (onUsage) {
+              const u = chunk.usage
+              const g = chunk.usageMetadata
+              if (u && (typeof u.prompt_tokens === 'number' || typeof u.completion_tokens === 'number')) {
+                onUsage({ prompt: u.prompt_tokens ?? 0, completion: u.completion_tokens ?? 0 })
+              } else if (g && (typeof g.promptTokenCount === 'number' || typeof g.candidatesTokenCount === 'number')) {
+                onUsage({ prompt: g.promptTokenCount ?? 0, completion: g.candidatesTokenCount ?? 0 })
+              }
+            }
+
+            if (delta) onDelta(delta)
+          } catch (e) {
+            if (e instanceof SyntaxError) continue // 非 JSON 心跳行，忽略
+            throw e
+          }
         }
       }
     }
+  } finally {
+    // 异常路径（chunk.error / 上游中断）也释放底层连接，此前会悬挂到 GC
+    reader.cancel().catch(() => {})
   }
 }

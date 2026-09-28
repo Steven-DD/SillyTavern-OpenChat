@@ -189,37 +189,42 @@ export async function generateText(
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buf = ''
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buf += decoder.decode(value, { stream: true })
+  try {
     for (;;) {
-      const sep = /\r?\n\r?\n/.exec(buf)
-      if (!sep) break
-      const raw = buf.slice(0, sep.index)
-      buf = buf.slice(sep.index + sep[0].length)
-      for (const line of raw.split(/\r?\n/)) {
-        if (!line.startsWith('data:')) continue
-        const payload = line.slice(5).trim()
-        if (!payload || payload === '[DONE]') continue
-        try {
-          const chunk = JSON.parse(payload) as {
-            choices?: { text?: string; thinking?: string }[]
-            content?: string
-            response?: string
-            error?: { message?: string }
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+      for (;;) {
+        const sep = /\r?\n\r?\n/.exec(buf)
+        if (!sep) break
+        const raw = buf.slice(0, sep.index)
+        buf = buf.slice(sep.index + sep[0].length)
+        for (const line of raw.split(/\r?\n/)) {
+          if (!line.startsWith('data:')) continue
+          const payload = line.slice(5).trim()
+          if (!payload || payload === '[DONE]') continue
+          try {
+            const chunk = JSON.parse(payload) as {
+              choices?: { text?: string; thinking?: string }[]
+              content?: string
+              response?: string
+              error?: { message?: string }
+            }
+            if (chunk.error) throw new Error(`ST 返回错误（${chunk.error.message}）`)
+            const t = chunk.choices?.[0]?.text ?? chunk.content ?? chunk.response ?? ''
+            const th = chunk.choices?.[0]?.thinking
+            if (th && onThinking) onThinking(th)
+            if (t) onDelta(t)
+          } catch (e) {
+            if (e instanceof SyntaxError) continue
+            throw e
           }
-          if (chunk.error) throw new Error(`ST 返回错误（${chunk.error.message}）`)
-          const t = chunk.choices?.[0]?.text ?? chunk.content ?? chunk.response ?? ''
-          const th = chunk.choices?.[0]?.thinking
-          if (th && onThinking) onThinking(th)
-          if (t) onDelta(t)
-        } catch (e) {
-          if (e instanceof SyntaxError) continue
-          throw e
         }
       }
     }
+  } finally {
+    // 异常路径也释放底层连接（此前 reader 悬挂到 GC 才回收）
+    reader.cancel().catch(() => {})
   }
 }
 
