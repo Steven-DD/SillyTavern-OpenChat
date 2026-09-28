@@ -1,0 +1,111 @@
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  overflow: hidden;
+}
+
+:root {
+  /* 默认字体栈：外观偏好设为「系统默认」时走这里（见 stores/appearance.ts） */
+  --font-default:
+    'PingFang SC', 'Microsoft YaHei', 'Segoe UI', system-ui, sans-serif;
+}
+
+body {
+  /* ⚠ 显式声明行高：本项目是紧凑排版（卡片/列表依赖它），
+     一旦被外部 reset（如 Tailwind Preflight 的 html{line-height:1.5}）覆盖，
+     全局高度会一起膨胀。显式写死 = 免疫。 */
+  line-height: normal;
+  /* 字体族可被「设置 → 通用 → 字体」覆盖（--app-font-family 由 appearance store 写入） */
+  font-family: var(--app-font-family, var(--font-default));
+  font-size: 13px;
+  color: var(--c-text);
+  background: var(--c-bg);
+  -webkit-font-smoothing: antialiased;
+  transition:
+    background 0.25s ease,
+    color 0.25s ease;
+}
+
+button {
+  font-family: inherit;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+input,
+textarea,
+select {
+  font-family: inherit;
+  color: inherit;
+}
+
+/* 统一下拉框：原生 select 箭头贴着右边缘，会被圆角边框裁掉一半 ——
+   去掉原生外观（appearance-none 由 .field-select 提供），这里自绘箭头并预留右侧空间 */
+select.field-select {
+  padding-right: 28px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--c-border-strong);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ------------------------------------------------------------------ *
+ * 页面背景挂载点
+ *
+ * 各页根元素统一写 `class="page" data-page="<id>"`，
+ * 背景由此处集中控制 —— 皮肤/用户只改 tokens.css 的 --page-* 变量即可换背景，
+ * 组件代码一行不用动（为「聊天背景」功能预留）。
+ * ------------------------------------------------------------------ */
+.page {
+  /* ⚠ flex 子项默认 min-height:auto（不缩小于内容）—— 缺了这句页面根会被内容
+     撑出容器，内部 overflow-y:auto 永远不触发，右栏就没滚动条了（踩过一次） */
+  min-height: 0;
+  background-color: var(--page-bg);
+  background-image: var(--page-bg-image);
+  background-size: var(--page-bg-size);
+  background-repeat: var(--page-bg-repeat);
+  background-position: center;
+  background-blend-mode: var(--page-bg-blend);
+}
+.page[data-page='chats'] {
+  --page-bg: var(--page-chats-bg);
+  --page-bg-image: var(--page-chats-image);
+}
+.page[data-page='contacts'] {
+  --page-bg: var(--page-contacts-bg);
+  --page-bg-image: var(--page-contacts-image);
+}
+.page[data-page='plugins'] {
+  --page-bg: var(--page-plugins-bg);
+  --page-bg-image: var(--page-plugins-image);
+}
+.page[data-page='settings'] {
+  --page-bg: var(--page-settings-bg);
+  --page-bg-image: var(--page-settings-image);
+}
+.page[data-page='personas'] {
+  --page-bg: var(--page-personas-bg);
+  --page-bg-image: var(--page-personas-image);
+}

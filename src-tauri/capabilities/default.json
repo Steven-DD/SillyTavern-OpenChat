@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "应用默认能力：核心事件/窗口权限 + 文件对话框。没有这份清单，前端 listen() 收不到任何后端事件（进度条由此静默失效）。",
+  "windows": ["main"],
+  "permissions": ["core:default", "dialog:default"]
+}

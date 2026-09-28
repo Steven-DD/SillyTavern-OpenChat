@@ -1,0 +1,49 @@
+{
+  "id": "node",
+  "name": "Node.js 运行时",
+  "tier": "required",
+  "kind": "process",
+  "description": "SillyTavern 运行所需的 JavaScript 运行时。本机已安装可直接绑定，无需下载。",
+
+  "provides": ["node-runtime"],
+
+  "probe": {
+    "commands": ["node"],
+    "version_args": ["--version"],
+    "version_pattern": "v?(\\d+\\.\\d+\\.\\d+)",
+    "min_version": "20.0.0",
+    "search_paths": [
+      "%ProgramFiles%\\nodejs\\node.exe",
+      "%LOCALAPPDATA%\\Programs\\nodejs\\node.exe",
+      "%APPDATA%\\nvm\\current\\node.exe"
+    ]
+  },
+
+  "entry": {
+    "exec_names": ["node.exe", "node"]
+  },
+
+  "install": {
+    "archive": "zip",
+    "strip_first_dir": true,
+    "npm_install": false,
+    "required": ["node.exe"],
+    "default_version": "22.22.2",
+    "note": "官方免安装绿色包。实测 34.0MB（35,656,052 字节），两个源均返回 Accept-Ranges: bytes → 支持断点续传。npmmirror 用 cdn 域名（registry.npmmirror.com 会 302）。",
+    "size": 35656052,
+    "platforms": {
+      "win-x64": {
+        "sources": [
+          {
+            "label": "官方 nodejs.org",
+            "url": "https://nodejs.org/dist/v{version}/node-v{version}-win-x64.zip"
+          },
+          {
+            "label": "国内镜像 cdn.npmmirror.com",
+            "url": "https://cdn.npmmirror.com/binaries/node/v{version}/node-v{version}-win-x64.zip"
+          }
+        ]
+      }
+    }
+  }
+}

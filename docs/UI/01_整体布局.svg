@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 455" width="680" height="455">
+  <title>整体布局（v2 冻结版）</title>
+  <rect x="40" y="40" width="600" height="320" rx="12" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+
+  <rect x="40" y="40" width="60" height="320" rx="12" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+  <rect x="52" y="56" width="36" height="36" rx="8" fill="#534AB7" stroke="#3C3489" stroke-width="0.5"/>
+  <text x="70" y="74" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="500" fill="#FFFFFF">会话</text>
+  <rect x="52" y="104" width="36" height="36" rx="8" fill="#FFFFFF" stroke="#534AB7" stroke-width="0.5"/>
+  <text x="70" y="122" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#3C3489">联系</text>
+  <rect x="52" y="152" width="36" height="36" rx="8" fill="#FFFFFF" stroke="#534AB7" stroke-width="0.5"/>
+  <text x="70" y="170" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#3C3489">插件</text>
+  <rect x="52" y="308" width="36" height="36" rx="8" fill="#FFFFFF" stroke="#534AB7" stroke-width="0.5"/>
+  <text x="70" y="326" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#3C3489">设置</text>
+
+  <rect x="100" y="40" width="170" height="320" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+  <text x="185" y="64" text-anchor="middle" dominant-baseline="central" font-size="13" font-weight="500" fill="#0C447C">会话列表</text>
+
+  <rect x="110" y="80" width="150" height="40" rx="8" fill="#FFFFFF" stroke="#888780" stroke-width="0.5"/>
+  <text x="122" y="95" dominant-baseline="central" font-size="12" font-weight="500" fill="#333333">会话一</text>
+  <text x="122" y="111" dominant-baseline="central" font-size="11" fill="#888780">角色A · 世界书X</text>
+
+  <rect x="110" y="128" width="150" height="40" rx="8" fill="#FFFFFF" stroke="#185FA5" stroke-width="1"/>
+  <text x="122" y="143" dominant-baseline="central" font-size="12" font-weight="500" fill="#185FA5">会话二（当前）</text>
+  <text x="122" y="159" dominant-baseline="central" font-size="11" fill="#378ADD">角色B</text>
+
+  <rect x="110" y="176" width="150" height="40" rx="8" fill="#FFFFFF" stroke="#888780" stroke-width="0.5"/>
+  <text x="122" y="191" dominant-baseline="central" font-size="12" font-weight="500" fill="#333333">会话三</text>
+  <text x="122" y="207" dominant-baseline="central" font-size="11" fill="#888780">角色C · 世界书Y</text>
+
+  <text x="185" y="348" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#378ADD">联系人页 → 角色卡列表</text>
+
+  <rect x="270" y="40" width="370" height="40" rx="12" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+  <text x="285" y="60" dominant-baseline="central" font-size="13" font-weight="500" fill="#085041">会话二 · 角色B</text>
+  <text x="625" y="60" text-anchor="end" dominant-baseline="central" font-size="12" fill="#0F6E56">配置 · 世界书/背景/预设</text>
+
+  <rect x="285" y="92" width="200" height="44" rx="10" fill="#F1EFE8" stroke="#888780" stroke-width="0.5"/>
+  <text x="297" y="114" dominant-baseline="central" font-size="12" fill="#444441">AI 角色回复气泡</text>
+
+  <rect x="430" y="148" width="195" height="44" rx="10" fill="#B5D4F4" stroke="#185FA5" stroke-width="0.5"/>
+  <text x="613" y="170" text-anchor="end" dominant-baseline="central" font-size="12" fill="#0C447C">用户消息气泡</text>
+
+  <rect x="285" y="204" width="160" height="32" rx="10" fill="#F1EFE8" stroke="#888780" stroke-width="0.5"/>
+  <text x="297" y="220" dominant-baseline="central" font-size="12" fill="#444441">流式回复…</text>
+
+  <rect x="285" y="248" width="340" height="28" rx="6" fill="#FAEEDA" stroke="#854F0B" stroke-width="0.5"/>
+  <circle cx="299" cy="262" r="4" fill="#3B6D11"/>
+  <text x="312" y="262" dominant-baseline="central" font-size="11" fill="#633806">已连接 · gpt-4o</text>
+  <text x="613" y="262" text-anchor="end" dominant-baseline="central" font-size="11" fill="#854F0B">上下文 12.3k · 本轮 1.2k tokens</text>
+
+  <rect x="285" y="296" width="280" height="48" rx="8" fill="#FFFFFF" stroke="#888780" stroke-width="0.5"/>
+  <text x="297" y="320" dominant-baseline="central" font-size="12" fill="#888780">输入消息…</text>
+  <rect x="575" y="296" width="50" height="48" rx="8" fill="#0F6E56" stroke="#085041" stroke-width="0.5"/>
+  <text x="600" y="320" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="500" fill="#FFFFFF">发送</text>
+
+  <text x="40" y="390" dominant-baseline="central" font-size="12" fill="#5F5E5A">左栏 · 全局导航：会话 / 联系人（角色卡）/ 插件扩展 / 设置</text>
+  <text x="40" y="412" dominant-baseline="central" font-size="12" fill="#5F5E5A">中栏 · 会话列表（= ST 会话，配置驱动）；切到联系人页显示角色卡列表</text>
+  <text x="40" y="434" dominant-baseline="central" font-size="12" fill="#5F5E5A">右栏 · 顶栏配置入口；输入框上方状态条：模型状态 + token 用量</text>
+</svg>

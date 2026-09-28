@@ -1,0 +1,76 @@
+{
+  "id": "sillytavern",
+  "name": "SillyTavern",
+  "tier": "required",
+  "kind": "process",
+  "description": "纯后端模式运行的角色扮演引擎。目录型插件：指向一个含 server.js 的 ST 目录即可绑定。",
+
+  "provides": ["chat-engine"],
+
+  "requires": {
+    "node": ">=20.0.0"
+  },
+
+  "probe": {
+    "dir_markers": ["server.js", "package.json"],
+    "dir_name_patterns": ["SillyTavern*"],
+    "version_from": {
+      "file": "package.json",
+      "json_path": "version"
+    },
+    "search_paths": []
+  },
+
+  "entry": {
+    "args": ["server.js"],
+    "port": 8000,
+    "health": "/csrf-token",
+    "health_timeout_ms": 90000,
+    "data_root_mode": "default"
+  },
+
+  "install": {
+    "archive": "zip",
+    "strip_first_dir": true,
+    "npm_install": true,
+    "npm_registry": "https://registry.npmmirror.com",
+    "default_version": "1.19.0",
+    "required": [
+      "server.js",
+      "package.json",
+      "src/command-line.js",
+      "public/index.html",
+      "default/config.yaml",
+      "node_modules"
+    ],
+    "note": "实测：ST 的 GitHub release 没有任何 zip 资产（assets=0），官方只给源码快照，因此走「源码快照 + npm install」。源码包 36.7MB / 1010 文件 / 不含 node_modules。npm install 必须带镜像 registry —— 实测 667 包 / 13 秒。codeload 直连实测会超时，故列为最后兜底。",
+    "sources": [
+      {
+        "label": "gh-proxy 加速",
+        "url": "https://gh-proxy.com/https://github.com/SillyTavern/SillyTavern/archive/refs/tags/{version}.zip"
+      },
+      {
+        "label": "ghfast 加速",
+        "url": "https://ghfast.top/https://github.com/SillyTavern/SillyTavern/archive/refs/tags/{version}.zip"
+      },
+      {
+        "label": "GitHub 直连（慢，兜底）",
+        "url": "https://codeload.github.com/SillyTavern/SillyTavern/zip/refs/tags/{version}"
+      }
+    ],
+    "prebuilt": {
+      "enabled": false,
+      "note": "预打包 = 源码 + node_modules 一起打的 zip（挂在自己的 GitHub Release 上）。enabled 置 true 后 choose_spec 会优先走这条路径：只下载+解压，无 npm。上传后建议回填 sha256 与 size。",
+      "sources": [
+        {
+          "label": "GitHub Release 预打包（含依赖，免 npm）",
+          "url": "https://github.com/Steven-DD/st-chat-dist/releases/download/st-{version}/SillyTavern-{version}-win-x64-bundled.zip"
+        },
+        {
+          "label": "gh-proxy 加速（预打包）",
+          "url": "https://gh-proxy.com/https://github.com/Steven-DD/st-chat-dist/releases/download/st-{version}/SillyTavern-{version}-win-x64-bundled.zip"
+        }
+      ]
+    }
+  }
+}

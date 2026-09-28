@@ -1,0 +1,29 @@
+{
+  "//": "能力表：把「插件是否就绪」翻译成「用户能不能做某件事」——用户关心能不能聊天，不关心 node 装没装",
+  "capabilities": [
+    {
+      "id": "chat",
+      "name": "聊天",
+      "requires": ["node", "sillytavern"],
+      "hint": "需要 Node.js 与 SillyTavern 就绪"
+    },
+    {
+      "id": "characters",
+      "name": "角色卡与会话管理",
+      "requires": ["node", "sillytavern"],
+      "hint": "需要 Node.js 与 SillyTavern 就绪"
+    },
+    {
+      "id": "extension-install",
+      "name": "安装第三方扩展",
+      "requires": ["node", "sillytavern", "git"],
+      "hint": "需要 Git（可选插件），不影响聊天"
+    },
+    {
+      "id": "theme",
+      "name": "主题与皮肤",
+      "requires": [],
+      "hint": "内置资源型插件，始终可用"
+    }
+  ]
+}

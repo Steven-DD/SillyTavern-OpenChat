@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>界面高保真视觉稿 v1.0 · SillyTavern 桌面聊天客户端</title>
+<style>
+/* ============================================================
+   三层 Token 架构实演
+   Layer 1 Primitive（色板）→ Layer 2 Semantic（语义）→ 组件
+   组件代码零硬编码色值；切主题 = 切变量 = 换肤
+   ============================================================ */
+
+/* ---------- 主题：浅色（默认启动） ---------- */
+:root, [data-theme="light"] {
+  --c-bg: #FFFFFF;            /* 一级背景：窗口底 */
+  --c-canvas: #F7F8FA;        /* 二级背景：侧栏/列表底 */
+  --c-panel: #F1F2F4;         /* 三级背景：嵌套面板/输入底 */
+  --c-border: #E4E7EB;
+  --c-border-strong: #8A9099;
+  --c-text: #1F2328;
+  --c-text-2: #5A6068;
+  --c-text-3: #8A9099;
+  --c-on-primary: #FFFFFF;
+  --p-50:#EEF0FE; --p-100:#E0E3FD; --p-200:#C5C9FB; --p-300:#A3A8F5;
+  --p-400:#8189EE; --p-500:#5F60EF; --p-600:#4F46E5; --p-700:#4338CA;
+  --p-800:#3730A3; --p-900:#312E81;
+  --s-success:#166534; --s-success-bg:#E7F5EC;
+  --s-warning:#9A5B00; --s-warning-bg:#FBF0DD;
+  --s-error:#B91C1C;   --s-error-bg:#FBEAEA;
+  --bubble-ai: var(--c-panel);
+  --bubble-user: var(--p-500);
+  --shadow: none;
+}
+/* ---------- 主题：深色 ---------- */
+[data-theme="dark"] {
+  --c-bg: #101318;
+  --c-canvas: #0B0E12;
+  --c-panel: #161A21;
+  --c-border: #2A3038;
+  --c-border-strong: #6B7480;
+  --c-text: #E8EAED;
+  --c-text-2: #9AA3AD;
+  --c-text-3: #6B7480;
+  --s-success:#4ADE80; --s-success-bg:#12291B;
+  --s-warning:#F5B04C; --s-warning-bg:#2E2410;
+  --s-error:#F87171;   --s-error-bg:#321616;
+  --bubble-ai: var(--c-panel);
+  --bubble-user: var(--p-500);
+  --shadow: none;
+}
+/* ---------- 皮肤：暮光（theme.json 覆盖包实演）
+   仅覆盖主色 Primitive token，其余全部继承深色基底 —— 组件零改动 ---------- */
+[data-theme="dusk"] {
+  --c-bg: #101318;
+  --c-canvas: #0B0E12;
+  --c-panel: #161A21;
+  --c-border: #2A3038;
+  --c-border-strong: #6B7480;
+  --c-text: #E8EAED;
+  --c-text-2: #9AA3AD;
+  --c-text-3: #6B7480;
+  --p-50:#FFF1F2; --p-100:#FFE4E6; --p-200:#FECDD3; --p-300:#FDA4AF;
+  --p-400:#FB7185; --p-500:#F43F5E; --p-600:#E11D48; --p-700:#BE123C;
+  --p-800:#9F1239; --p-900:#881337;
+  --s-success:#4ADE80; --s-success-bg:#12291B;
+  --s-warning:#F5B04C; --s-warning-bg:#2E2410;
+  --s-error:#F87171;   --s-error-bg:#321616;
+  --bubble-ai: var(--c-panel);
+  --bubble-user: var(--p-600);
+  --shadow: none;
+}
+
+/* ============================ 基础 ============================ */
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: "PingFang SC","Microsoft YaHei","Segoe UI",system-ui,sans-serif;
+  background: var(--c-canvas);
+  color: var(--c-text);
+  transition: background .25s ease, color .25s ease;
+  padding-bottom: 60px;
+}
+.doc-header {
+  position: sticky; top:0; z-index:50;
+  display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+  padding:14px 28px;
+  background: var(--c-bg);
+  border-bottom: 1px solid var(--c-border);
+}
+.doc-header h1 { font-size:17px; font-weight:600; }
+.doc-header .ver {
+  font-size:11px; padding:2px 8px; border-radius:6px;
+  background:var(--p-50); color:var(--p-600); font-weight:600;
+}
+[data-theme="dark"] .doc-header .ver, [data-theme="dusk"] .doc-header .ver { color:var(--p-300); }
+.theme-switch { display:flex; gap:8px; margin-left:auto; }
+.theme-btn {
+  font-size:12px; padding:6px 14px; border-radius:8px; cursor:pointer;
+  border:1px solid var(--c-border); background:var(--c-bg); color:var(--c-text-2);
+  transition: all .2s ease;
+}
+.theme-btn:hover { border-color: var(--p-400); }
+.theme-btn.active {
+  background: var(--p-500); border-color: var(--p-500);
+  color:#fff; font-weight:600;
+}
+.theme-note { font-size:11px; color:var(--c-text-3); width:100%; }
+
+/* ============================ 页面区块 ============================ */
+.page { margin:36px auto 0; max-width: 1060px; padding:0 28px; }
+.page-title { display:flex; align-items:baseline; gap:10px; margin-bottom:6px; }
+.page-title h2 { font-size:15px; font-weight:600; }
+.page-title .tag {
+  font-size:11px; color:var(--c-text-3);
+}
+.page-desc { font-size:12px; color:var(--c-text-2); margin-bottom:12px; line-height:1.7; }
+
+/* 桌面窗口框 */
+.window {
+  display:flex; height: 560px;
+  background: var(--c-bg);
+  border:1px solid var(--c-border);
+  border-radius: 12px;
+  overflow:hidden;
+  transition: background .25s ease, border-color .25s ease;
+}
+
+/* ---------- 左栏（全局固定栏） ---------- */
+.rail {
+  width: 60px; flex:none;
+  background: var(--c-canvas);
+  border-right: 1px solid var(--c-border);
+  display:flex; flex-direction:column; align-items:center;
+  padding: 14px 0;
+  gap: 6px;
+}
+.rail .logo {
+  width:36px; height:36px; border-radius:10px;
+  background: var(--p-500); color:#fff;
+  display:flex; align-items:center; justify-content:center;
+  font-size:15px; font-weight:700; margin-bottom:14px;
+}
+.rail-item {
+  width:40px; height:40px; border-radius:10px;
+  display:flex; align-items:center; justify-content:center;
+  color: var(--c-text-3); cursor:pointer;
+  transition: all .2s ease;
+  position:relative;
+}
+.rail-item svg { width:21px; height:21px; }
+.rail-item:hover { background: var(--c-panel); color: var(--c-text-2); }
+.rail-item.active { background: var(--p-500); color:#fff; }
+.rail-item .tip {
+  position:absolute; left:48px; top:50%; transform:translateY(-50%);
+  font-size:11px; background:var(--c-text); color:var(--c-bg);
+  padding:3px 8px; border-radius:6px; white-space:nowrap;
+  opacity:0; pointer-events:none; transition:opacity .15s;
+}
+.rail-item:hover .tip { opacity:1; }
+.rail .spacer { flex:1; }
+
+/* ---------- 中栏（二级列表栏） ---------- */
+.mid {
+  width: 230px; flex:none;
+  background: var(--c-canvas);
+  border-right: 1px solid var(--c-border);
+  display:flex; flex-direction:column;
+}
+.mid-head { padding: 14px 14px 8px; }
+.mid-head h3 { font-size:14px; font-weight:600; }
+.mid-head .sub { font-size:11px; color:var(--c-text-3); margin-top:2px; }
+.mid-search {
+  margin: 6px 12px 8px;
+  background: var(--c-panel);
+  border:1px solid transparent; border-radius:8px;
+  font-size:12px; color:var(--c-text-3);
+  padding:7px 10px;
+  display:flex; align-items:center; gap:6px;
+}
+.mid-list { flex:1; overflow:hidden; padding: 0 6px; }
+.list-item {
+  display:flex; gap:10px; align-items:center;
+  padding:9px 8px; border-radius:10px;
+  cursor:pointer; transition: background .15s;
+}
+.list-item:hover { background: var(--c-panel); }
+.list-item.active { background: var(--p-100); }
+[data-theme="dark"] .list-item.active, [data-theme="dusk"] .list-item.active { background: color-mix(in srgb, var(--p-500) 18%, transparent); }
+.avatar {
+  width:38px; height:38px; border-radius:50%; flex:none;
+  display:flex; align-items:center; justify-content:center;
+  font-size:14px; font-weight:600; color:#fff;
+}
+.li-body { flex:1; min-width:0; }
+.li-name { font-size:13px; font-weight:500; display:flex; justify-content:space-between; }
+.li-name .time { font-size:10px; color:var(--c-text-3); font-weight:400; }
+.li-msg {
+  font-size:11px; color:var(--c-text-3); margin-top:3px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.li-badge {
+  min-width:16px; height:16px; padding:0 4px; border-radius:8px;
+  background: var(--s-error); color:#fff;
+  font-size:10px; display:flex; align-items:center; justify-content:center;
+}
+.mid-foot {
+  padding:10px 12px;
+  font-size:11px; color:var(--c-text-3);
+  border-top:1px solid var(--c-border);
+  display:flex; align-items:center; gap:6px;
+}
+.mid-foot .plus {
+  margin-left:auto; width:22px; height:22px; border-radius:6px;
+  background: var(--p-500); color:#fff;
+  display:flex; align-items:center; justify-content:center;
+  font-size:14px; cursor:pointer;
+}
+
+/* ---------- 右栏（内容区） ---------- */
+.main { flex:1; min-width:0; display:flex; flex-direction:column; background: var(--c-bg); }
+.chat-head {
+  height:52px; flex:none;
+  display:flex; align-items:center; gap:10px;
+  padding: 0 18px;
+  border-bottom:1px solid var(--c-border);
+}
+.chat-head .nm { font-size:14px; font-weight:600; }
+.chat-head .st { font-size:11px; color:var(--c-text-3); }
+.chat-head .actions { margin-left:auto; display:flex; gap:6px; }
+.icon-btn {
+  width:30px; height:30px; border-radius:8px;
+  display:flex; align-items:center; justify-content:center;
+  color:var(--c-text-3); cursor:pointer; font-size:14px;
+  border:1px solid transparent;
+}
+.icon-btn:hover { background:var(--c-panel); }
+.icon-btn.on { color:var(--p-500); background:var(--p-50); }
+[data-theme="dark"] .icon-btn.on, [data-theme="dusk"] .icon-btn.on { background: color-mix(in srgb, var(--p-500) 16%, transparent); }
+
+/* 消息区 */
+.msgs { flex:1; overflow:hidden; padding: 18px 20px; display:flex; flex-direction:column; gap:14px; }
+.msg { display:flex; gap:10px; max-width:78%; }
+.msg .avatar { width:32px; height:32px; font-size:12px; }
+.msg .bubble {
+  padding: 10px 13px; border-radius: 4px 14px 14px 14px;
+  font-size:13px; line-height:1.65;
+  background: var(--bubble-ai); color: var(--c-text);
+}
+.msg .meta { font-size:10px; color:var(--c-text-3); margin-top:5px; }
+.msg.user { align-self:flex-end; flex-direction:row-reverse; }
+.msg.user .bubble {
+  background: var(--bubble-user); color:#fff;
+  border-radius: 14px 4px 14px 14px;
+}
+.msg .bubble .typing { display:inline-flex; gap:4px; }
+.msg .bubble .typing i {
+  width:5px; height:5px; border-radius:50%; background:var(--c-text-3);
+  animation: blink 1.2s infinite;
+}
+.msg .bubble .typing i:nth-child(2){ animation-delay:.2s; }
+.msg .bubble .typing i:nth-child(3){ animation-delay:.4s; }
+@keyframes blink { 0%,60%,100%{opacity:.25;} 30%{opacity:1;} }
+
+/* 状态条（输入框上方） */
+.statusbar {
+  flex:none;
+  display:flex; align-items:center; gap:14px;
+  padding: 5px 18px;
+  font-size: 11px; color: var(--c-text-3);
+  border-top: 1px dashed var(--c-border);
+}
+.dot { width:7px; height:7px; border-radius:50%; background: var(--s-success); }
+.statusbar .model { color: var(--p-500); font-weight:500; }
+[data-theme="dark"] .statusbar .model, [data-theme="dusk"] .statusbar .model { color: var(--p-300); }
+.statusbar .toks { margin-left:auto; display:flex; gap:12px; }
+
+/* 输入区 */
+.input-area { flex:none; padding: 10px 16px 14px; }
+.input-box {
+  border:1px solid var(--c-border); border-radius:12px;
+  background: var(--c-bg);
+  transition: border-color .2s;
+}
+.input-box:focus-within { border-color: var(--p-400); }
+.input-box .fake {
+  height:52px; padding:12px 14px;
+  font-size:13px; color:var(--c-text-3);
+}
+.input-box .tools {
+  display:flex; align-items:center; gap:4px;
+  padding: 6px 10px 8px;
+}
+.input-box .tools .t {
+  font-size:11px; color:var(--c-text-3);
+  padding:3px 8px; border-radius:6px; cursor:pointer;
+}
+.input-box .tools .t:hover { background:var(--c-panel); color:var(--c-text-2); }
+.btn-send {
+  margin-left:auto;
+  background: var(--p-500); color:#fff;
+  border:none; border-radius:8px;
+  font-size:12px; font-weight:600;
+  padding: 6px 18px; cursor:pointer;
+  transition: transform .15s ease, background .2s;
+}
+.btn-send:hover { background: var(--p-600); transform: scale(1.04); }
+.btn-send:active { transform: scale(0.96); }
+
+/* ---------- 二级配置面板（推挤式） ---------- */
+.cfg-panel {
+  width: 316px; flex:none;
+  border-left:1px solid var(--c-border);
+  background: var(--c-canvas);
+  display:flex; flex-direction:column;
+}
+.cfg-head {
+  padding: 12px 16px;
+  border-bottom:1px solid var(--c-border);
+  display:flex; align-items:center;
+}
+.cfg-head .t { font-size:13px; font-weight:600; flex:1; }
+.cfg-head .x { color:var(--c-text-3); cursor:pointer; font-size:14px; }
+.tabs { display:flex; gap:2px; padding: 8px 10px; border-bottom:1px solid var(--c-border); }
+.tab {
+  font-size:12px; padding:6px 12px; border-radius:8px;
+  color:var(--c-text-2); cursor:pointer;
+}
+.tab:hover { background: var(--c-panel); }
+.tab.active { background: var(--p-500); color:#fff; font-weight:600; }
+.cfg-body { flex:1; overflow:hidden; padding: 14px 16px; display:flex; flex-direction:column; gap:12px; }
+.field label { display:block; font-size:11px; color:var(--c-text-2); margin-bottom:5px; font-weight:500; }
+.field .ipt, .field .sel {
+  width:100%;
+  background: var(--c-bg);
+  border:1px solid var(--c-border); border-radius:8px;
+  padding:8px 10px; font-size:12px; color:var(--c-text);
+}
+.field .ipt.hl { border-color: var(--p-400); }
+.field .hint { font-size:10px; color:var(--c-text-3); margin-top:4px; }
+.field.row2 { display:flex; gap:10px; }
+.field.row2 > div { flex:1; }
+.cfg-foot { padding: 12px 16px; border-top:1px solid var(--c-border); display:flex; gap:8px; }
+.btn {
+  font-size:12px; font-weight:600; border-radius:8px;
+  padding:7px 16px; cursor:pointer; border:1px solid transparent;
+  transition: transform .15s ease;
+}
+.btn:active { transform: scale(0.97); }
+.btn.primary { background: var(--p-500); color:#fff; }
+.btn.primary:hover { background: var(--p-600); }
+.btn.ghost { background: transparent; color: var(--c-text-2); border-color: var(--c-border); }
+.btn.ghost:hover { border-color: var(--p-400); color: var(--p-500); }
+[data-theme="dark"] .btn.ghost:hover, [data-theme="dusk"] .btn.ghost:hover { color: var(--p-300); }
+.chip {
+  display:inline-flex; align-items:center; gap:5px;
+  font-size:10px; padding:3px 8px; border-radius:6px; font-weight:500;
+}
+.chip.ok { background: var(--s-success-bg); color: var(--s-success); }
+.chip.warn { background: var(--s-warning-bg); color: var(--s-warning); }
+.chip.err { background: var(--s-error-bg); color: var(--s-error); }
+.chip.info { background: var(--p-100); color: var(--p-600); }
+[data-theme="dark"] .chip.info, [data-theme="dusk"] .chip.info { background: color-mix(in srgb, var(--p-500) 18%, transparent); color: var(--p-300); }
+
+/* ---------- 表单式右栏（角色卡/设置/插件） ---------- */
+.form-main { flex:1; overflow:hidden; padding: 18px 22px; display:flex; flex-direction:column; gap:14px; }
+.form-head { display:flex; align-items:center; gap:12px; }
+.form-head .avatar { width:52px; height:52px; font-size:18px; }
+.form-head .t { font-size:16px; font-weight:600; }
+.form-head .s { font-size:11px; color:var(--c-text-3); margin-top:3px; }
+.form-head .ops { margin-left:auto; display:flex; gap:8px; }
+.sec-title {
+  font-size:11px; font-weight:600; color:var(--c-text-3);
+  letter-spacing:.06em; margin-top:2px;
+  display:flex; align-items:center; gap:8px;
+}
+.sec-title::after { content:""; flex:1; height:1px; background: var(--c-border); }
+.grid2 { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+
+/* 开关 */
+.switch {
+  width:34px; height:19px; border-radius:10px;
+  background: var(--c-border-strong); position:relative; cursor:pointer;
+  transition: background .2s; flex:none;
+}
+.switch::after {
+  content:""; position:absolute; top:2px; left:2px;
+  width:15px; height:15px; border-radius:50%; background:#fff;
+  transition: transform .2s ease;
+}
+.switch.on { background: var(--p-500); }
+.switch.on::after { transform: translateX(15px); }
+
+/* 分类列表（设置页中栏） */
+.cat-item {
+  display:flex; align-items:center; gap:10px;
+  padding: 11px 12px; border-radius:10px;
+  font-size:13px; color: var(--c-text-2); cursor:pointer;
+}
+.cat-item .ci-ic {
+  width:26px; height:26px; border-radius:7px;
+  background: var(--c-panel);
+  display:flex; align-items:center; justify-content:center; font-size:13px;
+}
+.cat-item:hover { background: var(--c-panel); }
+.cat-item.active { background: var(--p-100); color: var(--p-600); font-weight:600; }
+[data-theme="dark"] .cat-item.active, [data-theme="dusk"] .cat-item.active {
+  background: color-mix(in srgb, var(--p-500) 18%, transparent); color: var(--p-300);
+}
+.cat-item .arr { margin-left:auto; color:var(--c-text-3); font-size:11px; }
+
+/* 插件项 */
+.plug-item { align-items:flex-start; }
+.plug-item .avatar { border-radius:10px; width:36px; height:36px; font-size:15px; }
+.plug-item .li-name .ver { font-size:10px; color:var(--c-text-3); font-weight:400; margin-left:6px; }
+.plug-item .sw { align-self:center; }
+
+/* 底部说明 */
+.doc-foot {
+  margin: 48px auto 0; max-width: 1060px; padding: 0 28px;
+  font-size: 11px; color: var(--c-text-3); line-height: 1.8;
+}
+</style>
+</head>
+<body>
+
+<header class="doc-header">
+  <h1>SillyTavern 桌面聊天客户端 · 高保真视觉稿</h1>
+  <span class="ver">v1.0</span>
+  <div class="theme-switch">
+    <button class="theme-btn active" onclick="setTheme('light',this)">浅色（默认）</button>
+    <button class="theme-btn" onclick="setTheme('dark',this)">深色</button>
+    <button class="theme-btn" onclick="setTheme('dusk',this)">暮光 · 示例皮肤</button>
+  </div>
+  <div class="theme-note">切换主题 = 切换 CSS 变量（三层 token），下方全部页面组件零改动自动跟随 —— 这就是换肤架构的实演。全页面 WCAG 2.2 AA 对比度已脚本核算通过。</div>
+</header>
+
+<!-- ══════════════ 01 聊天主页 ══════════════ -->
+<section class="page">
+  <div class="page-title"><h2>01 · 聊天主页（默认态）</h2><span class="tag">对应线框 01 · 布局冻结版</span></div>
+  <p class="page-desc">三栏骨架：左栏四入口全局固定 → 中栏会话列表 → 右栏聊天区。状态条位于输入框上方（连接状态 · 模型名 · token 用量）。</p>
+  <div class="window">
+    <nav class="rail">
+      <div class="logo">S</div>
+      <div class="rail-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a8 8 0 0 1-8 8H4l1.5-3A8 8 0 1 1 21 12z"/></svg><span class="tip">会话</span></div>
+      <div class="rail-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.5"/><path d="M17 14.5c2.5 0 4.5 2 4.5 4.5"/></svg><span class="tip">联系人</span></div>
+      <div class="rail-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg><span class="tip">插件</span></div>
+      <div class="spacer"></div>
+      <div class="rail-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.5-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.5 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.5 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.5-2-1.5c.07-.4.1-.8.1-1.2z"/></svg><span class="tip">设置</span></div>
+    </nav>
+    <aside class="mid">
+      <div class="mid-head"><h3>会话</h3><div class="sub">4 个进行中</div></div>
+      <div class="mid-search">🔍 搜索会话</div>
+      <div class="mid-list">
+        <div class="list-item active">
+          <div class="avatar" style="background:#7C6FE8">艾莉</div>
+          <div class="li-body"><div class="li-name">艾莉亚<span class="time">23:42</span></div><div class="li-msg">（她停下脚步，回头看了你一眼……）</div></div>
+        </div>
+        <div class="list-item">
+          <div class="avatar" style="background:#0F9D8A">导师</div>
+          <div class="li-body"><div class="li-name">老练的导师<span class="time">21:05</span></div><div class="li-msg">记住，剑术的核心不在力量……</div></div>
+        </div>
+        <div class="list-item">
+          <div class="avatar" style="background:#D9822B">酒馆</div>
+          <div class="li-body"><div class="li-name">雾都酒馆<span class="time">昨天</span></div><div class="li-msg">酒馆老板擦着杯子：今天风很大。</div></div>
+          <div class="li-badge">2</div>
+        </div>
+        <div class="list-item">
+          <div class="avatar" style="background:#5B8DEF">翻译</div>
+          <div class="li-body"><div class="li-name">同声翻译助手<span class="time">周二</span></div><div class="li-msg">已翻译 3 段，风格：正式文书。</div></div>
+        </div>
+      </div>
+      <div class="mid-foot">共 12 个会话 <div class="plus">＋</div></div>
+    </aside>
+    <main class="main">
+      <div class="chat-head">
+        <div class="nm">艾莉亚</div>
+        <div class="st">流浪剑士 · 世界书「晨曦大陆」已启用</div>
+        <div class="actions">
+          <div class="icon-btn on">ⓘ</div>
+          <div class="icon-btn">🗂</div>
+          <div class="icon-btn">⋯</div>
+        </div>
+      </div>
+      <div class="msgs">
+        <div class="msg">
+          <div class="avatar" style="background:#7C6FE8">艾</div>
+          <div><div class="bubble">（她把剑收回鞘中，神情放松了些）你跟上来做什么？这条路的前面，可没有酒馆给你歇脚。</div><div class="meta">23:40 · 流式生成完成 · 812 tokens</div></div>
+        </div>
+        <div class="msg user">
+          <div class="avatar" style="background:#5F60EF">我</div>
+          <div><div class="bubble">我只是想确认你没有受伤。刚才那一战，你的左肩一直在渗血。</div></div>
+        </div>
+        <div class="msg">
+          <div class="avatar" style="background:#7C6FE8">艾</div>
+          <div><div class="bubble">（她停下脚步，回头看了你一眼，<span class="typing"><i></i><i></i><i></i></span>）</div><div class="meta">正在生成 · 已接收 96 tokens</div></div>
+        </div>
+      </div>
+      <div class="statusbar">
+        <span class="dot"></span><span>已连接</span>
+        <span class="model">deepseek-chat</span>
+        <span>温度 0.9 · 上下文 8K/64K</span>
+        <span class="toks"><span>↑ 1,024</span><span>↓ 8,432</span></span>
+      </div>
+      <div class="input-area">
+        <div class="input-box">
+          <div class="fake">输入消息…（Enter 发送 / Shift+Enter 换行）</div>
+          <div class="tools">
+            <span class="t">🎨 世界书</span><span class="t">📌 作者注释</span><span class="t">📎 附件</span>
+            <button class="btn-send">发 送</button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</section>
+
+<!-- ══════════════ 02 两级内容区 ══════════════ -->
+<section class="page">
+  <div class="page-title"><h2>02 · 右侧两级内容区（状态 B · 推挤式）</h2><span class="tag">对应线框 02</span></div>
+  <p class="page-desc">点击 ⓘ 唤起会话配置面板，聊天区被推挤收窄、流式回复不中断；再点 ⓘ 或 × 收回。面板四 Tab：信息 / 世界书 / 预设与参数 / 记忆。</p>
+  <div class="window">
+    <nav class="rail">
+      <div class="logo">S</div>
+      <div class="rail-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a8 8 0 0 1-8 8H4l1.5-3A8 8 0 1 1 21 12z"/></svg></div>
+      <div class="rail-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/></svg></div>
+      <div class="rail-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg></div>
+      <div class="spacer"></div>
+      <div class="rail-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.5-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.5 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.5 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.5-2-1.5c.07-.4.1-.8.1-1.2z"/></svg></div>
+    </nav>
+    <aside class="mid" style="width:200px">
+      <div class="mid-head"><h3>会话</h3></div>
+      <div class="mid-list">
+        <div class="list-item active"><div class="avatar" style="background:#7C6FE8">艾莉</div><div class="li-body"><div class="li-name">艾莉亚</div></div></div>
+        <div class="list-item"><div class="avatar" style="background:#0F9D8A">导师</div><div class="li-body"><div class="li-name">老练的导师</div></div></div>
+        <div class="list-item"><div class="avatar" style="background:#D9822B">酒馆</div><div class="li-body"><div class="li-name">雾都酒馆</div></div></div>
+      </div>
+    </aside>
+    <main class="main" style="min-width:0">
+      <div class="chat-head">
+        <div class="nm">艾莉亚</div>
+        <div class="actions" style="margin-left:auto"><div class="icon-btn on">ⓘ</div><div class="icon-btn">⋯</div></div>
+      </div>
+      <div class="msgs" style="padding:14px 16px; gap:10px">
+        <div class="msg"><div class="avatar" style="background:#7C6FE8">艾</div><div><div class="bubble" style="font-size:12px; padding:8px 11px">（她把剑收回鞘中）你跟上来做什么？</div></div></div>
+        <div class="msg user"><div class="avatar" style="background:#5F60EF">我</div><div><div class="bubble" style="font-size:12px; padding:8px 11px">我想确认你没有受伤。</div></div></div>
+        <div class="msg"><div class="avatar" style="background:#7C6FE8">艾</div><div><div class="bubble" style="font-size:12px; padding:8px 11px">（她停下脚步，回头看了你一眼……）</div><div class="meta">流式生成中，不被面板打断</div></div></div>
+      </div>
+      <div class="statusbar"><span class="dot"></span><span class="model">deepseek-chat</span><span class="toks"><span>↑ 1,024</span><span>↓ 8,432</span></span></div>
+      <div class="input-area" style="padding:8px 12px 10px">
+        <div class="input-box"><div class="fake" style="height:40px; font-size:12px">输入消息…</div></div>
+      </div>
+    </main>
+    <aside class="cfg-panel">
+      <div class="cfg-head"><div class="t">会话配置 · 艾莉亚</div><div class="x">✕</div></div>
+      <div class="tabs">
+        <div class="tab active">信息</div><div class="tab">世界书</div><div class="tab">预设与参数</div><div class="tab">记忆</div>
+      </div>
+      <div class="cfg-body">
+        <div class="field"><label>角色绑定</label><div class="sel">艾莉亚 · 流浪剑士卡 ▾</div><div class="hint">会话与联系人（角色卡）一对一绑定</div></div>
+        <div class="field row2">
+          <div><label>温度</label><div class="ipt">0.9</div></div>
+          <div><label>上下文长度</label><div class="ipt">65536</div></div>
+        </div>
+        <div class="field"><label>关联世界书</label><div class="sel">晨曦大陆（3 条目激活）▾</div></div>
+        <div class="field"><label>当前状态</label>
+          <span class="chip ok">✓ 记忆摘要已更新（12 轮前）</span>
+          <span class="chip info" style="margin-left:6px">向量库 156 chunks</span>
+        </div>
+      </div>
+      <div class="cfg-foot"><button class="btn primary" style="flex:1">保存并应用</button><button class="btn ghost">重置</button></div>
+    </aside>
+  </div>
+</section>
+
+<!-- ══════════════ 03 角色卡管理 ══════════════ -->
+<section class="page">
+  <div class="page-title"><h2>03 · 角色卡管理（联系人）</h2><span class="tag">对应线框 04</span></div>
+  <p class="page-desc">一张角色卡 = 一个联系人。中栏为联系人列表，右栏为角色卡详情编辑，支持 PNG 角色卡导入导出（V2/V3 规范）。</p>
+  <div class="window">
+    <nav class="rail">
+      <div class="logo">S</div>
+      <div class="rail-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a8 8 0 0 1-8 8H4l1.5-3A8 8 0 1 1 21 12z"/></svg></div>
+      <div class="rail-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.5"/><path d="M17 14.5c2.5 0 4.5 2 4.5 4.5"/></svg></div>
+      <div class="rail-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg></div>
+      <div class="spacer"></div>
+      <div class="rail-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.5-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.5 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.5 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.5-2-1.5c.07-.4.1-.8.1-1.2z"/></svg></div>
+    </nav>
+    <aside class="mid">
+      <div class="mid-head"><h3>联系人</h3><div class="sub">角色卡 · 共 8 张</div></div>
+      <div class="mid-search">🔍 搜索联系人</div>
+      <div class="mid-list">
+        <div class="list-item active">
+          <div class="avatar" style="background:#7C6FE8">艾莉</div>
+          <div class="li-body"><div class="li-name">艾莉亚</div><div class="li-msg">流浪剑士 · 晨曦大陆</div></div>
+        </div>
+        <div class="list-item">
+          <div class="avatar" style="background:#0F9D8A">导师</div>
+          <div class="li-body"><div class="li-name">老练的导师</div><div class="li-msg">剑术宗师 · 严格但温和</div></div>
+        </div>
+        <div class="list-item">
+          <div class="avatar" style="background:#D9822B">酒馆</div>
+          <div class="li-body"><div class="li-name">雾都酒馆</div><div class="li-msg">场景卡 · 多角色群演</div></div>
+        </div>
+        <div class="list-item">
+          <div class="avatar" style="background:#5B8DEF">翻译</div>
+          <div class="li-body"><div class="li-name">同声翻译助手</div><div class="li-msg">工具卡 · 中英互译</div></div>
+        </div>
+      </div>
+      <div class="mid-foot">8 张角色卡 <div class="plus">＋</div></div>
+    </aside>
+    <main class="main">
+      <div class="form-main">
+        <div class="form-head">
+          <div class="avatar" style="background:#7C6FE8">艾莉</div>
+          <div><div class="t">艾莉亚</div><div class="s">V3 规范 · 512×512 头像 · 上次编辑 昨天</div></div>
+          <div class="ops"><button class="btn ghost">导出 PNG</button><button class="btn primary">保存</button></div>
+        </div>
+        <div class="sec-title">基本信息</div>
+        <div class="grid2">
+          <div class="field"><label>名称</label><div class="ipt hl">艾莉亚</div></div>
+          <div class="field"><label>创作者备注</label><div class="ipt">流浪剑士，寡言但重情义</div></div>
+        </div>
+        <div class="sec-title">人设与开场</div>
+        <div class="field"><label>角色描述（Personality）</label><div class="ipt" style="height:56px">二十年浪迹生涯的剑士，左肩有旧伤。话少，习惯用行动代替语言…</div></div>
+        <div class="grid2">
+          <div class="field"><label>开场白（First Mes）</label><div class="ipt" style="height:40px">（雨夜的岔路口，她拦住了你的去路）…</div></div>
+          <div class="field"><label>示例对话（Mes Example）</label><div class="ipt" style="height:40px">&lt;START&gt; 你：为什么救我？…</div></div>
+        </div>
+        <div class="field"><label>标签</label>
+          <span class="chip info">冒险</span> <span class="chip info">剑术</span> <span class="chip info">晨曦大陆</span> <span class="chip" style="background:var(--c-panel);color:var(--c-text-2)">＋ 添加</span>
+        </div>
+      </div>
+    </main>
+  </div>
+</section>
+
+<!-- ══════════════ 04 设置页 ══════════════ -->
+<section class="page">
+  <div class="page-title"><h2>04 · 设置页</h2><span class="tag">对应线框 05 左半（一致性修正版）</span></div>
+  <p class="page-desc">与全局壳保持一致：左栏「设置」入口激活 → 中栏为设置分类列表 → 右栏为对应表单。API Key 仅存本地（ST secrets 加密存储）。</p>
+  <div class="window">
+    <nav class="rail">
+      <div class="logo">S</div>
+      <div class="rail-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a8 8 0 0 1-8 8H4l1.5-3A8 8 0 1 1 21 12z"/></svg></div>
+      <div class="rail-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/></svg></div>
+      <div class="rail-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg></div>
+      <div class="spacer"></div>
+      <div class="rail-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.5-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.5 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.5 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.5-2-1.5c.07-.4.1-.8.1-1.2z"/></svg></div>
+    </nav>
+    <aside class="mid">
+      <div class="mid-head"><h3>设置</h3></div>
+      <div class="mid-list" style="padding-top:4px">
+        <div class="cat-item active"><div class="ci-ic">🔌</div>API 与模型<span class="arr">›</span></div>
+        <div class="cat-item"><div class="ci-ic">👤</div>Persona<span class="arr">›</span></div>
+        <div class="cat-item"><div class="ci-ic">🎨</div>界面偏好<span class="arr">›</span></div>
+        <div class="cat-item"><div class="ci-ic">💾</div>数据<span class="arr">›</span></div>
+      </div>
+    </aside>
+    <main class="main">
+      <div class="form-main">
+        <div class="form-head">
+          <div><div class="t">API 与模型</div><div class="s">连接配置 · 密钥仅存本地，不上传任何服务器</div></div>
+          <div class="ops"><span class="chip ok">● 已连接</span></div>
+        </div>
+        <div class="sec-title">后端连接</div>
+        <div class="grid2">
+          <div class="field"><label>API 类型</label><div class="sel">Chat Completion（OpenAI 兼容）▾</div></div>
+          <div class="field"><label>Base URL</label><div class="ipt">https://api.deepseek.com/v1</div></div>
+        </div>
+        <div class="field"><label>API Key</label>
+          <div style="display:flex; gap:8px">
+            <div class="ipt" style="flex:1">sk-••••••••••••••••••••3f2a</div>
+            <button class="btn ghost">测试连接</button>
+          </div>
+          <div class="hint">✓ 连接测试通过 · 延迟 142ms · 密钥经 ST secrets 加密存储</div>
+        </div>
+        <div class="sec-title">模型</div>
+        <div class="grid2">
+          <div class="field"><label>模型</label><div class="sel">deepseek-chat ▾</div></div>
+          <div class="field"><label>流式输出</label>
+            <div style="display:flex; align-items:center; gap:8px; height:33px"><div class="switch on"></div><span style="font-size:12px; color:var(--c-text-2)">SSE 逐字输出</span></div>
+          </div>
+        </div>
+        <div class="field row2">
+          <div><label>温度</label><div class="ipt">0.9</div></div>
+          <div><label>最大回复 tokens</label><div class="ipt">2048</div></div>
+        </div>
+      </div>
+    </main>
+  </div>
+</section>
+
+<!-- ══════════════ 05 插件扩展页 ══════════════ -->
+<section class="page">
+  <div class="page-title"><h2>05 · 插件扩展页</h2><span class="tag">对应线框 05 右半（一致性修正版）</span></div>
+  <p class="page-desc">左栏「插件」入口激活 → 中栏插件列表 → 右栏插件详情。首版最小可接入（Server 插件），架构预留自建插件体系与皮肤包（theme.json）演进。</p>
+  <div class="window">
+    <nav class="rail">
+      <div class="logo">S</div>
+      <div class="rail-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a8 8 0 0 1-8 8H4l1.5-3A8 8 0 1 1 21 12z"/></svg></div>
+      <div class="rail-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/></svg></div>
+      <div class="rail-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg></div>
+      <div class="spacer"></div>
+      <div class="rail-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.5-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.5 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.5 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.5-2-1.5c.07-.4.1-.8.1-1.2z"/></svg></div>
+    </nav>
+    <aside class="mid">
+      <div class="mid-head"><h3>插件</h3><div class="sub">3 启用 / 1 可用</div></div>
+      <div class="mid-list" style="padding-top:4px">
+        <div class="list-item active plug-item">
+          <div class="avatar" style="background:#0F6E56">忆</div>
+          <div class="li-body"><div class="li-name">总结记忆<span class="ver">v1.2.0</span></div><div class="li-msg">长对话自动摘要注入上下文</div></div>
+          <div class="switch on sw"></div>
+        </div>
+        <div class="list-item plug-item">
+          <div class="avatar" style="background:#5B8DEF">量</div>
+          <div class="li-body"><div class="li-name">向量存储<span class="ver">v1.0.3</span></div><div class="li-msg">/api/vectors · 语义检索记忆</div></div>
+          <div class="switch on sw"></div>
+        </div>
+        <div class="list-item plug-item">
+          <div class="avatar" style="background:#854F0B">注</div>
+          <div class="li-body"><div class="li-name">作者注释<span class="ver">v1.0.0</span></div><div class="li-msg">固定指令按深度注入</div></div>
+          <div class="switch on sw"></div>
+        </div>
+        <div class="list-item plug-item">
+          <div class="avatar" style="background:#8A9099">语</div>
+          <div class="li-body"><div class="li-name">语音合成<span class="ver">未安装</span></div><div class="li-msg">TTS 朗读回复消息</div></div>
+          <div class="switch sw"></div>
+        </div>
+      </div>
+      <div class="mid-foot">打开插件目录…</div>
+    </aside>
+    <main class="main">
+      <div class="form-main">
+        <div class="form-head">
+          <div class="avatar" style="background:#0F6E56">忆</div>
+          <div><div class="t">总结记忆 Summarize</div><div class="s">v1.2.0 · Server 插件 · 官方内置</div></div>
+          <div class="ops"><div class="switch on" style="margin-top:6px"></div></div>
+        </div>
+        <div class="field"><label>功能说明</label>
+          <div style="font-size:12px; color:var(--c-text-2); line-height:1.7">长对话达到阈值后自动生成摘要，替换早期消息注入上下文，在保持人设连贯的同时控制 token 消耗。</div>
+        </div>
+        <div class="sec-title">插件设置</div>
+        <div class="grid2">
+          <div class="field"><label>触发阈值（消息数）</label><div class="ipt">24</div></div>
+          <div class="field"><label>摘要注入位置</label><div class="sel">系统提示后 ▾</div></div>
+        </div>
+        <div class="field"><label>权限与安全</label>
+          <span class="chip ok">✓ 声明式权限 · 无代码执行</span>
+          <span class="chip info" style="margin-left:6px">读写：会话数据</span>
+        </div>
+        <div class="sec-title">皮肤扩展（预留）</div>
+        <div class="field"><label>已安装皮肤包</label>
+          <div style="display:flex; gap:8px; margin-top:2px">
+            <span class="chip info">默认 · Indigo（内置）</span>
+            <span class="chip warn">暮光 Twilight（示例）⚠ 对比度校验中</span>
+          </div>
+          <div class="hint">皮肤 = theme.json 声明式覆盖包，仅覆盖颜色 token，不执行代码；应用时自动进行 WCAG 对比度校验。</div>
+        </div>
+      </div>
+    </main>
+  </div>
+</section>
+
+<footer class="doc-foot">
+  高保真视觉稿 v1.0 · 2026-09-22 · 主题基于《视觉主题设计 v0.2》（Indigo 浅快简洁风，主色 500 = #5F60EF，38 项 WCAG 2.2 AA 对比度核算全 PASS）<br>
+  本页所有组件色值均通过 CSS 变量引用语义 token —— 与阶段三前端代码规范一致（stylelint 禁止硬编码色值）。
+</footer>
+
+<script>
+function setTheme(t, btn) {
+  document.documentElement.setAttribute('data-theme', t);
+  document.querySelectorAll('.theme-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+</script>
+</body>
+</html>

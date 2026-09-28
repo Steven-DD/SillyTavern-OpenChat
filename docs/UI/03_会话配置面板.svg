@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 460" width="680" height="460">
+  <title>会话配置面板 · 四 Tab 详细设计</title>
+
+  <text x="40" y="44" dominant-baseline="central" font-size="14" font-weight="500" fill="#333333">会话配置面板 · 四个 Tab 的表单内容</text>
+
+  <rect x="40" y="70" width="144" height="300" rx="8" fill="#FFFFFF" stroke="#5F5E5A" stroke-width="0.5"/>
+  <rect x="40" y="70" width="144" height="26" rx="8" fill="#0F6E56"/>
+  <text x="48" y="83" dominant-baseline="central" font-size="11" font-weight="500" fill="#FFFFFF">① 信息</text>
+
+  <text x="48" y="110" dominant-baseline="central" font-size="11" fill="#5F5E5A">会话名称</text>
+  <rect x="48" y="118" width="128" height="24" rx="4" fill="#FFFFFF" stroke="#888780" stroke-width="0.5"/>
+  <text x="56" y="130" dominant-baseline="central" font-size="11" fill="#333333">会话二</text>
+
+  <text x="48" y="158" dominant-baseline="central" font-size="11" fill="#5F5E5A">角色</text>
+  <rect x="48" y="166" width="128" height="32" rx="4" fill="#F1EFE8" stroke="#888780" stroke-width="0.5"/>
+  <rect x="54" y="172" width="20" height="20" rx="10" fill="#534AB7"/>
+  <text x="64" y="182" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#FFFFFF">B</text>
+  <text x="82" y="182" dominant-baseline="central" font-size="11" fill="#333333">角色B</text>
+  <rect x="144" y="172" width="26" height="20" rx="3" fill="#0F6E56"/>
+  <text x="157" y="182" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#FFFFFF">换</text>
+
+  <text x="48" y="214" dominant-baseline="central" font-size="11" fill="#5F5E5A">背景</text>
+  <rect x="48" y="222" width="128" height="46" rx="4" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+  <text x="112" y="245" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#378ADD">点击选择背景图</text>
+
+  <rect x="192" y="70" width="144" height="300" rx="8" fill="#FFFFFF" stroke="#5F5E5A" stroke-width="0.5"/>
+  <rect x="192" y="70" width="144" height="26" rx="8" fill="#0F6E56"/>
+  <text x="200" y="83" dominant-baseline="central" font-size="11" font-weight="500" fill="#FFFFFF">② 世界书</text>
+
+  <text x="200" y="110" dominant-baseline="central" font-size="11" fill="#5F5E5A">已挂载（勾选启用）</text>
+
+  <rect x="200" y="118" width="128" height="26" rx="4" fill="#FFFFFF" stroke="#888780" stroke-width="0.5"/>
+  <rect x="206" y="125" width="12" height="12" rx="2" fill="#0F6E56"/>
+  <text x="212" y="131" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#FFFFFF">✓</text>
+  <text x="226" y="131" dominant-baseline="central" font-size="11" fill="#333333">世界书X</text>
+
+  <rect x="200" y="148" width="128" height="26" rx="4" fill="#FFFFFF" stroke="#888780" stroke-width="0.5"/>
+  <rect x="206" y="155" width="12" height="12" rx="2" fill="#0F6E56"/>
+  <text x="212" y="161" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#FFFFFF">✓</text>
+  <text x="226" y="161" dominant-baseline="central" font-size="11" fill="#333333">世界书Y</text>
+
+  <rect x="200" y="178" width="128" height="26" rx="4" fill="#FFFFFF" stroke="#B4B2A9" stroke-width="0.5"/>
+  <rect x="206" y="185" width="12" height="12" rx="2" fill="#FFFFFF" stroke="#888780" stroke-width="0.5"/>
+  <text x="226" y="191" dominant-baseline="central" font-size="11" fill="#888780">世界书Z（未挂载）</text>
+
+  <rect x="200" y="216" width="128" height="26" rx="4" fill="#FFFFFF" stroke="#0F6E56" stroke-width="0.5"/>
+  <text x="264" y="229" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#0F6E56">+ 挂载新世界书</text>
+  <text x="200" y="258" dominant-baseline="central" font-size="11" fill="#888780">拖拽调整注入顺序</text>
+
+  <rect x="344" y="70" width="144" height="300" rx="8" fill="#FFFFFF" stroke="#5F5E5A" stroke-width="0.5"/>
+  <rect x="344" y="70" width="144" height="26" rx="8" fill="#0F6E56"/>
+  <text x="352" y="83" dominant-baseline="central" font-size="11" font-weight="500" fill="#FFFFFF">③ 预设与参数</text>
+
+  <text x="352" y="110" dominant-baseline="central" font-size="11" fill="#5F5E5A">预设</text>
+  <rect x="352" y="118" width="128" height="24" rx="4" fill="#FFFFFF" stroke="#888780" stroke-width="0.5"/>
+  <text x="360" y="130" dominant-baseline="central" font-size="11" fill="#333333">默认预设</text>
+  <text x="472" y="130" text-anchor="end" dominant-baseline="central" font-size="11" fill="#888780">▼</text>
+
+  <text x="352" y="158" dominant-baseline="central" font-size="11" fill="#5F5E5A">温度</text>
+  <text x="472" y="158" text-anchor="end" dominant-baseline="central" font-size="11" fill="#333333">0.7</text>
+  <line x1="352" y1="170" x2="480" y2="170" stroke="#B4B2A9" stroke-width="1"/>
+  <circle cx="405" cy="170" r="5" fill="#0F6E56"/>
+
+  <text x="352" y="192" dominant-baseline="central" font-size="11" fill="#5F5E5A">top_p</text>
+  <text x="472" y="192" text-anchor="end" dominant-baseline="central" font-size="11" fill="#333333">0.90</text>
+  <line x1="352" y1="204" x2="480" y2="204" stroke="#B4B2A9" stroke-width="1"/>
+  <circle cx="430" cy="204" r="5" fill="#0F6E56"/>
+
+  <text x="352" y="226" dominant-baseline="central" font-size="11" fill="#5F5E5A">最大回复 tokens</text>
+  <rect x="352" y="234" width="128" height="24" rx="4" fill="#FFFFFF" stroke="#888780" stroke-width="0.5"/>
+  <text x="360" y="246" dominant-baseline="central" font-size="11" fill="#333333">512</text>
+
+  <rect x="496" y="70" width="144" height="300" rx="8" fill="#FFFFFF" stroke="#5F5E5A" stroke-width="0.5"/>
+  <rect x="496" y="70" width="144" height="26" rx="8" fill="#0F6E56"/>
+  <text x="504" y="83" dominant-baseline="central" font-size="11" font-weight="500" fill="#FFFFFF">④ 记忆</text>
+
+  <text x="504" y="110" dominant-baseline="central" font-size="11" fill="#5F5E5A">总结记忆</text>
+  <rect x="504" y="118" width="26" height="14" rx="7" fill="#0F6E56"/>
+  <circle cx="523" cy="125" r="5" fill="#FFFFFF"/>
+  <text x="540" y="125" dominant-baseline="central" font-size="11" fill="#185FA5">查看摘要 ›</text>
+
+  <text x="504" y="154" dominant-baseline="central" font-size="11" fill="#5F5E5A">向量存储</text>
+  <rect x="504" y="162" width="26" height="14" rx="7" fill="#D3D1C7"/>
+  <circle cx="511" cy="169" r="5" fill="#FFFFFF"/>
+
+  <text x="504" y="192" dominant-baseline="central" font-size="11" fill="#5F5E5A">作者注释</text>
+  <rect x="504" y="200" width="128" height="44" rx="4" fill="#FFFFFF" stroke="#888780" stroke-width="0.5"/>
+  <text x="512" y="214" dominant-baseline="central" font-size="11" fill="#888780">[风格: 详细描写]</text>
+
+  <text x="504" y="260" dominant-baseline="central" font-size="11" fill="#5F5E5A">注入深度</text>
+  <rect x="504" y="268" width="60" height="24" rx="4" fill="#FFFFFF" stroke="#888780" stroke-width="0.5"/>
+  <text x="512" y="280" dominant-baseline="central" font-size="11" fill="#333333">4</text>
+
+  <text x="40" y="396" dominant-baseline="central" font-size="12" fill="#5F5E5A">· 所有改动即时保存并生效于当前会话（走 ST API）；面板可随时开合，不打断流式回复</text>
+  <text x="40" y="416" dominant-baseline="central" font-size="12" fill="#5F5E5A">· 世界书条目深度编辑 → 跳转中栏世界书列表页；预设库 / Persona / API 配置 → 左栏「设置」</text>
+  <text x="40" y="436" dominant-baseline="central" font-size="12" fill="#5F5E5A">· 记忆三件套对应 ST 能力：总结 Summarize / 向量检索 Vector Storage / 作者注释 Author's Note</text>
+</svg>
