@@ -436,7 +436,8 @@ impl PluginHost {
         }
         match serde_json::to_string_pretty(&snapshot) {
             Ok(s) => {
-                if let Err(e) = std::fs::write(&self.state_path, s) {
+                // 原子写：写一半崩溃会让 plugins.json 截断、绑定信息回默认态
+                if let Err(e) = st_data::atomic_write(&self.state_path, s.as_bytes()) {
                     eprintln!("[plugin] 写入 {} 失败: {e}", self.state_path.display());
                 }
             }

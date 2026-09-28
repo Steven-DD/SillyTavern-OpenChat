@@ -33,11 +33,11 @@ use axum::{
 };
 use futures_util::StreamExt;
 use futures_util::TryStreamExt;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 #[derive(Clone)]
 struct RelayState {
-    upstream: Arc<String>,
+    upstream: Arc<RwLock<String>>,
     client: reqwest::Client,
     /// ST 会话 Cookie 罐（name=value 列表）—— 由中继代持，前端不参与
     jar: Arc<Mutex<Vec<String>>>,
@@ -45,10 +45,31 @@ struct RelayState {
     token: Arc<String>,
 }
 
-/// 中继端点信息：随机端口 + 本次会话的鉴权 token
+/// 中继控制句柄：供壳层在运行中更换上游端口
+/// （st_retry_start 重新解析出不同端口 / 用户在插件页改端口 —— P1：此前上游
+/// 一次性固化，改端口后中继仍指向旧端口，前端请求全部打空）
+#[derive(Clone)]
+pub struct RelayHandle {
+    upstream: Arc<RwLock<String>>,
+}
+
+impl RelayHandle {
+    pub fn set_upstream_port(&self, port: u16) {
+        if let Ok(mut g) = self.upstream.write() {
+            let next = format!("http://127.0.0.1:{port}");
+            if *g != next {
+                println!("[relay] 上游切换 → {next}");
+                *g = next;
+            }
+        }
+    }
+}
+
+/// 中继端点信息：随机端口 + 本次会话的鉴权 token + 上游控制句柄
 pub struct RelayEndpoint {
     pub port: u16,
     pub token: String,
+    pub handle: RelayHandle,
 }
 
 /// 生成 256-bit 随机 token（hex）。环形回环上的本地 token，熵源用 OS CSPRNG。
@@ -59,7 +80,7 @@ fn gen_token() -> std::io::Result<String> {
     Ok(buf.iter().map(|b| format!("{b:02x}")).collect())
 }
 
-/// 启动中继，返回实际绑定的端口与鉴权 token。
+/// 启动中继，返回实际绑定的端口、鉴权 token 与上游控制句柄。
 /// `st_port` 为 SillyTavern 的监听端口。
 pub async fn start(st_port: u16) -> std::io::Result<RelayEndpoint> {
     let client = reqwest::Client::builder()
@@ -74,10 +95,13 @@ pub async fn start(st_port: u16) -> std::io::Result<RelayEndpoint> {
     let token = gen_token()?;
 
     let state = RelayState {
-        upstream: Arc::new(format!("http://127.0.0.1:{st_port}")),
+        upstream: Arc::new(RwLock::new(format!("http://127.0.0.1:{st_port}"))),
         client,
         jar: Arc::new(Mutex::new(Vec::new())),
         token: Arc::new(token.clone()),
+    };
+    let handle = RelayHandle {
+        upstream: Arc::clone(&state.upstream),
     };
 
     let app = Router::new().fallback(proxy).with_state(state);
@@ -89,7 +113,7 @@ pub async fn start(st_port: u16) -> std::io::Result<RelayEndpoint> {
     });
 
     println!("[relay] 已启动 127.0.0.1:{port} → http://127.0.0.1:{st_port}（鉴权已启用）");
-    Ok(RelayEndpoint { port, token })
+    Ok(RelayEndpoint { port, token, handle })
 }
 
 /* ------------------------------------------------------------------ *
@@ -176,7 +200,11 @@ async fn proxy(
     }
 
     let path_q = uri.path_and_query().map(|p| p.as_str()).unwrap_or("/");
-    let target = format!("{}{}", st.upstream, path_q);
+    let target = format!(
+        "{}{}",
+        st.upstream.read().map(|g| g.clone()).unwrap_or_default(),
+        path_q
+    );
 
     // 鉴权：除静态资源 GET 豁免外，一律要求 `X-Relay-Auth` 等于启动时下发的 token。
     // token 是 OS CSPRNG 的 256-bit 值，环回场景下逐字节比较的时序侧信道不可利用。

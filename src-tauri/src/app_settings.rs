@@ -75,7 +75,9 @@ pub fn load(config_dir: &Path) -> AppSettings {
 pub fn save(config_dir: &Path, s: &AppSettings) -> Result<(), String> {
     std::fs::create_dir_all(config_dir).map_err(|e| format!("创建目录失败：{e}"))?;
     let text = serde_json::to_string_pretty(s).map_err(|e| e.to_string())?;
-    std::fs::write(path_of(config_dir), text).map_err(|e| format!("写入失败：{e}"))
+    // 原子写：防中断留下截断的 app-settings.json（坏档会静默回落默认设置）
+    crate::st_data::atomic_write(&path_of(config_dir), text.as_bytes())
+        .map_err(|e| format!("写入失败：{e}"))
 }
 
 /// 首次运行时落一份带说明的文件，方便用户手工改

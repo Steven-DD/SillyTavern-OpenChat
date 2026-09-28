@@ -71,6 +71,15 @@ pub fn external_root(config_dir: &Path) -> PathBuf {
 /// Tauri 的 `app_config_dir()` 返回的是 `C:\...\Roaming/<app-id>`
 /// 这种**混合分隔符**写法（app-id 形如 `io.github.stevendd.stchat`）；直接拼进配置或界面会很难看，也和其它路径不一致
 /// （之前 `st_dir` 显示成 `src-tauri\..\..\sillytavern` 是同一类问题）。
+/// 原子写文件：先写 `<path>.tmp` 再 rename 覆盖（Windows 支持覆盖已存在目标）。
+/// 直接 `fs::write` 中途崩溃/断电会留下截断文件 —— plugins.json / app-settings.json /
+/// config.yaml 以前都是这么写的（chat_mutate_lines 早已用同一模式，这里是统一收口）。
+pub fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, bytes)?;
+    std::fs::rename(&tmp, path)
+}
+
 pub fn display_path(p: &Path) -> String {
     let s = p.to_string_lossy().into_owned();
     if cfg!(windows) {
@@ -605,7 +614,12 @@ pub fn export_bag(data_root: &Path, config_path: Option<&Path>, dest: &Path) -> 
     if !data_root.is_dir() {
         return Err(format!("数据目录不存在：{}", display_path(data_root)));
     }
-    let file = fs::File::create(dest).map_err(|e| format!("创建导出文件失败：{e}"))?;
+    // 先写 .part 临时文件、完成后 rename 到目标（P1：直接写目标，中途崩溃会留下半个 zip）
+    let part = dest.with_extension("zip.part");
+    if let Some(parent) = dest.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let file = fs::File::create(&part).map_err(|e| format!("创建导出文件失败：{e}"))?;
     let mut zip = zip::ZipWriter::new(file);
     let opts: zip::write::FileOptions<'_, ()> =
         zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
@@ -642,6 +656,7 @@ pub fn export_bag(data_root: &Path, config_path: Option<&Path>, dest: &Path) -> 
         }
     }
     zip.finish().map_err(|e| format!("收尾 zip 失败：{e}"))?;
+    fs::rename(&part, dest).map_err(|e| format!("落盘导出文件失败：{e}"))?;
 
     Ok(DataBagResult {
         path: display_path(dest),

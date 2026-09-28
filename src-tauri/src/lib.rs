@@ -24,10 +24,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{Emitter, Manager};
 
-/// 中继端点（端口 + 鉴权 token）：setup 时随中继启动生成，st_relay_base 下发给前端
+/// 中继端点（端口 + 鉴权 token + 上游控制句柄）：setup 时随中继启动生成
 pub struct RelayAuth {
     pub port: u16,
     pub token: String,
+    pub handle: relay::RelayHandle,
 }
 
 /* ================================================================== *
@@ -107,6 +108,11 @@ fn st_retry_start(
     }
     let res = host.resolve().map_err(|e| format!("插件解析失败: {e}"))?;
     st_sidecar::ensure_running(&app, &res, &host.config_dir)?;
+    // P1：重新解析出的端口可能与 setup 时的不同 —— 中继上游同步切换，
+    // 否则前端经中继的请求仍打到旧端口（修好了却更糊涂）
+    if let Some(r) = app.try_state::<RelayAuth>() {
+        r.handle.set_upstream_port(res.st_port);
+    }
     Ok(app.try_state::<st_sidecar::SidecarState>().map(|s| s.report()))
 }
 
@@ -189,8 +195,15 @@ fn plugin_set_enabled(
 
 /// 覆盖 ST 端口（None 表示回到清单默认值）
 #[tauri::command]
-fn plugin_set_port(host: Host<'_>, port: Option<u16>) -> Result<plugin::StackReport, String> {
+fn plugin_set_port(host: Host<'_>, app: tauri::AppHandle, port: Option<u16>) -> Result<plugin::StackReport, String> {
     host.set_port(port)?;
+    // P1：运行中改端口 → 中继上游同步切换（按新端口重新解析；下次启动生效，
+    // 当前会话里中继也不再指向旧端口）
+    if let Ok(res) = host.resolve() {
+        if let Some(r) = app.try_state::<RelayAuth>() {
+            r.handle.set_upstream_port(res.st_port);
+        }
+    }
     Ok(host.stack())
 }
 
@@ -399,6 +412,20 @@ async fn do_install(
         .manifest(id)
         .cloned()
         .ok_or_else(|| format!("未知组件：{id}"))?;
+
+    // P1：不允许重装「当前绑定中」的版本 —— Windows 文件锁会让清理中途失败，
+    // 已删掉的部分文件使绑定版本永久损坏，应用下次直接起不来
+    {
+        let root = installer::install_root(&host.config_dir);
+        let target = installer::version_dir(&root, id, version);
+        if let Some(bp) = host.binding_path_of(id) {
+            if same_path(Path::new(&bp), &target) {
+                return Err(format!(
+                    "版本 {version} 正在被使用，请先切换到其它版本（或改回自动探测）再重装"
+                ));
+            }
+        }
+    }
 
     let platform = installer::platform_key();
     let spec = installer::choose_spec(&m, version, &platform)?;
@@ -1199,6 +1226,7 @@ pub fn run() {
             app.manage(RelayAuth {
                 port: relay_ep.port,
                 token: relay_ep.token,
+                handle: relay_ep.handle,
             });
 
             Ok(())

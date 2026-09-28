@@ -18,6 +18,7 @@ use serde::Serialize;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
@@ -53,10 +54,14 @@ pub struct SidecarState {
     pub port: u16,
     pub st_dir: PathBuf,
     pub node: String,
-    pub managed: bool,
+    /// 可变的 managed 标志（P1）：解析失败→重试成功后确实 spawn 了子进程，
+    /// 必须把 mark_unresolved 留下的 false 纠正为 true，否则退出时不清理成孤儿
+    managed: AtomicBool,
     child: Mutex<Option<Child>>,
     /// 最近一次状态（供前端同步查询）
     last: Mutex<(String, String)>,
+    /// 子进程已退出（watcher 置位）——健康轮询看到即退出，不再傻等 90s 超时
+    child_gone: AtomicBool,
 }
 
 impl SidecarState {
@@ -65,10 +70,19 @@ impl SidecarState {
             port,
             st_dir,
             node,
-            managed,
+            managed: AtomicBool::new(managed),
             child: Mutex::new(child),
             last: Mutex::new(("starting".into(), "正在启动 SillyTavern…".into())),
+            child_gone: AtomicBool::new(false),
         }
+    }
+
+    pub fn managed(&self) -> bool {
+        self.managed.load(Ordering::SeqCst)
+    }
+
+    pub fn set_managed(&self, v: bool) {
+        self.managed.store(v, Ordering::SeqCst);
     }
 
     fn dto(&self, state: &str, message: &str) -> StatusDto {
@@ -83,7 +97,7 @@ impl SidecarState {
                 .and_then(|g| g.as_ref().and_then(|c| c.id())),
             st_dir: self.st_dir.to_string_lossy().into_owned(),
             node: self.node.clone(),
-            managed: self.managed,
+            managed: self.managed(),
         }
     }
 
@@ -120,6 +134,33 @@ fn is_listening(port: u16) -> bool {
     }
 }
 
+/// 端口占用者身份探测（P1）：TCP 可连 ≠ 是 ST。
+/// 之前的实现把任何恰好监听该端口的程序都当成「外部 SillyTavern 已就绪」，
+/// 中继随之把前端流量转发给陌生服务，且真正的 ST 永远不会被拉起。
+/// 这里对 `/csrf-token` 发一个极简 HTTP 请求 —— ST 恒回 200 + `{"token": ...}`。
+fn looks_like_sillytavern(port: u16) -> bool {
+    use std::io::{Read, Write};
+    let Ok(mut it) = format!("127.0.0.1:{port}").to_socket_addrs() else {
+        return false;
+    };
+    let Some(sa) = it.next() else { return false };
+    let Ok(mut s) = TcpStream::connect_timeout(&sa, Duration::from_millis(800)) else {
+        return false;
+    };
+    let _ = s.set_read_timeout(Some(Duration::from_millis(1500)));
+    let _ = s.set_write_timeout(Some(Duration::from_millis(1500)));
+    let req =
+        format!("GET /csrf-token HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
+    if s.write_all(req.as_bytes()).is_err() {
+        return false;
+    }
+    let mut buf = Vec::new();
+    // 超时/提前断开时 read_to_end 返回 Err，但已读到的字节仍保留在 buf 里 —— 照常判定
+    let _ = s.read_to_end(&mut buf);
+    let text = String::from_utf8_lossy(&buf);
+    text.contains(" 200 ") && text.contains("\"token\"")
+}
+
 /* ------------------------------------------------------------------ *
  * 启动 / 停止
  * ------------------------------------------------------------------ */
@@ -152,9 +193,15 @@ pub fn ensure_running(
     }
     let state = app.state::<SidecarState>();
 
-    // 端口已被占用 → 外部实例，只管用不管杀。
+    // 端口已被占用 → 确认身份后按外部实例对待（只管用不管杀）。
     // （此时 child 恒为 None，退出清理自然是空操作 —— 不会误杀外部进程）
     if is_listening(port) {
+        if !looks_like_sillytavern(port) {
+            return Err(format!(
+                "端口 {port} 已被其它程序占用（未响应 SillyTavern 探测）。\
+                 请停用占用该端口的程序，或到插件页更换 ST 端口后重试"
+            ));
+        }
         println!("[sidecar] 端口 {port} 已有 SillyTavern 在运行，接管为外部实例（退出时不清理）");
         state.emit(app, "ready", "已连接外部启动的 SillyTavern");
         return Ok(port);
@@ -197,7 +244,8 @@ fn inject_request_proxy(config_yaml: &Path, proxy: &str) {
         out.push('\n');
     }
     if changed {
-        if let Err(e) = std::fs::write(config_yaml, &out) {
+        // 原子写：config.yaml 损坏会让 ST 起不来
+        if let Err(e) = crate::st_data::atomic_write(config_yaml, out.as_bytes()) {
             eprintln!("[sidecar] 写入 requestProxy 失败: {e}");
         } else {
             println!("[sidecar] 已为 ST 注入出站代理（requestProxy → {proxy}）");
@@ -285,6 +333,10 @@ fn launch_and_watch(
         .spawn()
         .map_err(|e| format!("拉起 SillyTavern 失败（node={node}）: {e}"))?;
 
+    // P1：确实 spawn 成功了 —— 把 mark_unresolved 留下的 managed=false 纠正回来，
+    // 否则「解析失败→修复→重试」路径拉起的 ST 退出时永远不被清理（孤儿进程）
+    st.set_managed(true);
+
     // 记账：万一 App 崩溃/被强杀，下次启动能凭这条记录找到它并收尸
     if let Some(pid) = child.id() {
         write_pid_file(config_dir, pid);
@@ -295,7 +347,39 @@ fn launch_and_watch(
     }
     st.emit(app, "starting", "正在启动 SillyTavern…");
 
-    // 健康检查：轮询 /csrf-token
+    // 退出观察者（P1）：node 秒退（端口冲突/语法错误）时立刻报错，
+    // 不再让用户对着「正在启动」干等 90 秒健康检查超时
+    let watch_handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            let Some(s) = watch_handle.try_state::<SidecarState>() else {
+                return; // app 关闭
+            };
+            if s.child_gone.load(Ordering::SeqCst) {
+                return;
+            }
+            let polled = {
+                let Ok(mut g) = s.child.lock() else { return };
+                match g.as_mut() {
+                    // child 已被 stop_sillytavern 取走 → 正常退出路径，静默结束
+                    None => return,
+                    Some(c) => c.try_wait(),
+                }
+            };
+            if let Ok(Some(status)) = polled {
+                s.child_gone.store(true, Ordering::SeqCst);
+                let msg = format!(
+                    "SillyTavern 进程已退出（{status}）。详见日志 sillytavern.log"
+                );
+                s.emit(&watch_handle, "error", &msg);
+                eprintln!("[sidecar] {msg}");
+                return;
+            }
+        }
+    });
+
+    // 健康检查：轮询 /csrf-token（子进程先退出的场合由 watcher 报错，这里提前收工）
     let handle = app.clone();
     tauri::async_runtime::spawn(async move {
         let url = format!("http://127.0.0.1:{port}/csrf-token");
@@ -309,6 +393,11 @@ fn launch_and_watch(
         };
         let deadline = Instant::now() + Duration::from_secs(90);
         loop {
+            if let Some(s) = handle.try_state::<SidecarState>() {
+                if s.child_gone.load(Ordering::SeqCst) {
+                    return; // 子进程已退出，错误由 watcher 上报
+                }
+            }
             if let Ok(r) = client.get(&url).send().await {
                 if r.status().is_success() {
                     if let Some(s) = handle.try_state::<SidecarState>() {
@@ -337,7 +426,7 @@ pub fn stop_sillytavern(app: &AppHandle) {
     let Some(state) = app.try_state::<SidecarState>() else {
         return;
     };
-    if !state.managed {
+    if !state.managed() {
         println!("[sidecar] 外部实例，退出时不做清理");
         return;
     }
@@ -401,7 +490,7 @@ pub fn prepare_for_migration(app: &AppHandle) -> Result<Option<String>, String> 
         return Ok(None);
     };
 
-    if !state.managed {
+    if !state.managed() {
         if is_listening(state.port) {
             return Err(format!(
                 "SillyTavern 由外部启动（端口 {}），本应用无权停止它，\
