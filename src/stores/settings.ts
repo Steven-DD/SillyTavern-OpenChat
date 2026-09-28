@@ -1,12 +1,12 @@
 /**
- * 生成参数设置（M3）+ 配置映射（M1）
+ * 生成参数设置 + 配置映射
  *
  * 单一事实来源：生成层 api.ts 不再自己读 localStorage，
  * 由本 store 显式传参（source/model/temperature/maxTokens），避免两处配置打架。
  *
- * 持久化：localStorage（本 App 的配置就是本 App 的，与 ST 无关）
+ * 持久化：localStorage（本 App 的配置就是本 App 的）
  *
- * **映射（M1）**：参数变更后，把「ST 侧也需要知道的项」自动同步进 ST 的 settings.json，
+ * **映射**：参数变更后，把「服务端也需要知道的项」自动同步进 ST 的 settings.json，
  * 用户只改本 App 的配置即可（详见 `services/st/mapping.ts`）。
  * 同步是 debounce 的，且**写之前先比对，一致就不写** ——
  * 因为 ST 每次 save 都会触发它自己的 autosave 备份，无谓写入会堆一堆备份文件。
@@ -71,14 +71,14 @@ function loadModelOptions(): string[] {
 
 export const DEFAULTS: GenSettings = {
   genType: 'chat',
-  /** 与 ST 初始化一致（oai_settings.chat_completion_source 默认 openai） */
+  /** 默认生成通道（服务端默认 openai） */
   source: 'openai',
   textBackend: 'koboldcpp',
   textServer: '',
   /** 模型不给默认值：必须由用户连接后从实拉列表里选 */
   model: '',
   fallbackModel: '',
-  /** 以下与 ST 默认 preset（Default.json）一致 */
+  /** 以下为默认采样参数 */
   temperature: 1,
   maxTokens: 300,
   maxContext: 4095,
@@ -95,7 +95,7 @@ export const DEFAULTS: GenSettings = {
 /** 旧版本的瞎编默认值（曾被打进用户 localStorage），加载时清除，避免下拉里凭空出现 */
 const LEGACY_MODEL_DEFAULTS = ['gemini-3.8-flash', 'gemini-flash-latest']
 
-/** 常用模型候选（实测 /v1beta/models 存在；可自由填其它 id） */
+/** 常用模型候选（实测 /v1beta/models 存在，可自由填其它 id） */
 function load(): GenSettings {
   try {
     const raw = localStorage.getItem(KEY)
@@ -113,7 +113,7 @@ function load(): GenSettings {
 export const useSettingsStore = defineStore('settings', {
   state: () => ({
     ...load(),
-    /** 从 ST 实时拉取的模型列表（主/备模型的下拉候选；与手填预设合并去重） */
+    /** 从 ST 实时拉取的模型列表（主/备模型的下拉候选，与手填预设合并去重） */
     modelOptions: loadModelOptions(),
     /** ST 侧设置的用户名（用于 {{user}} 宏，也是映射的输入之一） */
     stUserName: 'User',
@@ -121,7 +121,7 @@ export const useSettingsStore = defineStore('settings', {
     stLoaded: false,
     stError: '',
 
-    /* ---- 映射（M1） ---- */
+    /* ---- 映射 ---- */
     mapState: 'unknown' as MappingState,
     mapEntries: [] as MappingDiff[],
     mapError: '',
@@ -132,7 +132,7 @@ export const useSettingsStore = defineStore('settings', {
   }),
 
   getters: {
-    /** 与 ST 侧不一致的项数 */
+    /** 处于未同步状态的项数 */
     mapPending(state): number {
       return state.mapEntries.filter((e) => !e.inSync).length
     },
@@ -188,7 +188,7 @@ export const useSettingsStore = defineStore('settings', {
       this.persist()
     },
 
-    /* ---------------- 映射（M1） ---------------- */
+    /* ---------------- 映射 ---------------- */
 
     /** 映射入参（App 侧的值都从这里取，保持 mapping.ts 与 store 解耦） */
     mappingInput() {
@@ -208,7 +208,7 @@ export const useSettingsStore = defineStore('settings', {
       }
     },
 
-    /** 只读对比：看哪些键与 ST 侧不一致（不动 ST） */
+    /** 只读对比：看哪些键尚未同步（不写入） */
     async inspectMappingNow() {
       try {
         this.mapEntries = await inspectMapping(this.mappingInput())

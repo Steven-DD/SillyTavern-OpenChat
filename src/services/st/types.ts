@@ -1,5 +1,5 @@
 /**
- * SillyTavern 数据模型（M3 · 字段名全部来自 2026-09-22 真实接口实测）
+ * SillyTavern 数据模型（字段名来自真实接口实测）
  *
  * 实测来源：app/scripts/probe-api.mjs → logs/api-probe.txt
  * 端点对照：
@@ -49,8 +49,8 @@ export interface StCharacter {
 
 /**
  * 世界书条目 —— ST 内部格式（/api/worldinfo/get 返回的 entries 值）。
- * 与 v2 spec 的 character_book entry 字段不同（key/keysecondary/order/数字 position），
- * 转换关系见 data.ts 的 convertCharacterBook（复刻 ST world-info.js:5617）。
+ * 与 v2 spec 的 character_book entry 字段不同（key/keysecondary/order/数字 position）
+ * 转换关系见 data.ts 的 convertCharacterBook。
  */
 export interface StWorldEntry {
   uid: number
@@ -66,7 +66,7 @@ export interface StWorldEntry {
   constant: boolean
   /** 启用次级关键词 */
   selective: boolean
-  /** 插入顺序（同 ST v2 的 insertion_order） */
+  /** 插入顺序 */
   order: number
   /** 注入位置：0=角色定义前 1=角色定义后 2=ANTop */
   position: number
@@ -84,7 +84,7 @@ export interface StWorldEntry {
   role?: number
   group?: string
   vectorized?: boolean
-  /** 不参与 token 预算扣减（world-info.js:4095） */
+  /** 不参与 token 预算扣减 */
   ignoreBudget?: boolean
   /** 不被其它条目递归扫描激活 */
   excludeRecursion?: boolean
@@ -107,7 +107,7 @@ export interface StWorldEntry {
   outletName?: string
   /** 外部自动化 id（ST 扩展用，App 透传） */
   automationId?: string
-  /** timedEffects：激活后保持 N 步 / 冷却 N 步 / 延迟 N 步（world-info.js:4118-4120） */
+  /** timedEffects：激活后保持 N 步 / 冷却 N 步 / 延迟 N 步 */
   sticky?: number | null
   cooldown?: number | null
   delay?: number | null
@@ -205,7 +205,7 @@ export interface StChatMessage {
   mes?: string
   extra?: Record<string, unknown>
   is_system?: boolean
-  /** swipe 备选回复（ST 格式：与 mes 平级；当前显示 mes = swipes[swipe_id]） */
+  /** swipe 备选回复（ST 格式：与 mes 平级，当前显示 mes = swipes[swipe_id]） */
   swipes?: unknown[]
   swipe_id?: number
   // 仅首行（元数据头）

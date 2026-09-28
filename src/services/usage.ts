@@ -26,7 +26,7 @@ export interface TokenPrice {
   outPrice: number
 }
 
-/** 常用模型价格表（公开牌价近似值，2025；USD / 1M tokens） */
+/** 常用模型价格表（公开牌价近似值，2025，USD / 1M tokens） */
 const PRICES: TokenPrice[] = [
   { match: 'deepseek-chat', label: 'DeepSeek V3', inPrice: 0.27, outPrice: 1.1 },
   { match: 'deepseek-reasoner', label: 'DeepSeek R1', inPrice: 0.55, outPrice: 2.19 },
@@ -55,7 +55,7 @@ export function priceOf(model: string): TokenPrice | null {
 }
 
 /**
- * 本地 token 估算（P2 口径统一）：转调 prompt.ts 的实现。
+ * 本地 token 估算：转调 prompt.ts 的实现。
  * 此前本文件与 prompt.ts 各有一套 CJK 范围不同的估算 —— 裁剪用的 token 数
  * 与计费用估算对不上。所有调用方经此处转发，保证同一口径。
  */

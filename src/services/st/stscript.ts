@@ -1,5 +1,5 @@
 /**
- * STscript 子集（对齐 ST slash-commands 语法：/cmd args | /cmd2 {{pipe}}）
+ * STscript 子集
  *
  * ── 语法 ──
  * - 管道 `|` 分段（引号内不分割）；上一段输出进入下一段的 {{pipe}} 宏
@@ -52,7 +52,7 @@ export function parseScript(input: string): ScriptCommand[] {
     .filter((c) => c.name)
 }
 
-/** 执行上下文（由调用方注入；命令可测） */
+/** 执行上下文（由调用方注入，命令可测） */
 export interface ScriptContext {
   /** 宏变量存取（chat 级） */
   vars: MacroVariables

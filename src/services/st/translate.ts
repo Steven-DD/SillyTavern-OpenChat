@@ -1,5 +1,5 @@
 /**
- * 消息翻译（ST /api/translate/*，8 家供应商；密钥全部在 ST 服务端）
+ * 消息翻译（ST /api/translate/*，8 家供应商，密钥全部在 ST 服务端）
  * 设置持久化：settings.json extension_settings.stchat_translate（App 自有键）
  */
 import { stPostJson } from './client'

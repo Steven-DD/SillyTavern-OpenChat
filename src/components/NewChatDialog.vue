@@ -5,7 +5,7 @@
  * 配置项（参考 ST 的会话行为）：
  *  1. 会话名称 —— ST jsonl 文件名（不含扩展名），默认「角色名 - 时间戳」
  *  2. 开场白 —— 角色卡首条消息 / 备选问候（v2/v3 alternate_greetings，对应 ST 的 swipe）
- *  3. 人设 —— 跟随默认 / 锁定某人设（写 chat_metadata.persona，与 ST 一致）
+ *  3. 人设 —— 跟随默认 / 锁定某人设（写 chat_metadata.persona）
  *  4. 生成参数 —— 温度 / top_p / 最大回复，可选设为本会话专属（chat_metadata.app_gen）
  *  5. 世界书 —— 只读展示角色卡绑定（改绑定会动角色卡，引导去角色卡/世界书页操作）
  */

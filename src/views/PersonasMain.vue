@@ -58,7 +58,7 @@ async function onChangeAvatar(e: Event): Promise<void> {
   el.value = ''
 }
 
-/** 删除人设（弹窗确认；头像文件一并删除） */
+/** 删除人设（弹窗确认，头像文件一并删除） */
 const confirmDel = ref(false)
 const delBusy = ref(false)
 
@@ -175,7 +175,7 @@ async function doRemove(): Promise<void> {
       <!-- ===== 新建 ===== -->
       <section ref="createCard" class="card">
         <h4>新建人设</h4>
-        <p class="hint">先选一张头像图，人设就以该头像为标识（与 ST 一致）。</p>
+        <p class="hint">先选一张头像图，人设就以该头像为标识。</p>
         <div class="row">
           <input class="field" type="file" accept="image/*" @change="onPick" />
         </div>

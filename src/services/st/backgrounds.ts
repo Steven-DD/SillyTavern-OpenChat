@@ -1,7 +1,7 @@
 /**
  * 聊天背景图（ST /api/backgrounds 体系）
  * - 列表：POST /api/backgrounds/all → [{filename, isAnimated}]
- * - 图片：静态路径 backgrounds/<encoded>（走中继，同源 Cookie 无需签名）
+ * - 图片：静态路径 backgrounds/<encoded>（走中继）
  */
 import { stBase, stPostJson } from './client'
 

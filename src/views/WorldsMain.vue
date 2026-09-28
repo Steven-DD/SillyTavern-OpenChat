@@ -2,10 +2,10 @@
 /**
  * 世界书详情（右栏）—— 条目编辑器
  *
- * 字段全量对齐 ST 网页端世界书编辑器（world-info.js newWorldInfoEntryDefinition）：
+ * 世界书条目编辑器（全量字段）：
  * 基本（关键词/内容/常驻/选择性/位置/顺序/概率/深度）+ 高级（递归控制、inclusion group、
  * timedEffects、扫描来源扩展、匹配选项等）。
- * 保存策略与 ST 一致：整本写回 /api/worldinfo/edit，改动防抖 800ms 自动保存。
+ * 保存策略：整本写回 /api/worldinfo/edit，改动防抖 800ms 自动保存。
  * 删除世界书入口在中栏列表右键菜单。
  */
 import { computed, ref, watch } from 'vue'
@@ -42,7 +42,7 @@ function toggleExpand(uid: string) {
   expandedUid.value = expandedUid.value === uid ? null : uid
 }
 
-/* ---- 枚举文案（对齐 ST 编辑面板） ---- */
+/* ---- 枚举文案 ---- */
 const POSITION_LABELS: Record<number, string> = {
   [WI_POSITION.before]: '角色定义前',
   [WI_POSITION.after]: '角色定义后',
@@ -170,11 +170,11 @@ async function doDeleteEntry() {
       <p v-if="worlds.error" class="save-err">{{ worlds.error }}</p>
 
       <div class="body">
-        <!-- 递归扫描开关（ST 默认关；worldinfo.ts g.recursive） -->
+        <!-- 递归扫描开关（ST 默认关，worldinfo.ts g.recursive） -->
         <section class="sec">
           <label class="chk">
             <input type="checkbox" v-model="recursive" />
-            递归扫描（Recursive Scan，与 ST 默认行为一致：默认关闭）
+            递归扫描（Recursive Scan，默认关闭）
           </label>
           <p class="adv-t">开启后，已激活条目的内容会参与后续轮次的关键词扫描（最多 2 轮），可能激活关联条目。</p>
         </section>
@@ -362,7 +362,7 @@ async function doDeleteEntry() {
                 />
               </label>
 
-              <!-- 高级字段（对齐 ST 编辑面板的高级区） -->
+              <!-- 高级字段 -->
               <details class="adv">
                 <summary>高级选项</summary>
 
@@ -466,7 +466,7 @@ async function doDeleteEntry() {
                     />
                   </label>
                 </div>
-                <p class="adv-t">注：sticky 区间内强制激活；sticky 到期后立即进入 cooldown 跳过期（与 ST 网页端 timedWorldInfo 计数互通）。</p>
+                <p class="adv-t">注：sticky 区间内强制激活；sticky 到期后立即进入 cooldown 跳过。</p>
 
                 <div class="row3">
                   <label class="fld">

@@ -1,7 +1,7 @@
 /**
  * 插件状态：文案与色点的**唯一来源**
  *
- * 以前 PluginsMid 与 PluginsMain 各维护一份（STATUS / STATUS_LABEL），
+ * 以前 PluginsMid 与 PluginsMain 各维护一份（STATUS / STATUS_LABEL）
  * 内容重复且容易改歪一处。这里统一导出，两边都从这里取。
  */
 export interface PluginStatusStyle {
@@ -22,7 +22,7 @@ export function pluginStatusOf(status: string): PluginStatusStyle {
   return PLUGIN_STATUS[status] ?? { dot: 'off', text: status }
 }
 
-/** 只要文案（列表、表格等不需要色点的场景） */
+/** 只要文案（列表，表格等不需要色点的场景） */
 export function pluginStatusText(status: string, fallback = '—'): string {
   return PLUGIN_STATUS[status]?.text ?? (status || fallback)
 }

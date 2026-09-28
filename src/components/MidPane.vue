@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 中栏容器（标题 + 工具栏插槽 + 列表区）
- * 宽度与边框走 uno.config 的 `pane-mid` shortcut（窄屏铺满、宽屏 230px），
+ * 宽度与边框走 uno.config 的 `pane-mid` shortcut（窄屏铺满，宽屏 230px）
  * 这样断点只在一处定义，不会与 AppShell 走偏。
  */
 defineProps<{

@@ -11,7 +11,7 @@
  * ⚠ 不能缓存成模块级常量：桥接在模块求值之后才写入基地址，缓存会拿到空值。
  */
 
-/** 读取当前基地址（空 = 同源） */
+/** 读取当前基地址 */
 export function stBase(): string {
   return localStorage.getItem('st.base') ?? ''
 }
@@ -26,7 +26,7 @@ export function setStBase(url: string): void {
   csrfPending = null
 }
 
-/** 中继鉴权 token（桌面壳经中继访问时由 bridge 写入；浏览器开发 / 直连为空） */
+/** 中继鉴权 token（桌面壳经中继访问时由 bridge 写入，浏览器开发 / 直连为空） */
 export function setRelayToken(t: string): void {
   const v = t.trim()
   if (v) localStorage.setItem('st.relayToken', v)
@@ -35,7 +35,7 @@ export function setRelayToken(t: string): void {
 
 /**
  * 中继鉴权头：中继代持着 ST 会话 Cookie（含密钥接口），除静态资源 GET 外
- * 一律要求 `X-Relay-Auth`。未配置 token（浏览器开发走 Vite 同源代理）时不附加，
+ * 一律要求 `X-Relay-Auth`。未配置 token时不附加，
  * 避免给直连场景引入多余的自定义头。
  */
 function relayAuthHeaders(): Record<string, string> {
@@ -131,7 +131,7 @@ export async function stPostForm(path: string, form: FormData): Promise<Response
   }))
 }
 
-/** POST + 解析 JSON（ST 1.19 起多数读取端点均为 POST，如 /api/settings/get） */
+/** POST + 解析 JSON（如 /api/settings/get） */
 export async function stPostJson<T>(path: string, body: unknown = {}): Promise<T> {
   const res = await stPost(path, body)
   if (!res.ok) throw new Error(`写入失败（${path}，HTTP ${res.status}）`)
@@ -140,7 +140,7 @@ export async function stPostJson<T>(path: string, body: unknown = {}): Promise<T
 
 /**
  * POST，只看状态码、不解析响应体。
- * ST 不少写端点成功时是 `sendStatus(200)` → body 是纯文本 "OK"（不是 JSON），
+ * ST 不少写端点成功时是 `sendStatus(200)` → body 是纯文本 "OK"（不是 JSON）
  * 用 stPostJson 解析会抛「Unexpected token 'O'」——实测：worldinfo/delete、characters/edit。
  */
 export async function stPostVoid(path: string, body: unknown): Promise<void> {
@@ -201,7 +201,7 @@ export async function stStream(
           if (!payload || payload === '[DONE]') continue
           try {
             const chunk = JSON.parse(payload) as {
-              // OpenAI 兼容格式（reasoning_content：DeepSeek 等；reasoning：OpenRouter）
+              // OpenAI 兼容格式（reasoning_content：DeepSeek 等，reasoning：OpenRouter）
               choices?: {
                 delta?: { content?: string; reasoning_content?: string; reasoning?: string }
                 text?: string
@@ -211,7 +211,7 @@ export async function stStream(
                 content?: { parts?: { text?: string; thought?: boolean }[] }
                 finishReason?: string
               }[]
-              // token 用量（OpenAI 兼容：流式尾帧 usage；Google：usageMetadata 每帧携带）
+              // token 用量（OpenAI 兼容：流式尾帧 usage，Google：usageMetadata 每帧携带）
               usage?: { prompt_tokens?: number; completion_tokens?: number }
               usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number }
               // 错误

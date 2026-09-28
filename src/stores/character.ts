@@ -134,9 +134,9 @@ export const useCharacterStore = defineStore('character', {
     },
 
     /**
-     * 导入角色卡文件（json / png / charx，与 ST 侧一致）。
+     * 导入角色卡文件（json / png / charx）。
      * 若卡内嵌 character_book（v2 spec），自动转成 ST 世界书导入并绑定到该角色
-     * （复刻 ST「导入内嵌世界书」行为，world-info.js:5731，只是免掉确认弹窗）。
+     * 。
      * 返回导入的内嵌世界书名（无内嵌书时为 null）。
      */
     async importCard(file: File): Promise<string | null> {
@@ -201,7 +201,7 @@ export const useCharacterStore = defineStore('character', {
 
     /**
      * 保存卡片改动。
-     * ST /api/characters/edit 需要完整字段（含 json_data 以保留 V2/V3 外键），
+     * ST /api/characters/edit 需要完整字段（含 json_data 以保留 V2/V3 外键）
      * 所以这里以 detail（或列表项）为基底做合并。
      */
     async saveCard(patch: CharacterEditPatch) {
@@ -226,7 +226,7 @@ export const useCharacterStore = defineStore('character', {
           create_date: base.create_date,
           // 保留 V2/V3 卡里的其它外键字段
           json_data: base.json_data,
-          // 高级字段（以详情/列表项为基底合并；v2 字段顶层或 data 内取）
+          // 高级字段（以详情/列表项为基底合并，v2 字段顶层或 data 内取）
           creator: patch.creator ?? str(base.creator) ?? str(base.data?.creator) ?? '',
           character_version:
             patch.characterVersion ??

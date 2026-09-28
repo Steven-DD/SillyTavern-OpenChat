@@ -1,5 +1,5 @@
 /**
- * Text Completion 生成通道（对齐 ST textgen 15 后端）
+ * Text Completion 生成通道
  *
  * ST 服务器只做代理转发（src/endpoints/backends/text-completions.js）：
  * - 请求体：prompt 为**单字符串**（非 messages），api_type = textgen_types 值
@@ -22,7 +22,7 @@ export interface TextGenBackendDef {
   modelsPath?: string
 }
 
-/** 全部 15 后端（textgen-settings.js:31-47 + SERVER_INPUTS:122-141） */
+/** 全部 15 后端 */
 export const TEXTGEN_BACKENDS: TextGenBackendDef[] = [
   { id: 'koboldcpp', label: 'KoboldCpp', secretKey: 'api_key_koboldcpp' },
   { id: 'ooba', label: 'Text Generation WebUI (ooba)', secretKey: 'api_key_ooba' },
@@ -41,7 +41,7 @@ export const TEXTGEN_BACKENDS: TextGenBackendDef[] = [
   { id: 'huggingface', label: 'HuggingFace', fixedServer: 'https://router.huggingface.co', secretKey: 'api_key_huggingface' },
 ]
 
-/** OpenRouter Text 走 chat/completions 端点（text-completions.js:324 特例） */
+/** OpenRouter Text 走 chat/completions 端点 */
 function completionPath(apiType: string): string {
   switch (apiType) {
     case 'dreamgen': return '/api/openai/v1/completions'
@@ -127,7 +127,7 @@ export function buildBody(o: TextGenOptions): Record<string, unknown> {
   const def = TEXTGEN_BACKENDS.find((b) => b.id === o.backend)
   const server = (o.server || def?.fixedServer || '').replace(/\/+$/, '')
   if (!server) throw new Error(`后端 ${o.backend} 需要填写 API 服务器地址`)
-  // ST 后端按 api_type 在 server 后拼接端点路径（text-completions.js:296-324）
+  // ST 后端按 api_type 在 server 后拼接端点路径
   const path = completionPath(o.backend)
   const body: Record<string, unknown> = {
     prompt: o.prompt,
@@ -143,7 +143,7 @@ export function buildBody(o: TextGenOptions): Record<string, unknown> {
   if (o.stop?.length && o.backend !== 'ollama') {
     body.stop = o.backend === 'koboldcpp' ? o.stop : o.stop.slice(0, 4)
   }
-  // {{banned}} 宏收集的禁词（openai 兼容后端支持 ban_param_json；其余后端忽略）
+  // {{banned}} 宏收集的禁词（openai 兼容后端支持 ban_param_json，其余后端忽略）
   if (o.bannedWords?.length && ['generic', 'ooba', 'aphrodite', 'vllm', 'tabby'].includes(o.backend)) {
     body.ban_param_json = o.bannedWords.map((w) => [{ string: w, enabled: true }])
   }
@@ -228,7 +228,7 @@ export async function generateText(
   }
 }
 
-/** 拉取模型列表（{server}/v1/models；托管类服务器固定；密钥由 ST 服务端 secrets 提供） */
+/** 拉取模型列表（{server}/v1/models，托管类服务器固定，密钥由 ST 服务端 secrets 提供） */
 export async function fetchTextModels(backend: string, server?: string): Promise<string[]> {
   const def = TEXTGEN_BACKENDS.find((b) => b.id === backend)
   const base = (server || def?.fixedServer || '').replace(/\/+$/, '')

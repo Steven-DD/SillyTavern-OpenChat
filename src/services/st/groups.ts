@@ -1,5 +1,5 @@
 /**
- * 群组数据层（对齐 ST groups.js / group-chats.js；数据全落 ST 目录，与网页端互通）
+ * 群组数据层（数据全落 ST 目录）
  *
  * - 群对象：groups/<id>.json（name/members/activation_strategy/generation_mode/...）
  * - 群聊：group_chats/<chat_id>.jsonl（首行 header user_name/character_name = 'unused'，
@@ -16,7 +16,7 @@ export interface StGroup {
   avatar_url?: string
   allow_self_responses?: boolean
   hideMutedSprites?: boolean
-  /** 激活策略（ST 1.19）：0 NATURAL 掷骰 / 1 LIST 全员顺序 / 2 MANUAL 非输入时随机 1 人 / 3 POOLED 未发言者随机 1 人 */
+  /** 激活策略：0 NATURAL 掷骰 / 1 LIST 全员顺序 / 2 MANUAL 非输入时随机 1 人 / 3 POOLED 未发言者随机 1 人 */
   activation_strategy: number
   /** 生成模式（只影响成员卡片合并，不影响发言人数）：0 SWAP / 1 APPEND / 2 APPEND_DISABLED */
   generation_mode: number
@@ -29,7 +29,7 @@ export interface StGroup {
   [k: string]: unknown
 }
 
-/** 群聊行（消息行带 name = 发言者名；首行 header 同普通会话） */
+/** 群聊行（消息行带 name = 发言者名，首行 header 同普通会话） */
 export type GroupChatLine = Record<string, unknown>
 
 export async function listGroups(): Promise<StGroup[]> {
@@ -67,7 +67,7 @@ export async function deleteGroupChat(id: string, chatName: string): Promise<voi
 }
 
 /**
- * 群头像上传（对齐 ST uploadGroupAvatar，group-chats.js:1896-1935）：
+ * 群头像上传：
  * 图片缩至 300×300 jpg → /api/images/upload 落盘 → 返回路径写回 group.avatar_url。
  * 调用方负责随后 editGroup 持久化。
  */

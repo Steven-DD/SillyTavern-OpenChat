@@ -1,9 +1,9 @@
 <script setup lang="ts">
 /**
  * 扩展管理卡片：挂「设置 → 通用」。
- * - 正则脚本 CRUD（settings.json extension_settings.regex，与 ST 互通）
+ * - 正则脚本 CRUD（settings.json extension_settings.regex）
  * - 快捷回复 CRUD（extension_settings.stchat_quick_replies，App 自有键）
- * - 翻译设置（extension_settings.stchat_translate；8 家供应商走 ST 服务端）
+ * - 翻译设置（extension_settings.stchat_translate，8 家供应商走 ST 服务端）
  * - TTS 设置与试听（/api/speech/synthesize，本地 transformers 引擎）
  * 扩展的安装/搜索/列表/详情在「插件」页。
  */
@@ -114,7 +114,7 @@ async function persistQrs(): Promise<void> {
   }
 }
 
-/* ---- ST 原生 QR 集（QuickReplies/*.json 文件互通，B5） ---- */
+/* ---- ST 原生 QR 集 ---- */
 const stPresets = ref<StQrPreset[]>([])
 const presetPick = ref('')
 const exportName = ref('')
@@ -145,7 +145,7 @@ async function doExportPreset(): Promise<void> {
   try {
     await exportQrPreset(name, qrs.value)
     await reloadPresets()
-    note(`已导出为 ST 集「${name}」（QuickReplies/${name}.json；需在网页端 QR 管理器导入后生效）`)
+    note(`已导出「${name}」（QuickReplies/${name}.json，需在 ST 网页端 QR 管理器手动导入后生效）`)
   } catch (e) {
     note(`导出失败：${e instanceof Error ? e.message : String(e)}`, false)
   } finally {
@@ -153,7 +153,7 @@ async function doExportPreset(): Promise<void> {
   }
 }
 
-/* ---- Instruct 模板（只读透传，B5；编辑在 ST 网页端） ---- */
+/* ---- Instruct 模板（只读透传，编辑在 ST 网页端） ---- */
 const instruct = ref<InstructSettings | null>(null)
 
 /* ---- 翻译 / TTS ---- */
@@ -162,7 +162,7 @@ const targetLang = ref('zh')
 const ttsModel = ref('')
 const ttsBusy = ref(false)
 
-/* ---- 记忆（Summarize）/ 向量记忆（B3） ---- */
+/* ---- 记忆（Summarize）/ 向量记忆 ---- */
 const memEnabled = ref(false)
 const memInterval = ref(10)
 const memDepth = ref(2)
@@ -231,12 +231,12 @@ async function testTts(): Promise<void> {
 onMounted(async () => {
   instruct.value = await loadInstruct().catch(() => null)
   await Promise.all([reloadScripts(), reloadQrs(), reloadPresets()])
-  // 各读一次（P2：此前 loadTranslateSettings/loadSpeechSettings 各被调 2-3 次）
+  // 各读一次（此前 loadTranslateSettings/loadSpeechSettings 各被调 2-3 次）
   const [t, s] = await Promise.all([loadTranslateSettings(true), loadSpeechSettings(true)])
   provider.value = t.provider
   targetLang.value = t.target_language
   ttsModel.value = s.model
-  // 记忆 / 向量（B3）
+  // 记忆 / 向量
   memEnabled.value = await loadMemoryAppEnabled()
   const mem = await loadMemorySettings(true)
   memInterval.value = mem.interval
@@ -256,7 +256,7 @@ onMounted(async () => {
     <!-- 正则脚本 -->
     <div class="sub">
       <div class="sub-h">
-        <span>正则脚本（与 ST 数据互通）</span>
+        <span>正则脚本</span>
         <span class="grow" />
         <button class="btn btn-sm" @click="addScript">＋ 新增</button>
         <button class="btn btn-sm btn-primary" @click="persistScripts">保存</button>
@@ -332,7 +332,7 @@ onMounted(async () => {
         <label class="chk"><input v-model="q.enabled" type="checkbox" /> 启用</label>
         <button class="btn btn-sm danger-text" @click="removeQr(i)">删</button>
       </div>
-      <!-- ST 原生集文件互通 -->
+      <!-- QR 套装文件导入导出 -->
       <div class="row2f">
         <label class="fld">
           <span class="lb">ST 集文件（{{ stPresets.length }}）</span>
@@ -352,7 +352,7 @@ onMounted(async () => {
           </div>
         </label>
       </div>
-      <p class="hint">ST 集文件存 QuickReplies/*.json：导入会把 qrList 追加进上方按钮条；导出补齐 version/idIndex/isHidden 等网页端字段（网页端运行数据源是 settings.quickReplyPresets，导出文件需在其 QR 管理器手动导入）</p>
+      <p class="hint">套装文件存于 QuickReplies/*.json：导入会把条目追加进上方按钮条；导出的文件需在 ST 网页端 QR 管理器手动导入才会生效。</p>
     </div>
 
     <!-- Instruct 模板（只读） -->
@@ -365,7 +365,7 @@ onMounted(async () => {
         <span class="ext-item">wrap：{{ instruct.wrap === false ? '关' : '开' }}</span>
       </div>
       <p class="hint">
-        模板来自 ST 网页端配置（power_user.instruct，两端同一份数据）；App 在 Text Completion
+        模板来自 ST 网页端的 Instruct 配置；App 在 Text Completion
         生成时按此模板拼接 prompt（含首/末序列、{{ '\{\{name\}\}' }} 宏与 stop 序列）。模板编辑请在 ST 网页端进行。
       </p>
     </div>
@@ -388,7 +388,7 @@ onMounted(async () => {
       <div class="btns">
         <button class="btn btn-sm btn-primary" @click="persistTranslate">保存翻译设置</button>
       </div>
-      <p class="hint">密钥（DeepL/Libre 等）在 ST 网页端配置，由服务端托管；消息气泡下方悬停工具条点「译」使用。</p>
+      <p class="hint">密钥（DeepL/Libre 等）在 ST 网页端配置；消息气泡下方悬停工具条点「译」使用。</p>
     </div>
 
     <div class="sub">
@@ -438,7 +438,7 @@ onMounted(async () => {
         <button class="btn btn-sm btn-primary" @click="persistMemory">保存记忆设置</button>
       </div>
       <p class="hint">
-        每 N 条消息自动生成聊天摘要并注入提示词；摘要存 chat_metadata.summary（与 ST memory 扩展互通）。
+        每 N 条消息自动生成聊天摘要并注入提示词；摘要存会话文件（chat_metadata.summary）。
         手动更新在会话配置 → 记忆 Tab。默认关闭（自动更新会消耗生成配额）。
       </p>
     </div>

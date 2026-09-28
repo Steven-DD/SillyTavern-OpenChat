@@ -2,10 +2,10 @@
  * Token 计数（服务端精确版，替代本地粗估）
  *
  * ST 后端 `/api/tokenizers/openai/count?model=<model>` 按模型选择 tokenizer 计数
- * （gemma 系走 SentencePiece、claude 走 web tokenizer、其余 tiktoken）。
- * 请求体是消息数组（与 ST 前端 countTokensOpenAIAsync 的调用一致）。
+ * （gemma 系走 SentencePiece，claude 走 web tokenizer，其余 tiktoken）。
+ * 请求体是消息数组。
  *
- * 失败语义：返回 null 而非抛错 —— 调用方回落本地估算（estimateTokens），
+ * 失败语义：返回 null 而非抛错 —— 调用方回落本地估算（estimateTokens）
  * 计数精度不足不应阻断生成链路。
  */
 import { stPostJson } from './client'

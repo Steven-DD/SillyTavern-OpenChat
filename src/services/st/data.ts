@@ -1,5 +1,5 @@
 /**
- * SillyTavern 数据层（M3 · 角色卡 / 会话 / 设置 / 静态资源）
+ * SillyTavern 数据层（角色卡 / 会话 / 设置 / 静态资源）
  *
  * 与 api.ts（生成层）分离：这里只做数据读写，不涉及 prompt 与流式。
  * 所有字段名以 2026-09-22 实测为准（见 types.ts 头部说明）。
@@ -34,7 +34,7 @@ export async function getCharacter(avatarUrl: string): Promise<StCharacter> {
 
 /**
  * 保存角色卡修改（JSON 即可，该路由未挂 multer）。
- * 实测入参名由 charaFormatData 决定（characters.js:565-593）：
+ * 实测入参名由 charaFormatData 决定：
  *   ch_name / description / personality / scenario / first_mes / mes_example
  *   / creator_notes / tags / talkativeness / fav / chat / create_date / json_data
  * 注意：
@@ -87,7 +87,7 @@ export interface CharacterCreatePayload {
 
 /**
  * 新建角色卡（POST /api/characters/create，multipart）。
- * 全局 multer `single('avatar')`（server-main.js:269）→ 文件字段名固定 avatar，
+ * 全局 multer `single('avatar')`→ 文件字段名固定 avatar，
  * 文本字段走 FormData（该路由必须经 multer，JSON body 拿不到）。
  * 返回头像文件名（'名字.png'）。
  */
@@ -112,7 +112,7 @@ export async function createCharacter(p: CharacterCreatePayload): Promise<string
 
 /**
  * 导入角色卡文件（POST /api/characters/import，multipart）。
- * 支持 json / png / charx / yaml / byaf（characters.js:1570 的格式表）。
+ * 支持 json / png / charx / yaml / byaf。
  * 返回头像文件名（⚠ ST 返回的 file_name 可能不带 .png，这里统一补全）；
  * v2 JSON 的内嵌 character_book 会被 ST 原样保留在卡里。
  */
@@ -121,7 +121,7 @@ export async function importCharacterFile(file: File): Promise<string> {
   let payload: Blob = file
   if (ext === 'json') {
     // ⚠ ST 的 importFromJson 直接 JSON.parse，不接受 UTF-8 BOM（U+FEFF）——
-    // 带BOM 的卡实测返回 {error:true}（characters.js:887）。读文本剥 BOM 后再上传。
+    // 带BOM 的卡实测返回 {error:true}。读文本剥 BOM 后再上传。
     const text = (await file.text()).replace(/^\uFEFF/, '')
     payload = new File([text], file.name, { type: 'application/json' })
   }
@@ -171,7 +171,7 @@ export async function setCharacterWorld(avatarUrl: string, world: string): Promi
   // ⚠ 同 editCharacter：返回纯文本 "OK"，不能用 stPostJson
 }
 
-/** 给角色卡追加标签（读全字段 → tags 合并 → 整卡回写；批量打标签循环调用） */
+/** 给角色卡追加标签（读全字段 → tags 合并 → 整卡回写，批量打标签循环调用） */
 export async function appendCharacterTags(avatarUrl: string, addTags: string[]): Promise<void> {
   const c = await getCharacter(avatarUrl)
   const cur = new Set((c.tags ?? []).map((t) => String(t)))
@@ -195,7 +195,7 @@ export async function appendCharacterTags(avatarUrl: string, addTags: string[]):
 }
 
 /**
- * 重命名角色卡（POST /api/characters/rename {avatar_url, new_name}，characters.js:1053）。
+ * 重命名角色卡。
  * 服务端同步迁移聊天目录/群组成员引用；返回新 avatar 文件名（getPngName(newName).png）。
  */
 export async function renameCharacter(avatarUrl: string, newName: string): Promise<string> {
@@ -227,7 +227,7 @@ export async function saveWorld(name: string, data: StWorldBook): Promise<void> 
   await stPostJson('/api/worldinfo/edit', { name, data })
 }
 
-/** 新建空世界书（复刻 ST 前端 createWorldInfo：edit 一个空 entries） */
+/** 新建空世界书 */
 export async function createWorld(name: string): Promise<string> {
   await saveWorld(name, { entries: {} })
   return name
@@ -263,7 +263,7 @@ export async function deleteWorld(name: string): Promise<void> {
  * v2 内嵌世界书 → ST 世界书 转换
  * ------------------------------------------------------------------ */
 
-/* ST 常量（public/scripts/world-info.js:33/96/855 与 script.js:494） */
+/* ST 常量 */
 const WI_POSITION_AFTER = 1
 const WI_LOGIC_AND_ANY = 0
 const ROLE_SYSTEM = 0
@@ -272,7 +272,7 @@ const DEFAULT_WEIGHT = 100
 
 /**
  * chara_card_v2 的 character_book → ST 世界书格式。
- * 复刻 ST 前端 convertCharacterBook（world-info.js:5617），字段默认值保持一致。
+ * 字段默认值取自 ST 的 convertCharacterBook。
  */
 export function convertCharacterBook(book: StCharacterBook): StWorldBook {
   const result: StWorldBook = { entries: {}, originalData: book }
@@ -366,7 +366,7 @@ export function convertCharacterBook(book: StCharacterBook): StWorldBook {
 
 /**
  * 某角色下的会话文件列表。
- * ST 行为：该角色还没有 chats 目录时返回 `{error:true}`（不是错误，是没有会话），
+ * ST 行为：该角色还没有 chats 目录时返回 `{error:true}`（不是错误，是没有会话）
  * 目录存在但为空时返回 `[]`。这里统一归一化为数组。
  */
 export async function listCharacterChats(
@@ -390,7 +390,7 @@ export async function recentChats(max = 50, metadata = true): Promise<StChatSumm
   return Array.isArray(data) ? data : []
 }
 
-/** 会话搜索结果（ST /api/chats/search 返回；注意主键是 file_name 而非 recent 的 file_id） */
+/** 会话搜索结果（ST /api/chats/search 返回，注意主键是 file_name 而非 recent 的 file_id） */
 export interface StChatSearchHit {
   file_name: string
   file_size?: string
@@ -483,7 +483,7 @@ export async function renameChat(
  * ------------------------------------------------------------------ */
 
 /**
- * settings.json 读缓存：/api/settings/get 是**全量下载**（文件可达数百 KB），
+ * settings.json 读缓存：/api/settings/get 是**全量下载**（文件可达数百 KB）
  * 而记忆/向量/PM/正则/翻译等模块每轮生成都会各拉一次。
  * 5s TTL + 写后立即失效；跨进程（网页端）改动最迟 5s 可见 ——
  * App 是 settings.json 的单一写入方（已知约束，见盘点 v2.0）。
@@ -527,7 +527,7 @@ export async function saveSettingsFull(settings: unknown): Promise<void> {
   await stPostVoid('/api/settings/save', settings as Record<string, unknown>)
 }
 
-/* ---------------- auto-continue（M-19，power_user.auto_continue） ---------------- */
+/* ---------------- auto-continue（power_user.auto_continue） ---------------- */
 
 export interface AutoContinueSettings {
   enabled: boolean
@@ -567,7 +567,7 @@ export async function saveAutoContinue(v: AutoContinueSettings): Promise<void> {
  * ⚠⚠ **这个接口有两个坑，用错会毁掉用户配置** ⚠⚠
  *
  * ST 服务端实现是 `writeFileAtomicSync(path, JSON.stringify(request.body))`
- * （`sillytavern/src/endpoints/settings.js:209`）—— **整体覆盖，传什么写什么**：
+ * —— **整体覆盖，传什么写什么**：
  *   1. **绝不能传 `{ settings: ... }` 包装对象** —— 它会把包装对象本身写成配置
  *      （settings.json 会变成 `{"settings":"{...}"}`，彻底损坏）
  *   2. **绝不能只传部分字段** —— 没传的键会被**直接抹掉**

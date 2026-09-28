@@ -1,19 +1,18 @@
 /**
- * Instruct 模式（Text Completion 拼接，语义对齐 ST instruct-mode.js formatInstructModeChat:387-457
- * 与 script.js:4767-4816 的首/末序列修饰）
+ * Instruct 模式（Text Completion 拼接）
  *
- * - 数据源：settings.json power_user.instruct（ST Instruct 模板，与网页端同一份）
- * - prefix 按角色取序列（system→system_sequence（system_same_as_user 时用 input）、
+ * - 数据源：settings.json power_user.instruct（ST Instruct 模板）
+ * - prefix 按角色取序列（system→system_sequence（system_same_as_user 时用 input）
  *   user→input_sequence、assistant→output_sequence）
- * - 首/末变体（对齐 ST，P1-2 修正）：
- *   · first_*_sequence 只作用于**历史第 0 条**（开场白；script.js:4784-4787，j===0 即最旧消息）
- *   · last_input_sequence 只作用于**最后一条用户消息**（:4789-4792，impersonate 时不加）
- *   · last_output_sequence 仅在 **continue** 时作用于被续写消息（:4794-4809），且截掉 suffix
+ * - 首/末变体：
+ *   · first_*_sequence 只作用于**历史第 0 条**
+ *   · last_input_sequence 只作用于**最后一条用户消息**（impersonate 时不加）
+ *   · last_output_sequence 仅在 **continue** 时作用于被续写消息，且截掉 suffix
  * - {{name}} 宏：user→name1、assistant→name2、system→'System'
- * - names_behavior：none 不加名 / always 加名 / force（ST 群聊场景；App 单聊视同 none）
+ * - names_behavior：none 不加名 / always 加名 / force（ST 群聊场景，App 单聊视同 none）
  * - wrap=true：片段间 '\n' 连接，空 suffix 补 '\n'
  * - 末尾补 output_sequence 前缀诱导接续；continue 时截掉（prompt 止于半截内容，ST prefill 语义）
- * - impersonate 时同样不补 output 前缀（ST 代写不添加 assistant 前缀，P1-7）
+ * - impersonate 时同样不补 output 前缀（ST 代写不添加 assistant 前缀）
  */
 import { getSettings } from './data'
 import type { PromptMessage } from './prompt'
@@ -41,7 +40,7 @@ export interface InstructSettings {
   [k: string]: unknown
 }
 
-/** 读 ST 的 Instruct 设置（power_user.instruct；未配置 → enabled: false） */
+/** 读 ST 的 Instruct 设置（power_user.instruct，未配置 → enabled: false） */
 export async function loadInstruct(): Promise<InstructSettings> {
   const s = await getSettings()
   const pu = (s as Record<string, unknown>).power_user as Record<string, unknown> | undefined
@@ -62,7 +61,7 @@ export interface InstructFormatOptions {
 
 /**
  * 把 messages 拼接为 instruct 文本。
- * 首/末变体语义以 ST script.js:4767-4816 为准（见文件头注释）。
+ * 首/末变体语义见文件头注释。
  */
 export function formatInstructChat(
   messages: PromptMessage[],

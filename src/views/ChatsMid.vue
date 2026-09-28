@@ -238,7 +238,7 @@ onMounted(async () => {
       </template>
     </div>
 
-    <!-- 消息正文全文搜索（≥2 字符触发；范围为当前角色） -->
+    <!-- 消息正文全文搜索（≥2 字符触发，范围为当前角色） -->
     <template v-if="q.trim().length >= 2">
       <div class="fts-t">
         {{ searching ? '搜索消息正文…' : `消息正文命中 ${hits.length} 条` }}

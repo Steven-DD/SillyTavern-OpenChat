@@ -11,7 +11,7 @@ export async function probeSt(): Promise<boolean> {
 }
 
 /**
- * 生成通道来源（与 ST 网页端「API 连接」面板的 Chat Completion Source 对齐；
+ * 生成通道来源（对应服务端的 Chat Completion Source；
  * UI 不同、字段与端点一致）。secretKey 均符合 ST 的 `api_key_<source>` 命名。
  */
 export interface ChatSourceDef {
@@ -54,7 +54,7 @@ export const CHAT_SOURCES: ChatSourceDef[] = [
   { id: 'fireworks', label: 'Fireworks AI', secretKey: 'api_key_fireworks' },
   { id: 'perplexity', label: 'Perplexity', secretKey: 'api_key_perplexity' },
   { id: 'ai21', label: 'AI21', secretKey: 'api_key_ai21' },
-  // cometapi：ST 1.19 后端硬禁用（chat-completions.js:2543 直接 throw），无法支持
+  // cometapi：ST 1.19 后端硬禁用，无法支持
   { id: 'cometapi', label: 'CometAPI', secretKey: 'api_key_cometapi', disabled: 'ST 1.19 后端已禁用该源（不可用）' },
   { id: 'pollinations', label: 'Pollinations', secretKey: 'api_key_pollinations' },
   { id: 'vertexai', label: 'Google Vertex AI（Express）', secretKey: 'api_key_vertexai' },
@@ -81,7 +81,7 @@ export interface ConnConfig {
   azureApiVersion?: string
   /** workers_ai 账号 ID */
   workersAiAccountId?: string
-  /** horde：仅使用受信任 worker（trusted_workers，horde.js:216） */
+  /** horde：仅使用受信任 worker */
   trustedWorkersOnly?: boolean
 }
 
@@ -128,21 +128,21 @@ export interface GenerateOptions {
   maxTokens?: number
   /** 采样参数（top_p / top_k / 惩罚等），缺省不透传 */
   sampler?: SamplerParams
-  /** 预拼接的 Text Completion prompt（Horde 等补全式通道用；缺省回落 messagesToPrompt） */
+  /** 预拼接的 Text Completion prompt（Horde 等补全式通道用，缺省回落 messagesToPrompt） */
   prompt?: string
-  /** 停止序列（Horde stop_sequence；Instruct 模板的 output sequence 等） */
+  /** 停止序列（Horde stop_sequence，Instruct 模板的 output sequence 等） */
   stop?: string[]
-  /** 上下文长度上限（Horde max_context_length；缺省 2048） */
+  /** 上下文长度上限（Horde max_context_length，缺省 2048） */
   maxContext?: number
-  /** token 用量回调（SSE 尾帧实测值；接口不给则不回调，由调用方估算） */
+  /** token 用量回调（SSE 尾帧实测值，接口不给则不回调，由调用方估算） */
   onUsage?: (usage: { prompt: number; completion: number }) => void
-  /** 中断信号（「停止生成」用；中断后已生成的增量内容保留在调用方） */
+  /** 中断信号（「停止生成」用，中断后已生成的增量内容保留在调用方） */
   signal?: AbortSignal
 }
 
 /**
  * 备用模型：主模型高峰过载（Google 侧 503 UNAVAILABLE）时自动切换。
- * 读 settings store 持久化的 `app.gen`（P1 修复：此前读无人写入的 st.modelFallback，
+ * 读 settings store 持久化的 `app.gen`（此前读无人写入的 st.modelFallback，
  * 设置页配置的备用模型实际不生效）。未配置返回空串 = 不回退。
  */
 export function currentFallbackModel(): string {
@@ -159,9 +159,9 @@ export function currentFallbackModel(): string {
 const RETRY_DELAYS = [1500, 6000]
 
 /**
- * Horde 文本生成（对齐 ST horde.js generateHorde：Text Completion + Instruct 拼接）。
+ * Horde 文本生成。
  * - 提交：POST /api/horde/generate-text → {id}；payload 含 models / trusted_workers
- *   （horde.js:213-219），prompt 优先用调用方传入的 Instruct 拼接结果
+ *   ，prompt 优先用调用方传入的 Instruct 拼接结果
  * - 轮询：POST /api/horde/task-status {taskId} → {done, faulted, generations:[{text}], queue_position}
  *   每 3s 一次，最长 300s
  * - 中断：AbortSignal 触发时调 cancel-task 后抛 AbortError（调用方按停止处理）
@@ -173,7 +173,7 @@ async function hordeGenerate(
   const { messagesToPrompt } = await import('./textgen')
   const prompt =
     opts.prompt ?? messagesToPrompt(opts.messages, 'Assistant', 'User')
-  // models 必传（服务端原样透传，缺失时 aihorde 分配不可控或拒绝；horde.js:213-219）
+  // models 必传
   const models = [opts.model ?? currentModel()].filter(Boolean)
   const conn = getConnConfig('horde')
   const submit = await stPostJson<{ id?: string; error?: unknown }>('/api/horde/generate-text', {
@@ -188,7 +188,7 @@ async function hordeGenerate(
       rep_pen: opts.sampler?.repetitionPenalty,
       // Instruct stop 序列（AI Horde 文本参数 stop_sequence）
       ...(opts.stop?.length ? { stop_sequence: opts.stop } : {}),
-      // frmt* 系列：与 ST generateHorde 一致全部显式关闭（horde.js:207-211）
+      // frmt* 系列：
       frmtadsnsp: false,
       frmtrmblln: false,
       frmtrmspch: false,
@@ -258,7 +258,7 @@ function naiTokenizerEndpoint(model: string): string {
     : '/api/tokenizers/nerdstash_v2/encode'
 }
 
-/** 文本 → token id 序列（ST tokenizer 服务端编码；失败返回 null） */
+/** 文本 → token id 序列（ST tokenizer 服务端编码，失败返回 null） */
 async function encodeText(text: string, model: string): Promise<number[] | null> {
   try {
     const r = await stPostJson<{ ids?: unknown }>(naiTokenizerEndpoint(model), { text })
@@ -269,12 +269,12 @@ async function encodeText(text: string, model: string): Promise<number[] | null>
 }
 
 /**
- * NovelAI 文本生成（P1-5 对齐 ST nai-settings.js getNovelGenerationData 全集）：
+ * NovelAI 文本生成：
  * - NAI 专属采样参数（tfs/typical_p/slope/freq/presence/phrase_rep_pen/mirostat/math1/order）
- *   直接读 ST settings.nai_settings（与网页端同一份数据源）
+ *   直接读 ST settings.nai_settings
  * - stop_sequences / bad_words_ids：按模型选 tokenizer 服务端编码为 token id
  *   （{{banned}} 宏产物 bannedWords → bad_words_ids）
- * - erato 模型补 <|startoftext|> 前缀（nai-settings.js:567-569）
+ * - erato 模型补 <|startoftext|> 前缀
  * - 非流式：等完整 {output} 一次性回调（NAI SSE 是 token 流格式，v1 取非流式）
  */
 async function naiGenerate(
@@ -293,7 +293,7 @@ async function naiGenerate(
   const s = opts.sampler ?? {}
   const input =
     opts.prompt ?? messagesToPrompt(opts.messages, 'Assistant', 'User')
-  // erato：补 NAI 特殊前缀（nai-settings.js:567-569）
+  // erato：补 NAI 特殊前缀
   const finalInput = model.includes('erato')
     ? `<|startoftext|><|reserved_special_token81|>${input}`
     : input
@@ -340,7 +340,7 @@ async function naiGenerate(
     math1_quad: num('math1_quad', 0),
     math1_quad_entropy_scale: num('math1_quad_entropy_scale', 0),
     phrase_rep_pen: (nai.phrase_rep_pen as string) || 'off',
-    // stop/bad_words 为空时不传：ST 服务端会补模型默认禁词与 logit bias（novelai.js:183-206）
+    // stop/bad_words 为空时不传：ST 服务端会补模型默认禁词与 logit bias
     ...(stopSequences?.length ? { stop_sequences: stopSequences } : {}),
     ...(badWordsIds?.length ? { bad_words_ids: badWordsIds } : {}),
     generate_until_sentence: true,
@@ -387,7 +387,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
 }
 
-/** 采样参数（与 ST 网页端 Chat Completion 采样面板对齐；ST 会按源取用、忽略不支持的） */
+/** 采样参数（ST 会按源取用，忽略不支持的） */
 export interface SamplerParams {
   topP?: number
   topK?: number
@@ -462,7 +462,7 @@ function buildBody(
  * 密钥与模型列表（ST 网页版「API 连接」面板的 App 侧等价物）
  * ------------------------------------------------------------------ */
 
-/** 把密钥写入 ST secrets（服务端加密存储；本 App 不保存明文） */
+/** 把密钥写入 ST secrets（服务端加密存储，本 App 不保存明文） */
 export function writeSecret(key: string, value: string): Promise<unknown> {
   return stPostJson('/api/secrets/write', { key, value })
 }
@@ -539,7 +539,7 @@ export async function generate(
   const source = opts.source ?? currentSource()
   const primary = opts.model ?? currentModel()
 
-  // NovelAI：独立端点（novelai.js /generate；非流式 {output}，与 chat-completions 代理无关）
+  // NovelAI：独立端点（novelai.js /generate，非流式 {output}，与 chat-completions 代理无关）
   if (source === 'novel') {
     await naiGenerate(primary, opts, onDelta)
     return primary
@@ -554,7 +554,7 @@ export async function generate(
   if (!primary) {
     throw new Error('尚未选择模型：请到「设置 → 模型」连接并拉取模型列表后选择')
   }
-  // 备用模型回退（P1 修复）：主模型退避重试仍失败时切一次备用。
+  // 备用模型回退：主模型退避重试仍失败时切一次备用。
   // 此前条件写反（opts.model 存在——即所有正常调用——时恒为空串），功能实际不可达
   const fallback = currentFallbackModel()
   const candidates = fallback && fallback !== primary ? [primary, fallback] : [primary]

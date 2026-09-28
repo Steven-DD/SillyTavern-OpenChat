@@ -1,6 +1,6 @@
 /**
- * 数据巡检（P2-5 对齐 ST data-maid.js 全部端点）：
- * - /report 生成 {report, token}；report 分组 9 组（sanitizeReport:151-162），
+ * 数据巡检：
+ * - /report 生成 {report, token}；report 分组 9 组（sanitizeReport:151-162）
  *   每项为脱敏记录 {name, hash(sha256(路径)), parent?, size?, mtime?}（#sanitizeRecord:135-144）
  * - /view?token=&hash= 逐项查看文件内容（GET，浏览器直接打开即可）
  * - /delete {token, hashes} 按 hash 选择性删除
@@ -8,7 +8,7 @@
  */
 import { stPostJson, stPostVoid, stBase } from './client'
 
-/** 脱敏后的文件记录（data-maid.js:27-33） */
+/** 脱敏后的文件记录 */
 export interface MaidRecord {
   name: string
   hash: string
@@ -41,12 +41,12 @@ export async function runMaidReport(): Promise<MaidRun> {
   return r
 }
 
-/** 按 token 清理全部（服务端 204；token 一次性，用后失效） */
+/** 按 token 清理全部（服务端 204，token 一次性，用后失效） */
 export async function finalizeMaid(token: string): Promise<void> {
   await stPostVoid('/api/data-maid/finalize', { token })
 }
 
-/** 按 hash 选择性删除（data-maid.js:770-815） */
+/** 按 hash 选择性删除 */
 export async function deleteMaidFiles(token: string, hashes: string[]): Promise<void> {
   if (!hashes.length) return
   await stPostVoid('/api/data-maid/delete', { token, hashes })

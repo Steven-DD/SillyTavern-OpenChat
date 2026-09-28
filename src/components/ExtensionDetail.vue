@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 插件详情（右栏）：manifest 说明 + git 状态 + 右键菜单操作
- * （对齐 ST 扩展管理器：/version 状态、/branches+/switch 分支、/move 移动）
+ * （/version 状态、/branches+/switch 分支、/move 移动）
  * 操作入口 = 页面右键菜单（启停 / 更新 / 分支 / 移动 / 删除）。
  */
 import { computed, ref, watch } from 'vue'
@@ -240,8 +240,7 @@ const displayName = computed(() => manifest.value?.display_name || selected.valu
       <section class="sec">
         <h4>启停说明</h4>
         <p class="txt dim">
-          停用状态写入 ST settings.json（extension_settings.disabledExtensions），与 ST
-          网页端的启用开关为同一份数据。第三方插件是前端脚本，仅在其宿主 UI
+          停用状态写入 ST settings.json（extension_settings.disabledExtensions）。第三方插件是前端脚本，仅在其宿主 UI
           中加载运行；本 App 提供下载/更新/删除/启停管理。
         </p>
       </section>

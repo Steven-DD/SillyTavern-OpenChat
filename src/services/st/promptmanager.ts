@@ -1,10 +1,10 @@
 /**
- * Prompt Manager 数据层（对齐 ST openai.js / PromptManager.js）
+ * Prompt Manager 数据层
  *
  * settings.json 两个键：
  * - prompts: {identifier, name, system_prompt, role, content, marker?}[]
  * - prompt_order: [{character_id, order: [{identifier, enabled}]}]
- *   全局默认条目集的 character_id = 100001（ST dummyId，openai.js:698）
+ *   全局默认条目集的 character_id = 100001
  *
  * App 使用 100001 全局序；三槽 main/nsfw/jailbreak 内容可编辑；
  * 其余标识映射到 App 的注入能力（世界书/人设/卡字段/示例），不支持的跳过。
@@ -44,7 +44,7 @@ export const PM_IDENTIFIERS: Record<string, string> = {
   chatHistory: '聊天历史',
 }
 
-/** ST 默认顺序（PromptManager.js:2087-2136，App 支持子集） */
+/** ST 默认顺序 */
 export const DEFAULT_ORDER: { identifier: string; enabled: boolean }[] = [
   { identifier: 'main', enabled: true },
   { identifier: 'worldInfoBefore', enabled: true },
@@ -66,7 +66,7 @@ export interface PmData {
   main: string
   nsfw: string
   jailbreak: string
-  /** 生效顺序（100001；缺省 DEFAULT_ORDER） */
+  /** 生效顺序（缺省 DEFAULT_ORDER） */
   order: { identifier: string; enabled: boolean }[]
   /** 原始 prompts 数组（保存时合并回写） */
   rawPrompts: PmEntry[]

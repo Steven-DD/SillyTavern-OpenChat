@@ -73,7 +73,7 @@ export const SCALE_ZOOM: Record<FontScale, number> = {
   xl: 1.13,
 }
 
-/* 开发期热更新接管（与 theme.ts 同款） */
+/* 开发期热更新接管 */
 if (import.meta.hot) {
   import.meta.hot.accept(acceptHMRUpdate(useAppearanceStore, import.meta.hot))
 }

@@ -1,5 +1,5 @@
 /**
- * 表情立绘（M-10 最小版；sprites.js + classify.js）
+ * 表情立绘（sprites.js + classify.js）
  * - 立绘：GET /api/sprites/get?name=<charName> → [{label, path:'/characters/...'}]
  * - 情感分类：POST /api/extra/classify {text} → [{label, score}]（需 ST extra 模块启用；
  *   不可用时静默失败，UI 降级为手动选择）
@@ -11,7 +11,7 @@ export interface Sprite {
   path: string
 }
 
-/** 角色的立绘列表（无立绘 → 空数组；name 传角色名，与 ST sprites 目录命名一致） */
+/** 角色的立绘列表（无立绘 → 空数组，name 传角色名） */
 export async function listSprites(charName: string): Promise<Sprite[]> {
   const data = await stGet<Sprite[] | unknown>(
     `/api/sprites/get?name=${encodeURIComponent(charName)}`,
@@ -19,13 +19,13 @@ export async function listSprites(charName: string): Promise<Sprite[]> {
   return Array.isArray(data) ? (data as Sprite[]) : []
 }
 
-/** 立绘图片 URL（中继基址 + path；path 形如 /characters/<dir>/<file>） */
+/** 立绘图片 URL（中继基址 + path，path 形如 /characters/<dir>/<file>） */
 export function spriteUrl(relPath: string): string {
   return `${stBase()}${relPath}`
 }
 
 /**
- * 情感分类（extra 模块的 classify 管线；不可用/超时 → null，调用方降级）
+ * 情感分类（extra 模块的 classify 管线，不可用/超时 → null，调用方降级）
  * 返回 top1 的规范化 label（ST 的 emotion labels，如 neutral/joy/sadness/anger/...）
  */
 export async function classifyEmotion(text: string): Promise<string | null> {
@@ -47,7 +47,7 @@ export async function classifyEmotion(text: string): Promise<string | null> {
   }
 }
 
-/** label 规范化（对齐 ST includesIgnoreCaseAndAccents：忽略大小写与重音符号） */
+/** label 规范化 */
 export function normalizeSpriteLabel(label: string): string {
   return label
     .normalize('NFD')
@@ -57,7 +57,7 @@ export function normalizeSpriteLabel(label: string): string {
 }
 
 /**
- * 按 label 选立绘（对齐 ST chooseSpriteForExpression:1563-1573）：
+ * 按 label 选立绘：
  * 先忽略大小写/重音精确匹配；未命中时回退 fallback 表情（ST extension_settings.
  * expressions.fallback_expression，扩展未配置则无回退）。
  */

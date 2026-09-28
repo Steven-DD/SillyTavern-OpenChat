@@ -1,7 +1,7 @@
 /**
- * Summarize 总结记忆（对齐 ST memory 扩展的数据约定）
- * - 摘要正文：chat_metadata.summary（与 ST 完全互通）
- * - 设置：extension_settings.memory（ST 同键：prompt/template/interval/depth/role/position）
+ * Summarize 总结记忆
+ * - 摘要正文：chat_metadata.summary
+ * - 设置：extension_settings.memory
  *   + App 开关 extension_settings.stchat_memory.enabled
  * - 摘要生成本身由 chat store 用主生成通道执行（generateSummaryPrompt 提供提示词）
  */
@@ -17,7 +17,7 @@ export const MEMORY_DEFAULTS = {
     'Limit yourself to at most {{words}} words.',
   /** 注入模板（{{summary}} 替换） */
   template: '[Summary of the chat so far: {{summary}}]',
-  /** 每 N 条消息更新一次摘要（ST 默认 1；App 默认 10 省配额，可调） */
+  /** 每 N 条消息更新一次摘要（ST 默认 1，App 默认 10 省配额，可调） */
   interval: 10,
   depth: 2,
   /** 0 system / 1 user / 2 assistant */
@@ -74,7 +74,7 @@ export async function saveMemorySettings(patch: Partial<MemorySettings>): Promis
   return next
 }
 
-/** App 开关（extension_settings.stchat_memory.enabled；默认关，避免悄悄烧配额） */
+/** App 开关（extension_settings.stchat_memory.enabled，默认关，避免悄悄烧配额） */
 export async function loadMemoryAppEnabled(): Promise<boolean> {
   const settings = await getSettings()
   const ext = settings.extension_settings as Record<string, unknown> | undefined
@@ -89,7 +89,7 @@ export async function saveMemoryAppEnabled(enabled: boolean): Promise<void> {
   await saveSettingsFull(settings)
 }
 
-/** 生成摘要的提示词（ST memory 扩展同款结构：指令 + 最近历史 + 上一版摘要） */
+/** 生成摘要的提示词 */
 export function generateSummaryPrompt(
   summary: string,
   recentTexts: string[],

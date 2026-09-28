@@ -1,5 +1,5 @@
 /**
- * 配置映射 · IO 层（M1）：本 App 的配置 → SillyTavern 的 settings.json
+ * 配置映射 · IO 层：本 App 的配置 → SillyTavern 的 settings.json
  *
  * ── 为什么需要它 ──
  * 目标形态是「App 是唯一入口，底层用稳定版 ST」。用户只应该面对本 App 的配置项，

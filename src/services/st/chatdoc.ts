@@ -31,14 +31,14 @@ export interface DisplayMessage {
   extra?: Record<string, unknown>
   /** 对应 jsonl 行号（0 = 元数据头）；行级增量落盘用，未知为 undefined */
   lineIndex?: number
-  /** 推理/思考内容（读自 extra.reasoning，ST 网页端同字段互通） */
+  /** 推理/思考内容（读自 extra.reasoning） */
   reasoning?: string
   /** swipe 备选回复；存在时 content === swipes[swipeId] */
   swipes?: string[]
   swipeId?: number
   /** 书签（checkpoint）链接：该消息关联的会话文件名 */
   bookmarkLink?: string
-  /** 隐藏（is_system）：不进 prompt，UI 半透明显示（M-20，与 ST is_system 同字段） */
+  /** 隐藏（is_system）：不进 prompt，UI 半透明显示 */
   isSystem?: boolean
 }
 
@@ -76,7 +76,7 @@ export function parseSendDate(v?: string | number): number | undefined {
 
 /**
  * 把 ST 消息数组转成界面模型。
- * 过滤：元数据头、空正文。is_system 行保留（M-20：隐藏消息仍显示，但不进 prompt）。
+ * 过滤：元数据头、空正文。is_system 行保留（但不进 prompt）。
  */
 export function toDisplayMessages(
   raw: StChatMessage[],
@@ -120,16 +120,16 @@ export function toStMessages(
 ): StChatMessage[] {
   return msgs.map((m) => {
     const base: StChatMessage = {
-      // is_system 旁白行保留自身名字（P2：此前被改写成角色名，网页端显示不一致）
+      // is_system 旁白行保留自身名字（此前被改写成角色名）
       name: m.role === 'user' || m.isSystem ? m.name : characterName,
       is_user: m.role === 'user',
-      // ST 网页端为 humanized 格式（parseSendDate 双向兼容，网页端气泡显示一致）
+      // ST 网页端为 humanized 格式（parseSendDate 双向兼容）
       send_date: humanizedSendDate(new Date(m.sendDate ?? Date.now())),
       mes: m.content,
       extra: m.extra ?? {},
     }
     if (m.isSystem) base.is_system = true
-    // reasoning 是 extra.reasoning 的镜像字段：有值时写回（ST 同字段互通）
+    // reasoning 是 extra.reasoning 的镜像字段：有值时写回
     if (m.reasoning) base.extra = { ...base.extra, reasoning: m.reasoning }
     if (m.swipes && m.swipes.length) {
       base.swipes = m.swipes
@@ -139,7 +139,7 @@ export function toStMessages(
   })
 }
 
-/** ST 网页端的 send_date humanized 格式：`September 28, 2026 3:04pm`（util.js 同款） */
+/** ST 网页端的 send_date humanized 格式：`September 28, 2026 3:04pm` */
 export function humanizedSendDate(d = new Date()): string {
   const months = [
     'January', 'February', 'March', 'April', 'May', 'June',
@@ -151,7 +151,7 @@ export function humanizedSendDate(d = new Date()): string {
   return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()} ${h}:${min}${h24 >= 12 ? 'pm' : 'am'}`
 }
 
-/** ST 会话时间戳格式：`2023-5-12 @21h 32m 29s 224ms`（与 ST 自身命名一致，便于生态互通） */
+/** ST 会话时间戳格式：`2023-5-12 @21h 32m 29s 224ms` */
 export function stTimestamp(d = new Date()): string {
   const p = (n: number) => String(n)
   return (
@@ -168,7 +168,7 @@ export function defaultChatName(characterName: string, d = new Date()): string {
 /**
  * 新建会话的初始文档：
  * 元数据头 + 开场白（first_mes）作为第一条角色消息。
- * 与 ST 自身建会话的行为一致 —— 这样在 ST 侧打开同一会话也能看到开场白。
+ * 这样在 ST 侧打开同一会话也能看到开场白。
  */
 export function createChatSeed(
   character: StCharacter,
@@ -246,18 +246,17 @@ export function applyChatGenOverride(
   chat[0] = head as (typeof chat)[number]
 }
 
-/* ---------------- 作者注释（chat_metadata.note_*，与 ST authors-note.js 同字段互通） ---------------- */
+/* ---------------- 作者注释（chat_metadata.note_*） ---------------- */
 
 /**
- * 作者注释（Author's Note）。字段与 ST `scripts/authors-note.js` 的 metadata_keys 一致，
- * 同一会话在 ST 网页端打开时可直接看到/编辑同一份注释。
+ * 作者注释（Author's Note）。同一会话在 ST 网页端打开时可直接看到/编辑同一份注释。
  */
 export interface AuthorsNote {
   /** 注释正文（{{char}}/{{user}} 宏在组装时替换） */
   prompt: string
   /** 每 N 条消息插入一次；1 = 每条都插（ST DEFAULT_INTERVAL = 1） */
   interval: number
-  /** @Depth 插入深度（仅 position = 1 生效；ST DEFAULT_DEPTH = 4） */
+  /** @Depth 插入深度（仅 position = 1 生效，ST DEFAULT_DEPTH = 4） */
   depth: number
   /** 注入位置：0 角色定义后（scenario）/ 1 聊天内 @Depth（默认）/ 2 角色定义前（before） */
   position: number
@@ -265,7 +264,7 @@ export interface AuthorsNote {
   role: number
 }
 
-/** ST 默认值（authors-note.js:272-275） */
+/** ST 默认值 */
 export const AN_DEFAULTS: Omit<AuthorsNote, 'prompt'> = {
   interval: 1,
   depth: 4,
@@ -311,9 +310,9 @@ export function applyAuthorsNote(chat: unknown[], note: AuthorsNote | null): voi
   chat[0] = head as (typeof chat)[number]
 }
 
-/* ---------------- 总结记忆 / timedEffects（chat_metadata，与 ST memory 扩展互通） ---------------- */
+/* ---------------- 总结记忆 / timedEffects（chat_metadata） ---------------- */
 
-/** 读会话摘要（chat_metadata.summary，ST memory 扩展同键） */
+/** 读会话摘要（chat_metadata.summary） */
 export function chatSummary(chat: unknown[]): string {
   if (!chat.length) return ''
   const meta = asDict(asDict(chat[0]).chat_metadata)
@@ -343,7 +342,7 @@ export interface TimedWorldInfo {
   cooldown?: Record<string, TimedWorldInfoEffect>
 }
 
-/** 读宏变量（chat_metadata.variables，与 ST 网页端同源存储，P2-1） */
+/** 读宏变量（chat_metadata.variables） */
 export function chatVariablesOf(chat: unknown[]): Record<string, unknown> {
   if (!chat.length) return {}
   const meta = asDict(asDict(chat[0]).chat_metadata)
@@ -351,7 +350,7 @@ export function chatVariablesOf(chat: unknown[]): Record<string, unknown> {
   return v && typeof v === 'object' ? (v as Record<string, unknown>) : {}
 }
 
-/** 读 timedWorldInfo（chat_metadata.timedWorldInfo，与 ST WorldInfoTimedEffects 互通；world-info.js:559-577） */
+/** 读 timedWorldInfo */
 export function chatTimedEffects(chat: unknown[]): TimedWorldInfo {
   if (!chat.length) return {}
   const meta = asDict(asDict(chat[0]).chat_metadata)
@@ -379,7 +378,7 @@ export function chatTimedEffects(chat: unknown[]): TimedWorldInfo {
   return out
 }
 
-/** 写 timedWorldInfo（空结构 = 删除键，对齐 ST 直接改 chat_metadata.timedWorldInfo） */
+/** 写 timedWorldInfo（空结构 = 删除键） */
 export function applyTimedEffects(chat: unknown[], state: TimedWorldInfo): void {
   if (!chat.length) return
   const head = asDict(chat[0])

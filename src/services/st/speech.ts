@@ -44,7 +44,7 @@ let currentAudio: HTMLAudioElement | null = null
 let currentUrl: string | null = null
 let currentOnEnded: (() => void) | null = null
 
-/** 释放当前音频：暂停 + revoke blob URL + 触发结束回调（P2：此前换曲时 URL 泄漏） */
+/** 释放当前音频：暂停 + revoke blob URL + 触发结束回调（此前换曲时 URL 泄漏） */
 function releaseCurrent(): void {
   currentOnEnded?.()
   currentOnEnded = null

@@ -1,8 +1,8 @@
 /**
- * 向量记忆（对齐 ST vectors 扩展的数据流）
+ * 向量记忆
  * - 服务端：/api/vector/insert|query|list（嵌入由 ST 服务端 transformers 完成）
  * - 集合：每个会话一个 collectionId（stchat-<avatar>-<file>）
- * - 设置：extension_settings.vectors（ST 同键：enabled/source/template/depth/top_k）
+ * - 设置：extension_settings.vectors
  *   + App 开关 extension_settings.stchat_vectors.enabled
  */
 import { stPostJson } from './client'

@@ -1,5 +1,5 @@
 /**
- * 插件宿主命令封装 + 与 Rust 侧对齐的类型定义
+ * 插件宿主命令封装 + 与 Rust 侧
  *
  * 类型定义放这里（而不是 store），因为这里是「与 Rust 的边界」——
  * 谁改 Rust 结构体，谁就来改这个文件，一眼能找到。
@@ -195,7 +195,7 @@ export async function stDataPlan(): Promise<MigrationPlan | null> {
 }
 
 /**
- * 执行迁移（复制 → 校验 → 切换绑定；源目录保留）。
+ * 执行迁移（复制 → 校验 → 切换绑定，源目录保留）。
  * 失败时 reject，`err` 是 Rust 侧给出的可读原因。
  */
 export async function stDataMigrate(): Promise<MigrationResult | null> {
@@ -209,7 +209,7 @@ export async function stDataRollback(): Promise<DataStatus | null> {
   return call<DataStatus>('st_data_rollback')
 }
 
-/** 删除外移数据副本（仅当当前数据不在外移目录时允许；返回删除后的状态） */
+/** 删除外移数据副本（仅当当前数据不在外移目录时允许，返回删除后的状态） */
 export async function stDataRemoveExternal(): Promise<DataStatus | null> {
   if (!hasTauri()) return null
   return call<DataStatus>('st_data_remove_external')
@@ -275,7 +275,7 @@ export async function chatMutateLines(
   await call<void>('chat_mutate_lines', { avatar, file, ops })
 }
 
-/** 导出会话原版 jsonl 到指定路径（与 ST 文件互通）；非桌面环境抛错 */
+/** 导出会话原版 jsonl 到指定路径；非桌面环境抛错 */
 export async function chatExportFile(
   avatar: string,
   file: string,

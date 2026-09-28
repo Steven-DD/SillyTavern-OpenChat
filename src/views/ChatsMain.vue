@@ -150,7 +150,7 @@ function scrollToEnd(force = false) {
   void nextTick(() => {
     const el = listEl.value
     if (!el) return
-    // 粘底判断（P2）：流式期间用户向上翻历史时不被强行拽回底部；
+    // 粘底判断：流式期间用户向上翻历史时不被强行拽回底部；
     // 距底 120px 以内视为"在底部"。切会话时强制滚底。
     if (!force) {
       const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight

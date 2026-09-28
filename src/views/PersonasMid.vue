@@ -2,7 +2,7 @@
 /**
  * 用户（中栏）：人设列表
  *
- * 与 ST 的 Persona 面板对齐 —— 列表项 = 头像 + 人设名（+ 默认标记）。
+ * 列表项 = 头像 + 人设名（+ 默认标记）。
  */
 import { computed, onMounted, ref } from 'vue'
 import MidPane from '@/components/MidPane.vue'

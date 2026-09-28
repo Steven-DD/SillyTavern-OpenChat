@@ -1,13 +1,13 @@
 /**
- * 宏引擎 v2 —— 对齐 ST 1.19 宏系统（public/scripts/macros/definitions/*.js，约 55 个宏）
+ * 宏引擎 v2（约 55 个宏）
  *
  * ── 语法 ──
- * {{name}}、{{name::arg1::arg2}}、{{name:arg}}（random/pick/roll/datetimeformat 兼容冒号）、
+ * {{name}}、{{name::arg1::arg2}}、{{name:arg}}（random/pick/roll/datetimeformat 兼容冒号）
  * {{// 注释}}、块级 {{if cond}}…{{else}}…{{/if}}。大小写不敏感。
  * 支持嵌套（内层宏先展开，最多迭代 8 轮防死循环）。
  *
- * ── 与 ST 的差异（有意为之，均已在计划文档注明）──
- * - 变量存储：chat 级直接读写 chat_metadata.variables（P2-1 已对齐，跨端互通）
+ * ── 有意为之的差异 ──
+ * - 变量存储：chat 级直接读写 chat_metadata.variables
  * - {{trim}} 非作用域用法返回空串（ST 返回标记做后处理正则，效果近似）
  * - {{outlet}}/{{hasExtension}}/{{group}} 系列、instruct 序列宏在 App 无对应概念，返回空串
  */
@@ -85,7 +85,7 @@ function localVarStore(storageKey: string): MacroVariables {
 
 /** 会话级变量（localStorage 存储）。
  *  ⚠ 生产主链路已不再使用：prompt 组装经 `BuildPromptOptions.macro.chatVars` 注入
- *  chat_metadata.variables 的 store（与 ST 互通）。本函数保留供自检脚本使用。 */
+ *  chat_metadata.variables 的 store。本函数保留供自检脚本使用。 */
 export function getChatVarStore(sessionKey: string): MacroVariables {
   return localVarStore(`app.chat.vars::${sessionKey}`)
 }
@@ -271,7 +271,7 @@ reg('isodate', ({ unnamed: [o] }) => {
   return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`
 })
 reg('datetimeformat', ({ unnamed: [f] }) => momentLike(new Date(), s(f)))
-/** 毫秒差 → moment 风格英文 humanize（对齐 ST duration.humanize 的常用档位） */
+/** 毫秒差 → moment 风格英文 humanize */
 function humanizeDuration(ms: number): string {
   const abs = Math.abs(ms)
   const table: [number, number, string, string][] = [
@@ -357,7 +357,7 @@ reg('roll', ({ unnamed, raw }) => {
   return result === null ? '' : String(result)
 })
 
-/* ---- variables（chat / global 双存储，字段对齐 variable-macros.js） ---- */
+/* ---- variables（chat / global 双存储） ---- */
 function registerVarFamily(kind: 'var' | 'globalvar'): void {
   const pick = (c: MacroContext): MacroVariables => (kind === 'var' ? c.chatVars : c.globalVars)
   const p = kind === 'var' ? '' : 'global'
@@ -475,7 +475,7 @@ function expandOnce(text: string, ctx: MacroContext): string {
   })
 }
 
-/** 块级 {{if cond}}…{{else}}…{{/if}}（非嵌套；条件同行内 if） */
+/** 块级 {{if cond}}…{{else}}…{{/if}}（非嵌套，条件同行内 if） */
 export function expandIfBlocks(text: string, ctx: MacroContext): string {
   if (!text.includes('{{')) return text
   return text.replace(

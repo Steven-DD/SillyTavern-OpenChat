@@ -22,7 +22,7 @@ const router = useRouter()
 const q = ref('')
 const tag = ref('')
 
-/* ---------- 群组（B4） ---------- */
+/* ---------- 群组 ---------- */
 const grpOpen = ref(false)
 const grpName = ref('')
 const grpMembers = ref<string[]>([])
@@ -149,7 +149,7 @@ function onCtx(c: StCharacter, e: MouseEvent) {
   )
 }
 
-/** 角色卡重命名（B5：走 /api/characters/rename，服务端连聊天目录一起迁移） */
+/** 角色卡重命名（服务端连聊天目录一起迁移） */
 const charRename = ref<{ avatar: string; name: string } | null>(null)
 const renameBusy = ref(false)
 
@@ -171,7 +171,7 @@ async function doRenameCharacter() {
   }
 }
 
-/* ---- 批量操作（B5）：多选 → 批量打标签 / 删除 / 导出 ---- */
+/* ---- 批量操作：多选 → 批量打标签 / 删除 / 导出 ---- */
 const multiMode = ref(false)
 const checked = ref<string[]>([])
 const batchTag = ref('')
@@ -259,7 +259,7 @@ async function doDelete() {
   delTarget.value = null
 }
 
-/* ---------- 新建 / 导入（与 ST 侧一致） ---------- */
+/* ---------- 新建 / 导入 ---------- */
 const panelOpen = ref(false)
 const newName = ref('')
 const msg = ref('')
@@ -418,7 +418,7 @@ onMounted(() => {
       @cancel="delTarget = null"
     />
 
-    <!-- ── 群组（B4，与 ST 群聊数据互通） ── -->
+    <!-- ── 群组 ── -->
     <div class="grp-head">
       <span class="grp-t">群组（{{ chat.groupsList.length }}）</span>
       <span class="grow" />

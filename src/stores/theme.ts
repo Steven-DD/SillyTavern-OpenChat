@@ -4,7 +4,7 @@ export type ThemeMode = 'light' | 'dark' | 'dusk'
 
 /**
  * 主题状态 + 皮肤通道。
- * M1 内置三主题；后续皮肤包 = theme.json（仅覆盖语义 token），
+ * M1 内置三主题；后续皮肤包 = theme.json（仅覆盖语义 token）
  * 经 loadSkin 应用到 :root CSS 变量，与本 store 的 apply 同一通道。
  */
 export const useThemeStore = defineStore('theme', {

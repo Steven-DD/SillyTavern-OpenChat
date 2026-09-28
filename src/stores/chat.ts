@@ -1,5 +1,5 @@
 /**
- * 会话状态（M3 · 真实角色聊天）
+ * 会话状态
  *
  * 一条「会话」= ST 侧的一个 <角色>/<会话名>.jsonl 文件。
  * 发消息流程：push 用户消息 → 组装 prompt（角色卡注入）→ SSE 流式 → 落盘回 ST。
@@ -119,7 +119,7 @@ export interface NewChatOptions {
 /* ---- 本地持久化（置顶 / 显示别名，均为壳侧数据，不进 ST） ---- */
 const PIN_KEY = 'app.chat.pins'
 const ALIAS_KEY = 'app.chat.aliases'
-/** 会话配置摘要（人设锁/自定义参数；ST recent 接口不带 metadata，本地记账） */
+/** 会话配置摘要（人设锁/自定义参数，ST recent 接口不带 metadata，本地记账） */
 const SESS_META_KEY = 'app.chat.sessmeta'
 
 function loadPins(): string[] {
@@ -190,19 +190,19 @@ export const useChatStore = defineStore('chat', {
     sessionsLoading: false,
     /** 置顶的会话 key 列表（本地持久化，ST 侧无此概念） */
     pinnedKeys: loadPins(),
-    /** 会话显示别名（重命名用；键为 sessionKey，本地持久化） */
+    /** 会话显示别名（重命名用，键为 sessionKey，本地持久化） */
     aliases: loadAliases(),
-    /** 会话配置摘要（人设锁/自定义参数；本地持久化） */
+    /** 会话配置摘要（人设锁/自定义参数，本地持久化） */
     sessMeta: loadSessMeta(),
 
     // ── 当前会话 ──
     currentAvatar: '',
     currentFile: '',
-    /** 会话锁定的人设 id（来自 chat_metadata.persona；null = 跟随默认人设） */
+    /** 会话锁定的人设 id（来自 chat_metadata.persona，null = 跟随默认人设） */
     lockedPersonaId: null as string | null,
-    /** 会话级生成参数覆盖（来自 chat_metadata.app_gen；null = 跟随全局设置） */
+    /** 会话级生成参数覆盖（来自 chat_metadata.app_gen，null = 跟随全局设置） */
     genOverride: null as ChatGenOverride | null,
-    /** 作者注释（来自 chat_metadata.note_*，与 ST 网页端同字段互通；null = 未设置） */
+    /** 作者注释（来自 chat_metadata.note_*，null = 未设置） */
     authorsNote: null as AuthorsNote | null,
     messages: [] as DisplayMessage[],
     loadingChat: false,
@@ -210,7 +210,7 @@ export const useChatStore = defineStore('chat', {
 
     // ── 生成 ──
     streaming: false,
-    /** 当前生成的中断控制器（streaming 期间非空；「停止生成」触发 abort） */
+    /** 当前生成的中断控制器（streaming 期间非空，「停止生成」触发 abort） */
     abortCtl: null as AbortController | null,
     promptInfo: null as PromptInfo | null,
     /** 最近一轮生成的 token 用量与费用（null = 本会话还没生成过） */
@@ -233,7 +233,7 @@ export const useChatStore = defineStore('chat', {
 
     /** ST 侧用户名（{{user}} 宏），从 /api/settings/get 读 */
     userName: 'User',
-    /** ST 代写指令模板（settings.impersonation_prompt，与 ST 网页端同一份） */
+    /** ST 代写指令模板（settings.impersonation_prompt） */
     impersonationPrompt: '',
     /** 当前会话是否已有 ST 对应文件（未落盘 = 全新会话） */
     dirty: false,
@@ -241,24 +241,24 @@ export const useChatStore = defineStore('chat', {
     /** 新建会话配置弹窗开关（中栏「＋ 新建会话」与聊天区空态共用） */
     newChatOpen: false,
 
-    /** 消息翻译结果（键 = 消息下标；再点一次删除） */
+    /** 消息翻译结果（键 = 消息下标，再点一次删除） */
     translations: {} as Record<number, string>,    /** 正在朗读的消息下标（-1 = 无） */
     speakingIndex: -1,
     /** 快捷回复按钮（extension_settings.stchat_quick_replies） */
     quickReplies: [] as { label: string; message: string; enabled: boolean; mode?: 'send' | 'insert' }[],
 
-    /** 总结记忆（chat_metadata.summary，与 ST memory 扩展互通） */
+    /** 总结记忆（chat_metadata.summary） */
     summary: '',
     /** 世界书 timedEffects 计数表（chat_metadata.timedEffects） */
     timedState: {} as TimedWorldInfo,
-    /** 宏变量（chat_metadata.variables，与 ST 网页端同源互通，P2-1） */
+    /** 宏变量（chat_metadata.variables） */
     chatVariables: {} as Record<string, unknown>,
     /** 群聊会话的 chat_metadata（落盘时随 header 写回，避免清空 ST 侧元数据） */
     groupMetadata: {} as Record<string, unknown>,
     /** chat_variables 防抖落盘计时器 */
     chatVarFlushTimer: null as ReturnType<typeof setTimeout> | null,
 
-    /* ---- 群聊（B4）---- */
+    /* ---- 群聊---- */
     /** 当前打开的群（null = 单角色会话） */
     group: null as StGroup | null,
     /** 群聊文件 id（group_chats/<id>.jsonl） */
@@ -271,14 +271,14 @@ export const useChatStore = defineStore('chat', {
     lastSpeaker: '',
     /** STscript /echo 输出（状态条短暂展示） */
     scriptEcho: '',
-    /** 群聊自动发言（ST is_group_automode_enabled；间隔 = group.auto_mode_delay 秒） */
+    /** 群聊自动发言（ST is_group_automode_enabled，间隔 = group.auto_mode_delay 秒） */
     groupAutoMode: false,
     groupAutoModeTimer: null as ReturnType<typeof setInterval> | null,
-    /** 会话列表延迟刷新定时器（P2：每条消息落盘后全量拉 recentChats 太重，合并之） */
+    /** 会话列表延迟刷新定时器（每条消息落盘后全量拉 recentChats 太重，合并之） */
     sessionsRefreshTimer: null as ReturnType<typeof setTimeout> | null,
-    /** ST Instruct 模板设置（power_user.instruct；undefined = 未加载） */
+    /** ST Instruct 模板设置（power_user.instruct，undefined = 未加载） */
     instructData: undefined as InstructSettings | undefined,
-    /** auto-continue（M-19）：回复 token 数低于目标时自动续写 */
+    /** auto-continue：回复 token 数低于目标时自动续写 */
     autoContinueEnabled: false,
     autoContinueTarget: 400,
     /** 上一次生成是否被用户中断（auto-continue 据此跳过续写） */
@@ -350,15 +350,15 @@ export const useChatStore = defineStore('chat', {
           s.stUserName = this.userName
         }
         if (typeof st.max_context === 'number' && st.max_context > 0) s.maxContext = st.max_context
-        // Instruct 模板（Text Completion 拼接用，B5）
+        // Instruct 模板（Text Completion 拼接用）
         this.instructData = await loadInstruct()
-        // auto-continue 设置（M-19）
+        // auto-continue 设置
         const ac = await loadAutoContinue().catch(() => null)
         if (ac) {
           this.autoContinueEnabled = ac.enabled
           this.autoContinueTarget = ac.targetLength
         }
-        // ST 代写指令模板（Prompt Manager 同源设置）
+        // ST 代写指令模板
         const ip = (st as Record<string, unknown>).impersonation_prompt
         if (typeof ip === 'string' && ip.trim()) this.impersonationPrompt = ip
       } catch {
@@ -479,7 +479,7 @@ export const useChatStore = defineStore('chat', {
 
     /** 打开一个已存在的会话 */
     /**
-     * 锁定/解除锁定本会话的人设（写 chat_metadata.persona，与 ST 完全一致）。
+     * 锁定/解除锁定本会话的人设（写 chat_metadata.persona）。
      * id = null 表示解除锁定，回到「跟随默认人设」。
      */
     async lockPersona(id: string | null) {
@@ -520,7 +520,7 @@ export const useChatStore = defineStore('chat', {
     },
 
     /**
-     * 设置作者注释（写 chat_metadata.note_*，与 ST 网页端 authors-note 同一落点，
+     * 设置作者注释（写 chat_metadata.note_*，
      * 两边打开同一会话看到的是同一份注释）。null = 清除。生成中禁改。
      */
     async setAuthorsNote(note: AuthorsNote | null) {
@@ -544,7 +544,7 @@ export const useChatStore = defineStore('chat', {
 
     async openSession(avatar: string, fileId: string) {
       if (this.streaming) return
-      // 切会话前把 400ms 防抖窗口内的变量变更落盘（P2：否则旧会话丢改动）
+      // 切会话前把 400ms 防抖窗口内的变量变更落盘（否则旧会话丢改动）
       await this.flushChatVariables()
       this.loadingChat = true
       this.error = ''
@@ -629,7 +629,7 @@ export const useChatStore = defineStore('chat', {
       if (greeting && seed.length > 1) {
         seed[1] = { ...seed[1], mes: greeting }
       }
-      // 会话元数据：人设锁定 + 生成参数覆盖（chat_metadata 自由结构，对齐 ST）
+      // 会话元数据：人设锁定 + 生成参数覆盖（chat_metadata 自由结构）
       const override = opts.genOverride
       if (override) applyChatGenOverride(seed, override)
       if (opts.personaId) {
@@ -684,7 +684,7 @@ export const useChatStore = defineStore('chat', {
         (m) => !m.error && !m.pending && m.content.trim().length > 0,
       )
       const st = toStMessages(usable, charName)
-      // 正则脚本（提示词通路，placement 按消息角色；深度 = 距末尾条数）
+      // 正则脚本（提示词通路，placement 按消息角色，深度 = 距末尾条数）
       const scripts = activeRegexScripts()
       if (scripts.length) {
         const total = st.length
@@ -725,9 +725,9 @@ export const useChatStore = defineStore('chat', {
       char: StCharacter,
       s: ReturnType<typeof useSettingsStore>,
     ): Promise<{ built: ReturnType<typeof buildPrompt>; wiActivated: number }> {
-      // Prompt Manager 数据（prompt_order + 三槽；ST settings.json 同源）
+      // Prompt Manager 数据（prompt_order + 三槽）
       const pm = await loadPm()
-      // 生效人设：会话锁定优先 → 默认人设 → 列表第一个（与 ST 的判定一致）
+      // 生效人设：会话锁定优先 → 默认人设 → 列表第一个
       const pStore = usePersonaStore()
       const effective = resolvePersona(
         {
@@ -761,8 +761,8 @@ export const useChatStore = defineStore('chat', {
             wiEntries,
             s.maxContext,
             { recursive },
-            // turn 基准对齐 ST（world-info.js 用含 header 的 chat.length）：App 的
-            // messages 不含 header，+1 保证 sticky/cooldown 区间与网页端一致
+            // turn 基准：服务端按含 header 的 chat.length 计数，App 的
+            // messages 不含 header，故 +1 补上 header 计数
             { state: this.timedState, turn: this.messages.length + 1 },
           )
           wiActivated = res.activated.length
@@ -789,7 +789,7 @@ export const useChatStore = defineStore('chat', {
         wiActivated = 0 // 世界书失败不阻断生成
       }
 
-      // 总结记忆 / 向量检索注入块（B3）
+      // 总结记忆 / 向量检索注入块
       let memory: { content: string; position: number; depth: number; role: number } | undefined
       let vectors: { content: string; depth: number } | undefined
       try {
@@ -852,7 +852,7 @@ export const useChatStore = defineStore('chat', {
           model: s.model,
           maxResponse: this.genOverride?.maxTokens ?? s.maxTokens,
           swipeId: this.messages[this.messages.length - 1]?.swipeId ?? 0,
-          // P1 统一：prompt 组装与 STscript/正则共用同一份 chat_metadata.variables 存储
+          // prompt 组装和 STscript/正则共用同一份 chat_metadata.variables 存储
           chatVars: this.chatVarStore(),
         },
         pm: {
@@ -923,11 +923,11 @@ export const useChatStore = defineStore('chat', {
       try {
         const { built, wiActivated } = await this.assemblePrompt(char, s)
 
-        // 接口实测用量（SSE 尾帧；部分通道不回传 → 回落本地估算）
+        // 接口实测用量（SSE 尾帧，部分通道不回传 → 回落本地估算）
         let measured: { prompt: number; completion: number } | null = null
         const used =
           s.genType === 'text'
-            ? // Text Completion：Instruct 启用时按 ST 模板拼接（B5），否则默认级别
+            ? // Text Completion：Instruct 启用时按 Instruct 模板拼接，否则默认级别
               await (async () => {
                 const tp = this.instructPromptOf(built.messages, char.name)
                 await generateText(
@@ -964,7 +964,7 @@ export const useChatStore = defineStore('chat', {
             messages: built.messages,
             model: s.model,
             source: s.source,
-            // Horde：补全式通道走 Instruct 拼接（对齐 ST horde = Text Completion，P1-4）
+            // Horde：补全式通道走 Instruct 拼接
             ...(s.source === 'horde' || s.source === 'novel'
               ? { ...this.instructPromptOf(built.messages, char.name), maxContext: s.maxContext }
               : {}),
@@ -989,7 +989,7 @@ export const useChatStore = defineStore('chat', {
             reply.content += delta
           },
           (r) => {
-            // 推理内容增量（extra.reasoning 镜像字段，ST 网页端互通）
+            // 推理内容增量（extra.reasoning 镜像字段）
             reply.reasoning = (reply.reasoning ?? '') + r
           },
                 )
@@ -1034,7 +1034,7 @@ export const useChatStore = defineStore('chat', {
           this.lastError = '模型返回空内容'
         }
 
-        // B3 后置：向量索引 + 自动摘要（静默执行，失败不打断聊天）
+        // 生成后置：向量索引 + 自动摘要（静默执行，失败不打断聊天）
         try {
           await this.indexSessionVectors()
           const memCfg = await loadMemorySettings()
@@ -1047,7 +1047,7 @@ export const useChatStore = defineStore('chat', {
       } catch (e) {
         reply.pending = false
         if (ctl.signal.aborted) {
-          // 主动停止：不算错误。已有内容 → 保留为正常消息（对齐 ST 行为）；
+          // 主动停止：不算错误。已有内容 → 保留为正常消息；
           // 空内容 → 移除占位气泡
           this.lastGenAborted = true
           this.lastError = ''
@@ -1057,7 +1057,7 @@ export const useChatStore = defineStore('chat', {
           }
         } else {
           // 非 abort 错误（断网/上游中断）：**保留已生成内容**——生成几百字后断线
-          // 不应把输出整段替换成错误文本（对齐 ST 保留部分输出的行为）。
+          // 不应把输出整段替换成错误文本。
           // 错误信息放 lastError（UI 有展示）；气泡仅在完全没有产出时才标记为错误。
           this.lastError = e instanceof Error ? e.message : String(e)
           this.conn = 'unknown'
@@ -1091,7 +1091,7 @@ export const useChatStore = defineStore('chat', {
     },
 
     /**
-     * auto-continue（P2-3 对齐 ST shouldAutoContinue，script.js:5716-5776）：
+     * auto-continue：
      * - 用服务端真实 tokenizer 计数（失败回落本地估算）
      * - 新增 chunk 需 >5 字符（USABLE_LENGTH）才继续
      * - 无轮数上限（ST 靠目标长度自然收敛），无增量即退出
@@ -1117,7 +1117,7 @@ export const useChatStore = defineStore('chat', {
       }
     },
 
-    /** 续写末条 AI 回复（M-3 Continue）：增量追加到现有内容 + 同步当前 swipe */
+    /** 续写末条 AI 回复：增量追加到现有内容 + 同步当前 swipe */
     async continueReply() {
       if (this.streaming) return
       const char = this.currentCharacter
@@ -1134,8 +1134,8 @@ export const useChatStore = defineStore('chat', {
         const { built } = await this.assemblePrompt(char, s)
         // CC：continue_nudge system 轮 + 半截 assistant 消息收尾（ST continue_prefill=false 默认）
         const messages = withContinue(built.messages)
-        // CC continue_postfix（script.js:4975-4981）：半截内容不带结尾空格时补一个空格，
-        // 续写首个增量回填时补上，保证拼接文本与网页端一致
+        // CC continue_postfix：半截内容不带结尾空格时补一个空格，
+        // 续写首个增量回填时补上，保证拼接文本连续
         let needsPostfix = s.genType !== 'text' && !/\s$/.test(last.content)
         const syncSwipe = () => {
           if (last.swipes && last.swipeId !== undefined && last.swipes[last.swipeId] !== undefined) {
@@ -1143,7 +1143,7 @@ export const useChatStore = defineStore('chat', {
           }
         }
         if (s.genType === 'text') {
-          // Text：prefill 语义——prompt 止于半截内容，不追加 [Continue] 轮（P1-1）
+          // Text：prefill 语义——prompt 止于半截内容，不追加 [Continue] 轮
           const tp = this.instructPromptOf(built.messages, char.name, { isContinue: true })
           await generateText(
             {
@@ -1168,7 +1168,7 @@ export const useChatStore = defineStore('chat', {
               messages,
               model: s.model,
               source: s.source,
-              // Horde：补全式通道走 Instruct 拼接（P1-4）；continue 同样 prefill 化
+              // Horde：补全式通道走 Instruct 拼接；continue 同样 prefill 化
               ...(s.source === 'horde' || s.source === 'novel'
                 ? {
                     ...this.instructPromptOf(built.messages, char.name, { isContinue: true }),
@@ -1216,7 +1216,7 @@ export const useChatStore = defineStore('chat', {
       }
     },
 
-    /** 代写（M-4 Impersonate）：以用户身份生成一条消息文本，返回给输入框草稿 */
+    /** 代写：以用户身份生成一条消息文本，返回给输入框草稿 */
     async impersonate(): Promise<string> {
       if (this.streaming) return ''
       const char = this.currentCharacter
@@ -1239,7 +1239,7 @@ export const useChatStore = defineStore('chat', {
           out += d
         }
         if (s.genType === 'text') {
-          // Impersonate：不补 output 前缀（ST 代写不添加 assistant 前缀，P1-7）
+          // Impersonate：不补 output 前缀（ST 代写不添加 assistant 前缀）
           const tp = this.instructPromptOf(messages, char.name, { isImpersonate: true })
           await generateText(
             {
@@ -1261,7 +1261,7 @@ export const useChatStore = defineStore('chat', {
               messages,
               model: s.model,
               source: s.source,
-              // Horde：补全式通道走 Instruct 拼接（P1-4）；impersonate 不补 output 前缀
+              // Horde：补全式通道走 Instruct 拼接；impersonate 不补 output 前缀
               ...(s.source === 'horde' || s.source === 'novel'
                 ? {
                     ...this.instructPromptOf(messages, char.name, { isImpersonate: true }),
@@ -1344,7 +1344,7 @@ export const useChatStore = defineStore('chat', {
       }
     },
 
-    /** 向量索引：把未入库的消息送 ST 服务端嵌入（B3 M-7；静默） */
+    /** 向量索引：把未入库的消息送 ST 服务端嵌入（静默） */
     async indexSessionVectors() {
       try {
         if (!(await loadVectorsAppEnabled()) || !this.currentAvatar || !this.currentFile) return
@@ -1363,7 +1363,7 @@ export const useChatStore = defineStore('chat', {
       }
     },
 
-    /** 更新总结记忆（M-6）：主通道静默生成 → 写 chat_metadata.summary（与 ST memory 互通） */
+    /** 更新总结记忆：主通道静默生成 → 写 chat_metadata.summary */
     async updateSummary() {
       if (this.streaming) return
       const char = this.currentCharacter
@@ -1433,9 +1433,9 @@ export const useChatStore = defineStore('chat', {
     },
 
     /** 发送用户消息 */
-    /* ---------------- STscript（B5） ---------------- */
+    /* ---------------- STscript ---------------- */
 
-    /** /genraw：raw 直出（最小系统上下文，不套角色卡、不落盘） */
+    /** /genraw：raw 直出（最小系统上下文，不套角色卡，不落盘） */
     async genraw(prompt: string): Promise<string> {
       if (this.streaming) return ''
       const s = useSettingsStore()
@@ -1514,7 +1514,7 @@ export const useChatStore = defineStore('chat', {
       }
     },
 
-    /* ---------------- 群聊（B4） ---------------- */
+    /* ---------------- 群聊 ---------------- */
 
     /** 成员元表（avatar → 名字/talkativeness） */
     groupMemberMeta(): Record<string, GroupMemberMeta> {
@@ -1531,7 +1531,7 @@ export const useChatStore = defineStore('chat', {
       return map
     },
 
-    /** 打开群聊会话（group_chats/<chatId>.jsonl，与 ST 网页端同一份数据） */
+    /** 打开群聊会话（group_chats/<chatId>.jsonl） */
     async openGroupSession(groupId: string, chatId: string) {
       if (this.streaming) return
       // 切会话前把防抖窗口内的变量变更落盘（与 openSession 同理）
@@ -1542,7 +1542,7 @@ export const useChatStore = defineStore('chat', {
         if (!this.groupsList.length) this.groupsList = await listGroups()
         const g = this.groupsList.find((x) => x.id === groupId) ?? null
         const raw = await getGroupChat(chatId)
-        // 剥离 header 行（对齐 ST 网页端 group-chats.js:272-274 data.shift()）；
+        // 剥离 header 行；
         // 过滤而非仅 shift：兼容历史上误存的多重 header；此后 groupLines = 纯消息行，
         // lineIndex 直接对应 groupLines 下标，saveGroupLines 统一前置 header，不再重复
         const lines = raw.filter((l) => !isChatHeader(l as StChatMessage))
@@ -1606,7 +1606,7 @@ export const useChatStore = defineStore('chat', {
       return out
     },
 
-    /** 整文件落盘群聊（header + 消息行；header 带回 groupMetadata，保全 ST 侧 chat_metadata） */
+    /** 整文件落盘群聊（header + 消息行，header 带回 groupMetadata，保全 ST 侧 chat_metadata） */
     async saveGroupLines() {
       if (!this.group || !this.groupChatId) return
       try {
@@ -1641,12 +1641,12 @@ export const useChatStore = defineStore('chat', {
         sendDate: Date.now(),
         lineIndex: this.groupLines.length - 1,
       })
-      // 先落盘用户行：MANUAL 等策略下本轮可能无人发言（对齐 ST「用户消息原样保存」）
+      // 先落盘用户行：MANUAL 等策略下本轮可能无人发言
       await this.saveGroupLines()
       await this.runGroupTurn({ isUserInput: true, activationText: t })
     },
 
-    /** 生成一轮群聊发言（按激活策略编排发言成员；可中断） */
+    /** 生成一轮群聊发言（按激活策略编排发言成员，可中断） */
     async runGroupTurn(opts: { isUserInput?: boolean; activationText?: string } = {}) {
       const g = this.group
       if (!g || this.streaming) return
@@ -1717,7 +1717,7 @@ export const useChatStore = defineStore('chat', {
                   messages,
                   model: s.model,
                   source: s.source,
-                  // Horde：补全式通道走 Instruct 拼接（P1-4）
+                  // Horde：补全式通道走 Instruct 拼接
                   ...(s.source === 'horde' || s.source === 'novel'
                     ? { ...this.instructPromptOf(messages, member.name), maxContext: s.maxContext }
                     : {}),
@@ -1770,7 +1770,7 @@ export const useChatStore = defineStore('chat', {
                 if (i >= 0) this.messages.splice(i, 1)
               }
             } else {
-              // 非 abort 错误：保留已生成部分（对齐单聊行为），仅无产出时才标记错误气泡
+              // 非 abort 错误：保留已生成部分，仅无产出时才标记错误气泡
               this.lastError = e instanceof Error ? e.message : String(e)
               if (!reply.content.trim() && !(reply.reasoning ?? '').trim()) {
                 reply.error = true
@@ -1787,7 +1787,7 @@ export const useChatStore = defineStore('chat', {
       }
     },
 
-    /** 切换群聊生成模式（写 ST 群文件，与网页端互通） */
+    /** 切换群聊生成模式（写 ST 群文件） */
     async setGroupGenerationMode(mode: number) {
       const g = this.group
       if (!g || this.streaming) return
@@ -1831,7 +1831,7 @@ export const useChatStore = defineStore('chat', {
       }
     },
 
-    /** 群聊自动发言开关（对齐 ST auto mode：每 auto_mode_delay 秒无输入触发一轮） */
+    /** 群聊自动发言开关 */
     async toggleGroupAutoMode(on: boolean) {
       const g = this.group
       if (!g) return
@@ -1886,7 +1886,7 @@ export const useChatStore = defineStore('chat', {
         this.lastError = '群聊正在生成回复，请先停止生成再删除'
         return
       }
-      // 删除当前群时停掉自动发言定时器（P2：此前定时器残留，下个群会被自动接上）
+      // 删除当前群时停掉自动发言定时器（此前定时器残留，下个群会被自动接上）
       if (this.group?.id === id && this.groupAutoMode) {
         await this.toggleGroupAutoMode(false)
       }
@@ -1918,7 +1918,7 @@ export const useChatStore = defineStore('chat', {
       }
     },
 
-    /** 群聊重新生成：删除本轮 AI 发言后按激活策略重跑（对齐 ST regenerateGroup → 'normal'） */
+    /** 群聊重新生成：删除本轮 AI 发言后按激活策略重跑 */
     async regenerateGroup() {
       if (this.streaming || !this.group) return
       // 移除末条 AI 消息与其行，然后按当前 lastSpeaker 重跑
@@ -1942,7 +1942,7 @@ export const useChatStore = defineStore('chat', {
     async send(text: string) {
       const t = text.trim()
       if (!t || this.streaming) return
-      // `/` 开头 → STscript（B5；单聊/群聊通用）
+      // `/` 开头 → STscript（单聊/群聊通用）
       if (t.startsWith('/')) {
         await this.runUserScript(t)
         return
@@ -1966,7 +1966,7 @@ export const useChatStore = defineStore('chat', {
         name: this.userName,
         sendDate: Date.now(),
       })
-      // 先落盘用户行（对齐 ST「用户消息原样保存」与群聊通路的先行落盘）：
+      // 先落盘用户行：
       // 生成期间崩溃/断电不丢整轮输入。失败回落全量保存（saveCurrent 现已保全 header）。
       await this.persistUserLine()
       await this.generateReply()
@@ -1984,7 +1984,7 @@ export const useChatStore = defineStore('chat', {
     async persistUserLine(): Promise<void> {
       const m = this.messages[this.messages.length - 1]
       if (!m || m.role !== 'user' || !this.currentAvatar || !this.currentFile) return
-      // 已知最大行号 +1 = 追加位置（error 气泡等占位消息不入文件、无行号）
+      // 已知最大行号 +1 = 追加位置（error 气泡等占位消息不入文件，无行号）
       const at = Math.max(-1, ...this.messages.map((x) => x.lineIndex ?? -1)) + 1
       try {
         const avatar = this.currentAvatar
@@ -2022,7 +2022,7 @@ export const useChatStore = defineStore('chat', {
       await this.saveCurrent()
     },
 
-    /** swipe 追加式重生成：旧回复保留为备选，新回复成为当前显示（对齐 ST swipe 行为） */
+    /** swipe 追加式重生成：旧回复保留为备选，新回复成为当前显示 */
     async regenerateAsSwipe(last: DisplayMessage) {
       // 群聊无单聊 swipe 语义（生成路径依赖 currentCharacter，单聊专用）——
       // UI 已隐藏入口，这里兜底防脚本/误触把用户消息误当生成结果
@@ -2067,7 +2067,7 @@ export const useChatStore = defineStore('chat', {
 
     /** 切换末条 AI 消息的 swipe 备选（左右方向）。
      *  末条回复即使从未生成过备选（无 swipes 字段）也按 [当前内容] 处理 ——
-     *  与 ST 一致：swipe 条恒显 1/1，末尾右滑 = overswipe 生成新备选。 */
+     * swipe 条恒显 1/1，末尾右滑 = overswipe 生成新备选。 */
     async switchSwipe(index: number, dir: -1 | 1) {
       if (this.streaming) return
       if (this.group) return // 群聊无 swipe 语义（UI 已隐藏，store 层兜底）
@@ -2128,7 +2128,7 @@ export const useChatStore = defineStore('chat', {
           ops.push({ op: 'delete', index: li })
         }
         this.messages.splice(index + 1)
-        // 译文按消息下标存储：被移除的尾部消息译文一并丢弃（P2 同 removeMessage）
+        // 译文按消息下标存储：被移除的尾部消息译文一并丢弃（同 removeMessage）
         for (const k of Object.keys(this.translations)) {
           if (Number(k) > index) delete this.translations[Number(k)]
         }
@@ -2159,7 +2159,7 @@ export const useChatStore = defineStore('chat', {
         .filter((x) => x.content.trim() && !x.error && !x.pending)
       if (!prefix.length) return
       const newFile = `${file} - branch ${stTimestamp()}`
-      // 保留原会话 chat_metadata（P2：副本此前丢失人设锁/AN/摘要/变量）
+      // 保留原会话 chat_metadata（副本此前丢失人设锁/AN/摘要/变量）
       const chatMetadata = await this.readChatMetadata(avatar, file)
       const header: StChatMessage = {
         chat_metadata: chatMetadata,
@@ -2186,7 +2186,7 @@ export const useChatStore = defineStore('chat', {
       const all = this.messages.filter((x) => x.content.trim() && !x.error && !x.pending)
       if (!all.length) return
       const newFile = `${file} - ${stTimestamp()}`
-      // 保留原会话 chat_metadata（P2：书签副本此前丢失人设锁/AN/摘要/变量）
+      // 保留原会话 chat_metadata（书签副本此前丢失人设锁/AN/摘要/变量）
       const chatMetadata = await this.readChatMetadata(avatar, file)
       const header: StChatMessage = {
         chat_metadata: chatMetadata,
@@ -2215,7 +2215,7 @@ export const useChatStore = defineStore('chat', {
       }
     },
 
-    /** 删除某条消息（行级增量落盘；未知行号回落全量保存；群聊走 groupLines + saveGroupLines） */
+    /** 删除某条消息（行级增量落盘，未知行号回落全量保存，群聊走 groupLines + saveGroupLines） */
     async removeMessage(index: number) {
       if (this.streaming) return
       const m = this.messages[index]
@@ -2251,7 +2251,7 @@ export const useChatStore = defineStore('chat', {
       await this.saveCurrent()
     },
 
-    /** 切换消息隐藏（is_system，M-20）：隐藏的消息不进 prompt，UI 半透明显示 */
+    /** 切换消息隐藏（is_system）：隐藏的消息不进 prompt，UI 半透明显示 */
     async toggleHideMessage(index: number) {
       if (this.streaming) return
       const m = this.messages[index]
@@ -2279,7 +2279,7 @@ export const useChatStore = defineStore('chat', {
       await this.saveCurrent()
     },
 
-    /** 插入旁白（/sys，M-20）：is_system 消息，居中灰显、不进 prompt */
+    /** 插入旁白（/sys）：is_system 消息，居中灰显、不进 prompt */
     async addNarrator(text: string) {
       const t = text.trim()
       if (!t || this.streaming) return
@@ -2291,7 +2291,7 @@ export const useChatStore = defineStore('chat', {
         isSystem: true,
       }
       if (this.group) {
-        // 群聊：旁白 = is_system 行，追加到 groupLines 尾部（对齐 ST /api/chats/group/save）
+        // 群聊：旁白 = is_system 行，追加到 groupLines 尾部
         const line: GroupChatLine = {
           name: '旁白',
           is_user: false,
@@ -2306,7 +2306,7 @@ export const useChatStore = defineStore('chat', {
         return
       }
       // 行级落盘：追加到会话文件尾部。行号按「已知最大行号 +1」推算（error 气泡等
-      // 占位消息不入文件也无行号，此前 messages.length+1 会算出越界/错位行号），
+      // 占位消息不入文件也无行号，此前 messages.length+1 会算出越界/错位行号）
       // 用 insert（Rust 侧允许追加到末尾）
       const at = this.currentFile && this.currentAvatar
         ? Math.max(-1, ...this.messages.map((x) => x.lineIndex ?? -1)) + 1
@@ -2389,7 +2389,7 @@ export const useChatStore = defineStore('chat', {
     /* ---------------- 持久化 ---------------- */
 
     /**
-     * 宏变量存储（P2-1：直接读写 chat_metadata.variables，与 ST 网页端同源互通）。
+     * 宏变量存储。
      * 变更经防抖写回会话文件。
      */
     chatVarStore(): MacroVariables {
@@ -2426,7 +2426,7 @@ export const useChatStore = defineStore('chat', {
       }
     },
 
-    /** 读会话文件 header 的 chat_metadata（书签/分支副本用；读不到返回空对象） */
+    /** 读会话文件 header 的 chat_metadata（书签/分支副本用，读不到返回空对象） */
     async readChatMetadata(
       avatar: string,
       file: string,
@@ -2441,7 +2441,7 @@ export const useChatStore = defineStore('chat', {
       }
     },
 
-    /** 会话列表延迟刷新（P2：send 每轮全量拉 recentChats 太重，500ms 合并） */
+    /** 会话列表延迟刷新（send 每轮全量拉 recentChats 太重，500ms 合并） */
     scheduleSessionListRefresh(): void {
       if (this.sessionsRefreshTimer) return
       this.sessionsRefreshTimer = setTimeout(() => {
@@ -2450,7 +2450,7 @@ export const useChatStore = defineStore('chat', {
       }, 500)
     },
 
-    /** 删除消息后重排 translations 键（P2：按消息下标存储，删中间消息后残留译文会贴错气泡） */
+    /** 删除消息后重排 translations 键（按消息下标存储，删中间消息后残留译文会贴错气泡） */
     reindexTranslationsAfterRemoval(removedIndex: number): void {
       if (!Object.keys(this.translations).length) return
       const next: Record<number, string> = {}
@@ -2500,7 +2500,7 @@ export const useChatStore = defineStore('chat', {
         await enqueueChatWrite(async () => {
           // chat_metadata 承载人设锁/作者注释/摘要/宏变量/timedWorldInfo 等，
           // 全量保存必须**保全旧 header**（此前硬编码 {} 会导致每条消息落盘即清空全部
-          // 会话元数据，重开会话/网页端打开即暴露）。user_name/character_name 用当前值
+          // 会话元数据，重开会话即暴露）。user_name/character_name 用当前值
           // 覆盖以跟进改名；读不到旧档时才退回空 metadata 兜底。
           let header: StChatMessage = {
             chat_metadata: {},
@@ -2524,7 +2524,7 @@ export const useChatStore = defineStore('chat', {
           )
           const body = toStMessages(kept, this.currentCharacter?.name ?? '')
           await saveChat(avatar, file, [header, ...body])
-          // 写回成功：文件结构 = 元数据头 + kept 顺序 → 重排本地行号，行级增量才能对齐
+          // 写回成功：文件结构 = 元数据头 + kept 顺序 → 重排本地行号，行级增量才能
           const keptSet = new Set(kept)
           let li = 1
           for (const m of this.messages) {
@@ -2532,7 +2532,7 @@ export const useChatStore = defineStore('chat', {
           }
           this.dirty = false
         })
-        // 延迟合并刷新（P2：每条消息全量拉 recentChats 太重）
+        // 延迟合并刷新（每条消息全量拉 recentChats 太重）
         this.scheduleSessionListRefresh()
       } catch (e) {
         this.error = e instanceof Error ? e.message : String(e)
@@ -2546,7 +2546,7 @@ export const useChatStore = defineStore('chat', {
      * 置顶键 / 别名键随 fileId 迁移；若重命名的是当前会话，currentFile 跟随。
      */
     async renameSession(avatar: string, fileId: string, newName: string): Promise<boolean> {
-      // 文件名净化：去掉文件系统非法字符（与 ST 侧保存约束一致）
+      // 文件名净化：去掉文件系统非法字符
       const name = newName.replace(/[\\/:*?"<>|]/g, '').trim()
       if (!name || name === fileId) return false
       const oldKey = sessionKey(avatar, fileId)
@@ -2576,7 +2576,7 @@ export const useChatStore = defineStore('chat', {
       }
     },
 
-    /** 删除一个会话文件（成功返回 true；正在流式生成时拒绝删除） */
+    /** 删除一个会话文件（成功返回 true，正在流式生成时拒绝删除） */
     async deleteSession(avatar: string, fileId: string): Promise<boolean> {
       if (this.streaming) return false
       try {

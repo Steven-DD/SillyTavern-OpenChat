@@ -79,7 +79,7 @@ async function copyText(): Promise<void> {
   }
 }
 
-/** 末条 AI 回复恒显 swipe 条：无 swipes 字段时按 1 条虚拟备选（与 ST 一致，右滑即生成） */
+/** 末条 AI 回复恒显 swipe 条：无 swipes 字段时按 1 条虚拟备选（右滑即生成） */
 const swipeCount = computed(() => props.m.swipes?.length || 1)
 const swipeAt = computed(() => props.m.swipeId ?? 0)
 
@@ -97,7 +97,7 @@ const shikiThemes = computed<[string, string]>(() => {
   return ['github-light', dark]
 })
 
-/* ---- Swipe picker：点 n/N 弹出备选预览列表（对齐 ST swipe-picker） ---- */
+/* ---- Swipe picker：点 n/N 弹出备选预览列表 ---- */
 const pickerOpen = ref(false)
 
 function swipePreview(s: string): string {
@@ -125,7 +125,7 @@ const nextTitle = computed(() =>
         <span class="msg-time">{{ bubbleTime(m.sendDate) }}</span>
       </div>
 
-      <!-- 推理折叠块（extra.reasoning，ST 同字段） -->
+      <!-- 推理折叠块（extra.reasoning） -->
       <div v-if="m.reasoning" class="reason">
         <button class="reason-head" type="button" @click="reasonManual = !reasonOpen">
           <span class="rh-icon">✦</span>
@@ -165,7 +165,7 @@ const nextTitle = computed(() =>
       <!-- 群聊：发言者名 -->
       <div v-if="groupChat && speaker && !editing" class="speaker">{{ speaker }}</div>
 
-      <!-- Swipe 切换 + picker（末条 AI 恒显，与 ST 一致；群聊不适用） -->
+      <!-- Swipe 切换 + picker（末条 AI 恒显，群聊不适用） -->
       <div
         v-if="!groupChat && m.role === 'assistant' && isLast && !m.pending && !m.error && !editing"
         class="swipe-bar"
@@ -189,7 +189,7 @@ const nextTitle = computed(() =>
           >
             {{ swipeAt + 1 }}/{{ swipeCount }}
           </button>
-          <!-- 备选预览列表（对齐 ST swipe-picker） -->
+          <!-- 备选预览列表 -->
           <div v-if="pickerOpen" class="sw-picker">
             <button
               v-for="(s, i) in m.swipes ?? [m.content]"
@@ -280,7 +280,7 @@ const nextTitle = computed(() =>
           class="op"
           type="button"
           :class="{ active: m.isSystem }"
-          :title="m.isSystem ? '取消隐藏（恢复进 prompt）' : '隐藏（不进 prompt，对齐 ST is_system）'"
+          :title="m.isSystem ? '取消隐藏（恢复进 prompt）' : '隐藏（不进 prompt）'"
           @click="emit('hide', index)"
         >
           {{ m.isSystem ? '👁' : '🚫' }}

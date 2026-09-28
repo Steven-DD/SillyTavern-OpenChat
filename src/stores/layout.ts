@@ -30,7 +30,7 @@ export const useLayoutStore = defineStore('layout', {
   },
 
   actions: {
-    /** 进入内容页（中栏点选某项时调用；wide 模式下无副作用） */
+    /** 进入内容页（中栏点选某项时调用，wide 模式下无副作用） */
     showDetail(): void {
       this.detail = true
     },

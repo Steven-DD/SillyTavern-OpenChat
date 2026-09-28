@@ -2,9 +2,9 @@
  * 世界书（World Info / Lorebook）状态
  *
  * 数据全部走 ST /api/worldinfo/*；「新建」= edit 一个空 entries（ST 无 create 端点，
- * 与 ST 前端 createWorldInfo 行为一致）。
- * 条目编辑对齐 ST world-info.js 的 newWorldInfoEntryDefinition（4082-4125 行）：
- * 全量字段、新建走同一模板默认值；保存 = 整本写回 /api/worldinfo/edit（与 ST _save 相同），
+ * 新建 = edit 一个空 entries）。
+ * 条目编辑：全量字段、新建走同一模板默认值；
+ * 全量字段、新建走同一模板默认值；保存 = 整本写回 /api/worldinfo/edit，
  * 防抖 800ms 自动保存，成功后清注入缓存（worldinfo.ts）。
  */
 import { defineStore, acceptHMRUpdate } from 'pinia'
@@ -19,7 +19,7 @@ import {
 import { invalidateWiCache } from '@/services/st/worldinfo'
 import type { StWorldBook, StWorldEntry, StWorldListItem } from '@/services/st/types'
 
-/* ST 常量（world-info.js:33/96/855） */
+/* ST 常量 */
 export const WI_LOGIC = { AND_ANY: 0, NOT_ALL: 1, NOT_ANY: 2, AND_ALL: 3 } as const
 export const WI_POSITION = {
   before: 0,
@@ -36,7 +36,7 @@ export const WI_ROLE = { system: 0, user: 1, assistant: 2 } as const
 const DEFAULT_DEPTH = 4
 const DEFAULT_WEIGHT = 100
 
-/** 新条目模板（对齐 ST newWorldInfoEntryTemplate，world-info.js:4082-4125） */
+/** 新条目模板 */
 export function newWorldInfoEntry(uid: number, displayIndex: number): StWorldEntry {
   return {
     uid,
@@ -142,7 +142,7 @@ export const useWorldsStore = defineStore('worlds', {
 
     select(fileId: string) {
       if (this.currentId === fileId && this.detail) return
-      // 切书前先落盘旧书的未保存改动（P1：防抖定时器跨书竞态会丢改动甚至张冠李戴）
+      // 切书前先落盘旧书的未保存改动（防抖定时器跨书竞态会丢改动甚至张冠李戴）
       void this.flushPendingSave()
       this.currentId = fileId
       void this.loadDetail(fileId)
@@ -189,7 +189,7 @@ export const useWorldsStore = defineStore('worlds', {
       this.markDirty()
     },
 
-    /** 新增条目（uid/displayIndex 取当前最大 +1，默认值对齐 ST 模板） */
+    /** 新增条目（uid/displayIndex 取当前最大 +1） */
     addEntry(): StWorldEntry | null {
       if (!this.detail?.entries) return null
       const entries = this.detail.entries
@@ -230,7 +230,7 @@ export const useWorldsStore = defineStore('worlds', {
       this.scheduleSave()
     },
 
-    /** 防抖自动保存（对齐 ST 的 saveWorldDebounced） */
+    /** 防抖自动保存 */
     scheduleSave() {
       if (this.saveTimer !== undefined) clearTimeout(this.saveTimer)
       this.saveTimer = window.setTimeout(() => {
@@ -239,9 +239,9 @@ export const useWorldsStore = defineStore('worlds', {
       }, AUTOSAVE_MS)
     },
 
-    /** 整本写回 ST（保存发起时刻的快照与书 id；成功后清注入缓存） */
+    /** 整本写回 ST（保存发起时刻的快照与书 id，成功后清注入缓存） */
     async save(): Promise<void> {
-      // P1：在函数入口捕获 currentId + detail 快照 —— 保存期间用户切书时，
+      // 在函数入口捕获 currentId + detail 快照 —— 保存期间用户切书时，
       // 定时器触发的 save 不能把旧书内容写进新书（也不能被新 detail 污染）
       const fileId = this.currentId
       const snapshot = this.detail

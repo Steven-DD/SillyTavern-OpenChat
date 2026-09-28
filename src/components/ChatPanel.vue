@@ -2,10 +2,10 @@
 /**
  * 会话配置面板（顶栏「···」唤起，推挤式二级内容区）
  *
- * 对齐《界面设计文档 v1.0》的四 Tab 设计，按当前能力裁成四个 Tab：
+ * 四个 Tab：
  *  1. 信息 —— 会话名（重命名）/ 角色 / 人设锁定（从顶栏迁入）/ 本会话累计用量
  *  2. 参数 —— 会话级生成参数覆盖（跟随全局 / 自定义，写 chat_metadata.app_gen）
- *  3. 记忆 —— 作者注释（chat_metadata.note_*，与 ST authors-note 同一份数据）
+ *  3. 记忆 —— 作者注释（chat_metadata.note_*）
  *  4. 世界书 —— 角色卡绑定世界书（只读）+ 最近一次注入条数，管理跳转世界书页
  *
  * 原设计记忆三件套中的总结/向量依赖 ST 扩展接口，暂未接入，后续版本补。
@@ -105,7 +105,7 @@ const genDirty = computed(() => {
   )
 })
 
-/* ---- 表情立绘（M-10 最小版） ---- */
+/* ---- 表情立绘 ---- */
 const sprites = ref<Sprite[]>([])
 const emotion = ref('')
 const emotionBusy = ref(false)
@@ -135,7 +135,7 @@ async function detectEmotion(): Promise<void> {
   }
 }
 
-/* ---- 群头像上传（P2-6） ---- */
+/* ---- 群头像上传 ---- */
 async function onGroupAvatarPick(e: Event): Promise<void> {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
@@ -144,7 +144,7 @@ async function onGroupAvatarPick(e: Event): Promise<void> {
   input.value = ''
 }
 
-/* ---- 记忆 Tab：作者注释（chat_metadata.note_*，与 ST authors-note 互通） ---- */
+/* ---- 记忆 Tab：作者注释（chat_metadata.note_*） ---- */
 const anOn = ref(false)
 const anText = ref('')
 const anInterval = ref(1)
@@ -285,7 +285,6 @@ function goWorlds(): void {
             />
             <span>自动发言（每 {{ chat.group.auto_mode_delay ?? 5 }} 秒无输入触发一轮）</span>
           </label>
-          <p class="hint">群聊数据与 ST 网页端互通：同一群在两边看到同一份聊天记录与设置</p>
         </template>
         <template v-else>
         <label class="fld">
@@ -337,7 +336,7 @@ function goWorlds(): void {
           <p class="stat-note">壳侧本地统计；费用按内置牌价估算，仅供参考</p>
         </div>
 
-        <!-- 表情立绘（M-10 最小版；sprites 立绘 + classify 自动检测，不可用时手动） -->
+        <!-- 表情立绘（sprites 立绘 + classify 自动检测，不可用时手动） -->
         <template v-if="sprites.length">
           <div class="fld">
             <span class="lbl">表情立绘（{{ sprites.length }}）</span>
@@ -398,7 +397,7 @@ function goWorlds(): void {
       <div v-else-if="tab === 'note'" class="body">
         <label class="switch-row">
           <input type="checkbox" :checked="anOn" :disabled="chat.streaming" @change="applyAn(($event.target as HTMLInputElement).checked)" />
-          <span>作者注释<span class="sub">{{ anOn ? '（与 ST 网页端同一份数据）' : '（未启用）' }}</span></span>
+          <span>作者注释<span class="sub">{{ anOn ? '（已启用）' : '（未启用）' }}</span></span>
         </label>
 
         <template v-if="anOn">
@@ -447,7 +446,7 @@ function goWorlds(): void {
           按固定频率向对话注入的提示（ST 经典用法：防出戏提醒、文风约束等）
         </p>
 
-        <!-- 自动记忆（Summarize，B3） -->
+        <!-- 自动记忆（Summarize） -->
         <div class="sep-line" />
         <div class="fld">
           <span class="lbl">自动记忆（Summarize）</span>
@@ -458,7 +457,7 @@ function goWorlds(): void {
             {{ chat.streaming ? '生成中…' : '更新摘要' }}
           </button>
         </div>
-        <p class="hint">摘要写入 chat_metadata.summary（与 ST memory 扩展互通）；频率/注入深度在「设置 → 通用 → 插件功能」配置</p>
+        <p class="hint">摘要写入会话文件（chat_metadata.summary）；频率/注入深度在「设置 → 通用 → 插件功能」配置</p>
       </div>
 
       <!-- 世界书 -->
@@ -585,7 +584,7 @@ function goWorlds(): void {
   color: var(--c-text-3);
   margin: -6px 0 0;
 }
-/* 表情立绘（M-10） */
+/* 表情立绘 */
 .sprite-row {
   display: flex;
   flex-wrap: wrap;

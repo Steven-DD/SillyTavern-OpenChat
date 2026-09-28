@@ -167,7 +167,7 @@ async function useVersion(version: string) {
   }
   notice.value = ''
   try {
-    // 路径由 Rust 侧裁决（node → node.exe；ST → 版本目录），前端只传版本号
+    // 路径由 Rust 侧裁决（node → node.exe，ST → 版本目录），前端只传版本号
     await componentUse(p.id, version)
     notice.value = `已绑定 ${p.name} ${version}（重启应用后生效）`
     await plugins.load()

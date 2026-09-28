@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
- * 提示词管理卡片（对齐 ST Prompt Manager 简化版）
- * - main / nsfw / jailbreak 三槽编辑（settings.json prompts，与 ST 互通）
- * - prompt_order 顺序/启停（character_id 100001，全局序）
+ * 提示词管理卡片
+ * - main / nsfw / jailbreak 三槽编辑（settings.json prompts）
+ * - prompt_order 顺序/启停（全局序）
  */
 import { computed, onMounted, ref } from 'vue'
 import {
@@ -58,7 +58,7 @@ async function save(): Promise<void> {
   try {
     await savePm({ main: mainText.value, nsfw: nsfwText.value, jailbreak: jbText.value }, order.value)
     msgOk.value = true
-    msg.value = '已保存到 ST settings.json（生成时即时生效，ST 网页端同一份数据）'
+    msg.value = '已保存（生成时即时生效）'
   } catch (e) {
     msgOk.value = false
     msg.value = e instanceof Error ? e.message : String(e)
@@ -72,7 +72,7 @@ async function save(): Promise<void> {
   <section class="card pm">
     <h4>提示词管理（Prompt Manager）</h4>
     <p class="hint">
-      与 ST 网页端 Prompt Manager 为<strong>同一份数据</strong>（settings.json 的 prompts / prompt_order）；
+      数据存 settings.json 的 prompts / prompt_order；
       未加载到 ST 数据{{ loaded ? '' : '（当前为默认值，连接 ST 后保存即写入）' }}。
     </p>
 

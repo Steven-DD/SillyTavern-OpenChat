@@ -39,7 +39,7 @@ const testing = ref(false)
 const testMsg = ref('')
 const testOk = ref(false)
 
-/* ---------- 生成行为（M-19 auto-continue） ---------- */
+/* ---------- 生成行为 ---------- */
 const acEnabled = ref(false)
 const acTarget = ref(400)
 const acSaving = ref(false)
@@ -53,7 +53,7 @@ async function persistAutoContinue(): Promise<void> {
   }
 }
 
-/* ---------- 数据巡检（M-18 data-maid） ---------- */
+/* ---------- 数据巡检 ---------- */
 const MAID_GROUPS: Record<string, string> = {
   images: '未引用图片',
   files: '未引用附件',
@@ -71,7 +71,7 @@ const maid = ref<{
   busy: boolean
   msg: string
   total: number
-  /** 勾选的 hash（选择性清理，P2-5） */
+  /** 勾选的 hash（选择性清理） */
   checked: Record<string, boolean>
   openGroup: string
 }>({
@@ -125,7 +125,7 @@ async function finalizeMaidUi(): Promise<void> {
   }
 }
 
-/** 选择性清理：按勾选 hash 调 /delete（P2-5） */
+/** 选择性清理：按勾选 hash 调 /delete */
 async function deleteSelectedMaidUi(): Promise<void> {
   const hashes = maidCheckedHashes()
   if (!hashes.length) {
@@ -165,7 +165,7 @@ function fmtMaidSize(size?: number): string {
   return `${size} B`
 }
 
-/* ---------- API 连接（对齐 ST 网页端「API 连接」面板：选源 → 密钥/端点 → 连接拉模型） ---------- */
+/* ---------- API 连接 ---------- */
 const keyDraft = ref('')
 const revDraft = ref('')
 const customUrlDraft = ref('')
@@ -442,7 +442,7 @@ async function loadStInfo() {
   }
 }
 
-/** 系统状态行（开发模式可见；浏览器开发环境 isDesktop = false 整卡隐藏） */
+/** 系统状态行（开发模式可见，浏览器开发环境 isDesktop = false 整卡隐藏） */
 const sysRows = computed(() => {
   const s = sidecar.status
   if (!sidecar.isDesktop) return null
@@ -540,7 +540,7 @@ onMounted(() => {
   void persona.load()
   onSourceChanged()
   textServerDraft.value = gen.textServer
-  // auto-continue 当前配置（M-19）
+  // auto-continue 当前配置
   void loadAutoContinue().then((ac) => {
     acEnabled.value = ac.enabled
     acTarget.value = ac.targetLength
@@ -776,7 +776,7 @@ onMounted(() => {
           </label>
         </section>
 
-        <!-- 生成行为（M-19 auto-continue） -->
+        <!-- 生成行为 -->
         <section class="card">
           <h4>生成行为</h4>
           <label class="chk">
@@ -792,7 +792,7 @@ onMounted(() => {
               {{ acSaving ? '保存中…' : '保存生成行为' }}
             </button>
           </div>
-          <p class="hint">最多自动续写 3 轮；配置存 power_user.auto_continue，与 ST 网页端同一份。</p>
+          <p class="hint">配置存 power_user.auto_continue。</p>
         </section>
 
         <section class="card">
@@ -962,7 +962,7 @@ onMounted(() => {
         <!-- 数据目录（简版）：位置/大小 + 导入导出；默认配置由应用自动生成 -->
         <DataDirCard />
 
-        <!-- 数据巡检（M-18 data-maid） -->
+        <!-- 数据巡检 -->
         <section class="card">
           <h4>数据巡检（data-maid）</h4>
           <p class="hint">扫描 ST 数据区的孤儿文件（未引用图片/备份/缩略图等），确认后一键清理。</p>

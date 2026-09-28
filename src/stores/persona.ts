@@ -2,7 +2,7 @@
  * 用户人设 store
  *
  * 单一事实来源是 ST 的 settings.json（power_user 段），本 store 只做「读 → 缓存 → 写回」，
- * 不在前端另存一份（避免与 ST 撕裂）。
+ * 不在前端另存一份。
  */
 import { defineStore, acceptHMRUpdate } from 'pinia'
 import { useChatStore } from '@/stores/chat'
@@ -80,14 +80,14 @@ export const usePersonaStore = defineStore('persona', {
       this.createMode = false
     },
 
-    /** 改字段（不落盘；由 saveSelected / saveAll 触发写入） */
+    /** 改字段（不落盘，由 saveSelected / saveAll 触发写入） */
     patchSelected(patch: Partial<Persona>): void {
       const p = this.personas.find((x) => x.id === this.selectedId)
       if (p) Object.assign(p, patch)
     },
 
     /**
-     * 使用某人设（对齐 ST 的切换语义）：用户名连带切成人设名，左栏头像随之更新。
+     * 使用某人设：用户名连带切成人设名，左栏头像随之更新。
      * ST 侧没有「当前人设」这个独立字段 —— 它就是靠 username 反查 personas 得到的，
      * 所以这里同步改 username 才是真正的等价实现。
      */

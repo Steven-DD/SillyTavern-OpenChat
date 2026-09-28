@@ -1,11 +1,11 @@
 /**
- * 正则脚本引擎（对齐 ST extensions/regex：数据格式与 settings.json 互通）
+ * 正则脚本引擎
  *
  * 数据：settings.json 根级 extension_settings.regex = RegexScript[]
  * 作用点（regex_placement）：1=用户输入 2=AI输出 5=世界书 6=推理内容（3=斜杠命令不适用）
  * - promptOnly=true：只作用于发给 LLM 的提示词
  * - markdownOnly=true：只作用于界面显示
- * - 两者皆 false：显示与提示词都生效（ST 会改写源文本；App 侧不改存储，等价应用）
+ * - 两者皆 false：显示与提示词都生效（ST 会改写源文本，App 侧不改存储，等价应用）
  * - minDepth/maxDepth：距末尾消息深度过滤（prompt 通路）
  * - substituteRegex：findRegex 是否先做宏替换（0 不 / 1 替换 / 2 替换并转义）
  */
@@ -54,7 +54,7 @@ export function newRegexScript(): RegexScript {
   }
 }
 
-/* ---- 模块级缓存（App 单一写入方；改动经 saveRegexScripts 后失效） ---- */
+/* ---- 模块级缓存（App 单一写入方，改动经 saveRegexScripts 后失效） ---- */
 let cache: RegexScript[] | null = null
 
 export function invalidateRegexCache(): void {
@@ -87,8 +87,8 @@ export async function saveRegexScripts(scripts: RegexScript[]): Promise<void> {
   cache = scripts
 }
 
-/** /pattern/flags 写法 → RegExp；裸正则补 gu 全局标志（同 ST regexFromString） */
-/** 编译缓存（P2 性能）：同一脚本每条消息都会执行，重复 new RegExp 浪费明显。
+/** /pattern/flags 写法 → RegExp；裸正则补 gu 全局标志 */
+/** 编译缓存：同一脚本每条消息都会执行，重复 new RegExp 浪费明显。
  *  键 = 宏替换后的 find 串（substituteRegex 展开结果），脚本数量有限无增长风险。 */
 const compileCache = new Map<string, RegExp | null>()
 
@@ -110,7 +110,7 @@ export interface RegexRunOptions {
   placement: number
   /** true = 提示词通路（promptOnly 生效）；false = 显示通路（markdownOnly 生效） */
   isPrompt: boolean
-  /** 距末尾消息深度（prompt 通路用；null = 不过滤深度） */
+  /** 距末尾消息深度（prompt 通路用，null = 不过滤深度） */
   depth?: number | null
   /** substituteRegex 宏替换上下文 */
   macroCtx?: MacroContext
@@ -165,7 +165,7 @@ export function activeRegexScripts(): RegexScript[] {
   return cache ?? []
 }
 
-/** 显示通路便捷函数（MessageBubble 同步调用；脚本需先 loadRegexScripts） */
+/** 显示通路便捷函数（MessageBubble 同步调用，脚本需先 loadRegexScripts） */
 export function applyDisplayRegex(
   content: string,
   placement: number,

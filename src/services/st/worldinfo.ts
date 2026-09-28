@@ -1,21 +1,21 @@
 /**
  * 世界书扫描与注入（移植自 ST public/scripts/world-info.js 核心逻辑，AGPL 合规）
  *
- * 与 ST 1.19.0 对齐的行为：
+ *
  * - 激活来源：角色绑定世界书（data.extensions.world）+ 全局勾选（settings.world_info.globalSelect）
  * - 排序：角色书优先（character_first 策略），组内按 order 降序（order 大 = 优先）
  * - 匹配：正则关键词（/pattern/flags 写法）优先；普通关键词默认大小写不敏感 + 子串包含
- *   （ST 1.19 默认 match_whole_words=false；条目可单独覆盖 matchWholeWords/caseSensitive/scanDepth）
+ *   （条目可单独覆盖 matchWholeWords/caseSensitive/scanDepth）
  * - 常驻条目（constant）直接激活；停用（disable）跳过
  * - selective 二级关键词：selectiveLogic 0=AND_ANY 1=NOT_ALL 2=NOT_ANY 3=AND_ALL
  * - 概率：useProbability && probability<100 时掷骰
- * - token 预算：budget = budget% × maxContext（book 可用 token_budget 覆盖；budgetCap 全局上限）；
+ * - token 预算：budget = budget% × maxContext（book 可用 token_budget 覆盖，budgetCap 全局上限）；
  *   ignoreBudget 条目绕过预算（不计入占用）
- * - inclusion group：group（逗号分隔可属多组）内多条激活时只留一条 —— groupOverride 优先（order 大者），
+ * - inclusion group：group（逗号分隔可属多组）内多条激活时只留一条 —— groupOverride 优先（order 大者）
  *   否则按 groupWeight 掷骰（world-info.js filterByInclusionGroups）
  * - 注入位置：0=↑Char（角色定义前）1=↓Char（角色定义后）2/3=作者注释上下（并入 after）4=@Depth 按深度插聊天流
  *   5/6=EM 仅 Text Completion，App 不支持 → 按 after 处理
- * - 递归扫描：g.recursive 开启时启用（默认关，与 ST 默认一致）；timedEffects
+ * - 递归扫描：g.recursive 开启时启用（默认关）；timedEffects
  *   （sticky/cooldown 计数 + delay 消息进度）已实现，状态经调用方持久化到 chat_metadata.timedEffects；
  *   min_activations（默认 0）、useGroupScoring（需匹配度打分）未实现
  */
@@ -23,7 +23,7 @@ import { getCharacter, getSettings, getWorld } from './data'
 import { estimateTokens } from './prompt'
 import type { StWorldEntry } from './types'
 
-/** 位置枚举（world-info.js:855 world_info_position） */
+/** 位置枚举 */
 export const WI_POSITION = {
   before: 0,
   after: 1,
@@ -34,13 +34,13 @@ export const WI_POSITION = {
   EMBottom: 6,
 } as const
 
-/** 二级关键词逻辑（world-info.js:33 world_info_logic） */
+/** 二级关键词逻辑 */
 const WI_LOGIC = { AND_ANY: 0, NOT_ALL: 1, NOT_ANY: 2, AND_ALL: 3 } as const
 
-/** @Depth 默认插入深度（world-info.js:96 DEFAULT_DEPTH） */
+/** @Depth 默认插入深度 */
 const DEFAULT_DEPTH = 4
 
-/** 全局默认（对齐 world-info.js:69-81 的初始值） */
+/** 全局默认 */
 export interface WiGlobals {
   /** 扫描深度：扫描最近 N 条消息 */
   scanDepth: number
@@ -50,7 +50,7 @@ export interface WiGlobals {
   budgetCap: number
   caseSensitive: boolean
   matchWholeWords: boolean
-  /** 递归扫描（ST 默认关；开启后新激活条目的内容并入扫描再匹配，最多 2 轮） */
+  /** 递归扫描（ST 默认关，开启后新激活条目的内容并入扫描再匹配，最多 2 轮） */
   recursive: boolean
 }
 const DEFAULT_GLOBALS: WiGlobals = {
@@ -63,7 +63,7 @@ const DEFAULT_GLOBALS: WiGlobals = {
 }
 
 /**
- * timedWorldInfo 单条记录（与 ST WorldInfoTimedEffects #getEntryTimedEffect 同构）：
+ * timedWorldInfo 单条记录：
  * 区间 [start, end) 按消息数推进；protected 的记录在 chat 未推进时不被清除。
  */
 export interface WiTimedEffect {
@@ -74,7 +74,7 @@ export interface WiTimedEffect {
 }
 
 /**
- * chat_metadata.timedWorldInfo 持久化结构（与 ST 网页端互通，world-info.js:559-577）：
+ * chat_metadata.timedWorldInfo 持久化结构：
  * 键 = `${world}.${uid}`，分 sticky / cooldown 两个桶。
  */
 export interface WiTimedWorldInfo {
@@ -114,13 +114,13 @@ export interface WiScanResult {
   usedTokens: number
 }
 
-/* ---------------- 缓存（会话期间复用；写操作后调 invalidateWiCache） ---------------- */
+/* ---------------- 缓存（会话期间复用，写操作后调 invalidateWiCache） ---------------- */
 
 const books = new Map<string, WiEntry[]>()
 let settingsCache: { globalSelect: string[] } | null = null
 const charWorldCache = new Map<string, string | null>()
 
-/** 清空世界书缓存（世界书增删改、角色卡换绑后调用） */
+/** 清空世界书缓存（世界书增删改，角色卡换绑后调用） */
 export function invalidateWiCache(): void {
   books.clear()
   settingsCache = null
@@ -173,7 +173,7 @@ async function loadBook(name: string): Promise<WiEntry[]> {
 
 /**
  * 收集当前角色生效的世界书条目：角色绑定书优先（组内 order 降序），全局书随后。
- * 对齐 ST getSortedEntries 的 character_first 策略。
+ * 排序采用 character_first 策略。
  */
 export async function collectActiveEntries(avatar: string): Promise<WiEntry[]> {
   const [globalNames, charWorld] = await Promise.all([loadGlobalSelect(), loadCharWorld(avatar)])
@@ -242,13 +242,13 @@ function matchSecondary(entry: WiEntry, text: string, g: WiGlobals): boolean {
 }
 
 /**
- * 世界书扫描主入口（对齐 ST checkWorldInfo 的非递归主路径 + 递归/timedEffects）。
+ * 世界书扫描主入口。
  *
  * @param historyTexts 聊天消息正文数组（旧→新）
  * @param entries      collectActiveEntries 的结果
  * @param maxContext   上下文窗口（预算基数）
- * @param overrides    书级/全局覆盖（scanDepth 按条目 → 书 → 全局取值；recursive 递归开关）
- * @param timed        timedEffects 状态（sticky/cooldown 计数 + 消息进度 turn；可选）
+ * @param overrides    书级/全局覆盖（scanDepth 按条目 → 书 → 全局取值，recursive 递归开关）
+ * @param timed        timedEffects 状态（sticky/cooldown 计数 + 消息进度 turn，可选）
  */
 export function checkWorldInfo(
   historyTexts: string[],
@@ -261,7 +261,7 @@ export function checkWorldInfo(
   const empty: WiScanResult = { before: '', after: '', depthEntries: [], activated: [], usedTokens: 0 }
   if (!entries.length) return empty
 
-  // 扫描文本按深度切片（条目可用 scanDepth 覆盖全局），\x01 连接防跨边界正则误匹配（同 ST）
+  // 扫描文本按深度切片（条目可用 scanDepth 覆盖全局），\x01 连接防跨边界正则误匹配
   const sliceAt = (depth: number): string =>
     ['\x01', ...historyTexts.slice(-depth).map((t) => t.trim()), ''].join('\n\x01')
   const sliceCache = new Map<number, string>()
@@ -283,24 +283,24 @@ export function checkWorldInfo(
   let used = 0
   let overflowed = false
 
-  // timedWorldInfo（对齐 ST WorldInfoTimedEffects，world-info.js:479-793）：
+  // timedWorldInfo：
   // 记录 = 区间 {hash,start,end,protected}，随消息数（turn）推进与过期。
   // sticky 区间内 → 强制激活；cooldown 区间内 → 跳过；sticky 到期那一刻立起 protected cooldown。
   const tState: WiTimedWorldInfo = timed?.state ?? {}
   const turn = timed?.turn ?? 0
   const entryKey = (e: WiEntry): string => `${e.world}.${e.uid}`
   // ST 的 entry.hash = getStringHash(JSON.stringify(entry))；App 侧匹配走 world.uid 键，
-  // hash 仅为结构保真（网页端读取记录时按 key 定位，hash 仅用于其内部 find）
+  // hash 仅为结构保真
   const hashOf = (key: string): number => {
     let h = 5381
     for (let i = 0; i < key.length; i++) h = ((h << 5) + h + key.charCodeAt(i)) | 0
     return h
   }
-  // 本轮生效缓冲（对齐 #buffer）
+  // 本轮生效缓冲
   const stickyActive = new Set<string>()
   const cooldownActive = new Set<string>()
 
-  // checkTimedEffects（对齐 #checkTimedEffectOfType:619-660）：非 dry run 语义，直接增删记录
+  // checkTimedEffects：非 dry run 语义，直接增删记录
   const pruneTimedEffects = (type: 'sticky' | 'cooldown'): void => {
     const bucket = tState[type]
     if (!bucket) return
@@ -419,8 +419,8 @@ export function checkWorldInfo(
     }
   }
 
-  // setTimedEffects（对齐 world-info.js:730-736）：为激活条目补 sticky/cooldown 记录
-  // （已有记录不刷新、不延长；含被 inclusion group 淘汰的条目，与 ST allActivatedEntries 一致）
+  // setTimedEffects：为激活条目补 sticky/cooldown 记录
+  // （已有记录不刷新，不延长，含被 inclusion group 淘汰的条目）
   const ensureTimedEffect = (entry: WiEntry, type: 'sticky' | 'cooldown'): void => {
     const n = Number(type === 'sticky' ? entry.sticky : entry.cooldown)
     if (!(n > 0)) return
@@ -435,8 +435,8 @@ export function checkWorldInfo(
 
   if (!activated.length) return empty
 
-  // inclusion group：同组只留一条（group 支持逗号分隔多组；先按组名处理，条目移除后跳过后续组）。
-  // winner：有 groupOverride 的条目中 order 最大者优先，否则按 groupWeight 掷骰（同 ST）
+  // inclusion group：同组只留一条（group 支持逗号分隔多组，先按组名处理，条目移除后跳过后续组）。
+  // winner：有 groupOverride 的条目中 order 最大者优先，否则按 groupWeight 掷骰
   {
     const groups = new Map<string, WiEntry[]>()
     for (const e of activated) {
@@ -478,7 +478,7 @@ export function checkWorldInfo(
   }
   if (!activated.length) return empty
 
-  // 分桶：order 降序遍历 + unshift → 最终 order 升序排列（同 ST 组装段）
+  // 分桶：order 降序遍历 + unshift → 最终 order 升序排列
   const beforeArr: string[] = []
   const afterArr: string[] = []
   const depthMap = new Map<string, WiDepthEntry>()

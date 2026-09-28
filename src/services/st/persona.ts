@@ -8,7 +8,7 @@
  *   power_user.default_persona        = 默认人设（文件名）
  *   power_user.username               = {{user}} 宏取值
  * 头像文件本身在 `default-user/User Avatars/`，图走 `/thumbnail?type=persona`
- * （Content-Type 由中继嗅探校正、CORP 由中继放开 —— 见 relay.rs）。
+ * （Content-Type 由中继嗅探校正，CORP 由中继放开 —— 见 relay.rs）。
  *
  * ── 写入策略 ──
  * 与配置映射同路：**读全量 → 合并 → 写全量**。`/api/settings/save` 是整体覆盖，
@@ -23,7 +23,7 @@ import { getChat, getSettings, saveChat, saveSettings } from './data'
 import { enqueueChatWrite } from './writequeue'
 import type { StSettingsLite } from './types'
 
-/** 描述注入位置（ST personas.js:88 的 persona_description_positions） */
+/** 描述注入位置 */
 export const PERSONA_POSITIONS = [
   { v: 0, label: '融进系统提示' },
   { v: 2, label: '角色定义上方' },
@@ -93,7 +93,7 @@ export async function listPersonas(): Promise<PersonaSnapshot> {
   const names = asDict(pu.personas)
   const descs = asDict(pu.persona_descriptions)
 
-  // ST 允许「有头像文件但没建映射」——与 ST 的 addMissingPersonas 一致，补成一条
+  // ST 允许「有头像文件但没建映射」，补成一条
   const ids = new Set<string>([...Object.keys(names), ...avatars])
   const personas: Persona[] = [...ids].map((id) => {
     const d = asDict(descs[id])
@@ -183,7 +183,7 @@ export function resolvePersona(snap: PersonaSnapshot, lockedId: string | null): 
 }
 
 /**
- * 会话锁定人设（对齐 ST 的 `chat_metadata.persona`）。
+ * 会话锁定人设。
  *
  * ST 的会话文件是 JSONL：**首项是元数据头**，`chat_metadata` 嵌在里面。
  * 所以这里「读整个会话 → 改首项的 chat_metadata.persona → 整份写回」。

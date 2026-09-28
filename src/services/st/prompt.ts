@@ -1,13 +1,12 @@
 /**
- * Prompt 组装引擎（M3 · 自研核心）
+ * Prompt 组装引擎（自研核心）
  *
  * ── 为什么必须自研 ──
  * ST 的 prompt 组装（prompt manager / 世界书扫描 / 深度插入）跑在它的**浏览器前端**，
  * 后端只做转发。我们把 ST 当纯后端用 → 组装必须自己实现。
- * 《ST_API能力盘点 v1.0》第六节 P0 项。
  *
- * ── 与 ST 的差异（已知、有意为之）──
- * 已实现 ST 默认管线的核心：系统提示（角色描述/性格/场景/对话示例）+ 对话历史
+ * ── 覆盖范围 ──
+ * 已实现默认管线的核心：系统提示（角色描述/性格/场景/对话示例）+ 对话历史
  *   + 世界书扫描注入 + 作者注释（position/depth/interval/role）+ 人设注入。
  * 暂未实现：prompt 条目自定义排序/深度（Prompt Manager）、群聊。
  *
@@ -16,10 +15,9 @@
  *    才把 system 放进 systemInstruction，否则把 system 折成**首个 user 轮**。
  *    Google 侧对「首轮为 model」有 prefill 校验会报错 —— 我们的历史以开场白（assistant）
  *    开头，所以必须靠 system 顶到第一轮，保证 contents[0].role === 'user'。
- *    见 sillytavern/src/prompt-converters.js:435-451 / 462-467
- * 2. messages 里**不能带 name 字段**：convertGooglePrompt:489-510 会把 name 拼成
+ * 2. messages 里**不能带 name 字段**：convertGooglePrompt 会把 name 拼成
  *    `name: ` 前缀塞进正文（那是给 example_user/example_assistant 用的）。
- * 3. ST 会自动合并相邻同角色消息（:599-619），我们不必自己合并。
+ * 3. ST 会自动合并相邻同角色消息，我们不必自己合并。
  */
 import type { StChatMessage, StCharacter } from './types'
 import { isChatHeader, parseSendDate, type AuthorsNote } from './chatdoc'
@@ -44,11 +42,11 @@ export interface BuildPromptOptions {
   includeExamples?: boolean
   /** 生效人设（会话锁定或默认人设）；null = 无注入 */
   persona?: PersonaInjection | null
-  /** 世界书注入（checkWorldInfo 的结果；不传 = 不注入） */
+  /** 世界书注入（checkWorldInfo 的结果，不传 = 不注入） */
   worldInfo?: WiPlacement
-  /** 作者注释（chat_metadata.note_*；null/不传 = 不注入） */
+  /** 作者注释（chat_metadata.note_*，null/不传 = 不注入） */
   authorsNote?: AuthorsNote | null
-  /** 宏引擎附加上下文（变量存储/模型等；不传用默认值） */
+  /** 宏引擎附加上下文（变量存储/模型等，不传用默认值） */
   macro?: {
     model?: string
     maxResponse?: number
@@ -60,11 +58,11 @@ export interface BuildPromptOptions {
      */
     chatVars?: MacroVariables
   }
-  /** Prompt Manager 配置（prompt_order + 三槽内容；不传走传统固定装配） */
+  /** Prompt Manager 配置（prompt_order + 三槽内容，不传走传统固定装配） */
   pm?: PmConfig
-  /** 总结记忆注入（B3 M-6）：position 0 = 系统提示顶部；1 = @Depth */
+  /** 总结记忆注入：position 0 = 系统提示顶部；1 = @Depth */
   memory?: { content: string; position: number; depth: number; role: number }
-  /** 向量检索注入（B3 M-7）：@Depth system 块 */
+  /** 向量检索注入：@Depth system 块 */
   vectors?: { content: string; depth: number }
 }
 
@@ -166,7 +164,7 @@ export function estimateTokens(text: string): number {
  * ------------------------------------------------------------------ */
 
 /**
- * 人设注入参数（对齐 ST 的 persona_description_positions）
+ * 人设注入参数
  * - 0 IN_PROMPT：拼进系统提示
  * - 2 TOP_AN / 3 BOTTOM_AN：折进系统提示首/尾（ST 中相对作者注释块的上/下位；
  *   App 侧未按 AN 块相对定位，属已知近似）
@@ -190,7 +188,7 @@ export interface PmConfig {
   jailbreak?: string
 }
 
-/** 系统提示装配结果：pre = 历史前的 system 块；post = chatHistory 之后的块（逐条 system 消息，对齐 ST post-history 位） */
+/** 系统提示装配结果：pre = 历史前的 system 块；post = chatHistory 之后的块（逐条 system 消息） */
 export interface SystemParts {
   pre: string[]
   post: string[]
@@ -198,7 +196,7 @@ export interface SystemParts {
 
 /**
  * 系统提示装配。
- * - 传 pm → 按 prompt_order 顺序行走（chatHistory 之后的块进 post，对齐 ST post-history 位）
+ * - 传 pm → 按 prompt_order 顺序行走（chatHistory 之后的块进 post）
  * - 不传 pm → 传统固定装配（完全向后兼容）
  */
 export function buildSystemParts(
@@ -222,7 +220,7 @@ export function buildSystemParts(
     `Write ${char}'s next reply in a fictional roleplay between ${char} and ${userName}. ` +
       `Stay in character, write in third person past tense, and never write ${userName}'s lines or actions.`
 
-  // 各标识 → 块内容（宏已展开；空块由调用方跳过）
+  // 各标识 → 块内容（宏已展开，空块由调用方跳过）
   const blockFor = (id: string): string => {
     switch (id) {
       case 'main':
@@ -258,7 +256,7 @@ export function buildSystemParts(
     for (const item of pm.order) {
       if (!item.enabled) continue
       if (item.identifier === 'chatHistory') {
-        seenHistory = true // chatHistory 之后条目 → post-history（对齐 ST）
+        seenHistory = true // chatHistory 之后条目 → post-history
         continue
       }
       const content = blockFor(item.identifier)
@@ -350,10 +348,10 @@ function historyToMessages(
   const out: PromptMessage[] = []
   for (const m of history) {
     if (!m || isChatHeader(m)) continue
-    // is_system（隐藏消息）不进 prompt（对齐 ST script.js:1851 usableMessages 过滤）
+    // is_system（隐藏消息）不进 prompt
     if (m.is_system === true) continue
     const raw = typeof m.mes === 'string' ? m.mes : ''
-    // 按消息顺序展开宏（setvar 等副作用与 ST 的文档顺序一致）
+    // 按消息顺序展开宏
     const content = (
       macroCtx ? runMacros(raw, macroCtx) : substituteMacros(raw, charName, userName)
     ).trim()
@@ -395,7 +393,7 @@ export function buildPrompt(opts: BuildPromptOptions): PromptResult {
     opts.reserveForReply ?? Math.min(1024, Math.max(256, Math.floor(maxContext * 0.25)))
   const budget = Math.max(512, maxContext - reserve)
 
-  // 宏引擎上下文（变量存储：有会话键 → localStorage 持久；无 → 瞬态）
+  // 宏引擎上下文（变量存储：有会话键 → localStorage 持久，无 → 瞬态）
   const macroCtx: MacroContext = emptyContext({
     charName: character.name,
     userName,
@@ -422,7 +420,7 @@ export function buildPrompt(opts: BuildPromptOptions): PromptResult {
 
   const historyMsgs = historyToMessages(history, character.name, userName, macroCtx)
 
-  // 作者注释频率门（对齐 ST authors-note.js:346-361）：每 interval 条消息插一次，
+  // 作者注释频率门：每 interval 条消息插一次，
   // interval = 1 恒成立；消息数尚未攒到 interval 时不插
   const anActive = (() => {
     if (!authorsNote?.prompt.trim()) return false
@@ -467,7 +465,7 @@ export function buildPrompt(opts: BuildPromptOptions): PromptResult {
   }
 
   const sysTokens = estimateTokens(sys)
-  // 裁剪（P2 性能）：每条消息 token 只算一次 + 后缀和，指针扫描。
+  // 裁剪：每条消息 token 只算一次 + 后缀和，指针扫描。
   // 此前 while + slice 每丢一条就对全部保留消息重跑逐字符估算 —— 几千条消息的
   // 会话首次裁剪会 O(n²) 卡 UI 线程数秒。
   const histTokens = historyMsgs.map((m) => estimateTokens(m.content))
@@ -486,11 +484,11 @@ export function buildPrompt(opts: BuildPromptOptions): PromptResult {
   let messages: PromptMessage[] = [
     { role: 'system', content: sys },
     ...kept,
-    // Prompt Manager：chatHistory 之后的块 → post-history system 消息（对齐 ST）
+    // Prompt Manager：chatHistory 之后的块 → post-history system 消息
     ...parts.post.map((content) => ({ role: 'system' as const, content })),
   ]
 
-  // AT_DEPTH：人设描述作为独立消息，从末尾往前数 depth 条插入（与 ST 一致）
+  // AT_DEPTH：人设描述作为独立消息，从末尾往前数 depth 条插入
   if (persona && persona.position === 4 && persona.description.trim()) {
     const roleMap = ['system', 'user', 'assistant'] as const
     const role = roleMap[persona.role] ?? 'system'
@@ -503,8 +501,8 @@ export function buildPrompt(opts: BuildPromptOptions): PromptResult {
     ]
   }
 
-  // 世界书 @Depth 条目：同样从末尾往前数 depth 条插入（同 ST 的深度注入位）。
-  // 条目内容跑宏（P2：ST 对 WI 内容执行宏替换，{{random}}/{{getvar}} 等此前原样注入）
+  // 世界书 @Depth 条目：同样从末尾往前数 depth 条插入。
+  // 条目内容跑宏（此前原样注入）
   for (const d of worldInfo?.depthEntries ?? []) {
     if (!d.content.trim()) continue
     const depth = Math.max(0, Math.min(d.depth, messages.length - 1))
@@ -516,7 +514,7 @@ export function buildPrompt(opts: BuildPromptOptions): PromptResult {
     ]
   }
 
-  // 作者注释「聊天内 @Depth」（position 1，ST 默认位；深度/角色可配）
+  // 作者注释「聊天内 @Depth」（position 1，ST 默认位，深度/角色可配）
   if (anActive && authorsNote && authorsNote.position === 1) {
     const roleMap = ['system', 'user', 'assistant'] as const
     const role = roleMap[authorsNote.role] ?? 'system'
@@ -582,15 +580,15 @@ export function buildPrompt(opts: BuildPromptOptions): PromptResult {
 }
 
 /* ------------------------------------------------------------------ *
- * 生成类型变体（Continue / Impersonate，对齐 ST 的生成类型分支）
+ * 生成类型变体（Continue / Impersonate）
  * ------------------------------------------------------------------ */
 
-/** ST oai_settings.continue_nudge_prompt 默认文案（openai.js:111） */
+/** ST oai_settings.continue_nudge_prompt 默认文案 */
 export const DEFAULT_CONTINUE_NUDGE =
   '[Continue your last message without repeating its original content.]'
 
 /**
- * M-3 续写（CC 通道，对齐 ST continue_prefill=false 默认行为，openai.js:906-921/1088-1091）：
+ * 续写：
  * 半截 assistant 消息保持为最后一条，continue_nudge system 提示插在其前——
  * 模型从半截内容自然续写（不再是旧实现的 [Continue] 用户轮）。
  */
@@ -606,7 +604,7 @@ export function withContinue(messages: PromptMessage[], nudge?: string): PromptM
   ]
 }
 
-/** ST settings.impersonation_prompt 默认文案（openai.js:105） */
+/** ST settings.impersonation_prompt 默认文案 */
 export const DEFAULT_IMPERSONATE_PROMPT =
   "[Write your next reply from the point of view of {{user}}, using the chat history so far as a guideline for the writing style of {{user}}. Don't write as {{char}} or system. Don't describe actions of {{char}}.]"
 
@@ -622,6 +620,6 @@ export function withImpersonate(
     const content = macroCtx ? runMacros(tpl, macroCtx) : tpl
     return [...messages, { role: 'system', content }]
   }
-  // 无模板回落 ST 默认 impersonation prompt（system 轮，P1-7 对齐）
+  // 无模板回落 ST 默认 impersonation prompt（system 轮）
   return [...messages, { role: 'system', content: DEFAULT_IMPERSONATE_PROMPT.replace(/{{user}}/gi, userName) }]
 }
