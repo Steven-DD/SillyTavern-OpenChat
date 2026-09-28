@@ -219,7 +219,6 @@ watch(
           <button
             class="dots"
             :class="{ on: panelOpen }"
-            :class="{ on: panelOpen }"
             title="会话设置"
             @click="panelOpen = !panelOpen"
           >
