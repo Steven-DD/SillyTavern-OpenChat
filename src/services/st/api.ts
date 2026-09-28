@@ -140,9 +140,20 @@ export interface GenerateOptions {
   signal?: AbortSignal
 }
 
-/** 备用模型：主模型高峰过载（Google 侧 503 UNAVAILABLE）时自动切换 */
+/**
+ * 备用模型：主模型高峰过载（Google 侧 503 UNAVAILABLE）时自动切换。
+ * 读 settings store 持久化的 `app.gen`（P1 修复：此前读无人写入的 st.modelFallback，
+ * 设置页配置的备用模型实际不生效）。未配置返回空串 = 不回退。
+ */
 export function currentFallbackModel(): string {
-  return localStorage.getItem('st.modelFallback') ?? 'gemini-flash-latest'
+  try {
+    const gen = JSON.parse(localStorage.getItem('app.gen') ?? '{}') as {
+      fallbackModel?: unknown
+    }
+    return typeof gen.fallbackModel === 'string' ? gen.fallbackModel : ''
+  } catch {
+    return ''
+  }
 }
 
 const RETRY_DELAYS = [1500, 6000]
@@ -543,7 +554,9 @@ export async function generate(
   if (!primary) {
     throw new Error('尚未选择模型：请到「设置 → 模型」连接并拉取模型列表后选择')
   }
-  const fallback = opts.model ? '' : currentFallbackModel()
+  // 备用模型回退（P1 修复）：主模型退避重试仍失败时切一次备用。
+  // 此前条件写反（opts.model 存在——即所有正常调用——时恒为空串），功能实际不可达
+  const fallback = currentFallbackModel()
   const candidates = fallback && fallback !== primary ? [primary, fallback] : [primary]
 
   let lastErr: unknown = new Error('生成失败')

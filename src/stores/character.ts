@@ -14,6 +14,7 @@ import {
   setCharacterWorld,
 } from '@/services/st/data'
 import { invalidateWiCache } from '@/services/st/worldinfo'
+import { useChatStore } from '@/stores/chat'
 import type { StCharacter, StCharacterBook } from '@/services/st/types'
 
 /** 未知值安全取字符串（卡片高级字段可能顶层或 data 内，类型不定） */
@@ -171,6 +172,16 @@ export const useCharacterStore = defineStore('character', {
      * 成功后刷新列表并选中第一张剩余卡；删的是当前卡时先清选中态。
      */
     async deleteCard(avatar: string) {
+      // 生成中删卡：SSE 会继续跑、saveCurrent 还会以内存消息重建会话文件（半截僵尸文件）
+      const chat = useChatStore()
+      if (chat.streaming) {
+        // ST group.members 是 avatar 文件名数组
+        const inGroup = chat.group?.members?.includes(avatar) ?? false
+        if (chat.currentAvatar === avatar || inGroup) {
+          chat.lastError = '该角色正在生成回复，请先停止生成再删除'
+          return
+        }
+      }
       this.saving = true
       try {
         await deleteCharacter(avatar)

@@ -83,7 +83,9 @@ function localVarStore(storageKey: string): MacroVariables {
   }
 }
 
-/** 会话级变量（每会话独立；ST 存 chat_metadata.variables，App 侧 localStorage） */
+/** 会话级变量（localStorage 存储）。
+ *  ⚠ 生产主链路已不再使用：prompt 组装经 `BuildPromptOptions.macro.chatVars` 注入
+ *  chat_metadata.variables 的 store（与 ST 互通）。本函数保留供自检脚本使用。 */
 export function getChatVarStore(sessionKey: string): MacroVariables {
   return localVarStore(`app.chat.vars::${sessionKey}`)
 }

@@ -12,6 +12,7 @@
  */
 import { onMounted, onUnmounted } from 'vue'
 import RailNav from '@/components/RailNav.vue'
+import GlobalToast from '@/components/GlobalToast.vue'
 import { useLayoutStore } from '@/stores/layout'
 
 const layout = useLayoutStore()
@@ -74,5 +75,8 @@ function onNavChange(): void {
         <router-view name="main" />
       </div>
     </div>
+
+    <!-- 全局错误提示（store error 字段的统一出口：落盘/删除/写回失败不再静默） -->
+    <GlobalToast />
   </div>
 </template>

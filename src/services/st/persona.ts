@@ -20,6 +20,7 @@
  */
 import { stBase, stPostForm, stPostJson } from './client'
 import { getChat, getSettings, saveChat, saveSettings } from './data'
+import { enqueueChatWrite } from './writequeue'
 import type { StSettingsLite } from './types'
 
 /** 描述注入位置（ST personas.js:88 的 persona_description_positions） */
@@ -193,17 +194,20 @@ export async function setChatPersona(
   fileName: string,
   personaId: string | null,
 ): Promise<void> {
-  const chat = await getChat(avatarUrl, fileName)
-  if (!chat.length) throw new Error('会话为空，无法锁定人设')
+  // 读-改-写入队：与 saveCurrent 等其它会话文件写通路串行（防后写者胜回滚）
+  await enqueueChatWrite(async () => {
+    const chat = await getChat(avatarUrl, fileName)
+    if (!chat.length) throw new Error('会话为空，无法锁定人设')
 
-  const head = asDict(chat[0])
-  const meta = asDict(head.chat_metadata)
-  if (personaId) meta.persona = personaId
-  else delete meta.persona
-  head.chat_metadata = meta
-  chat[0] = head as (typeof chat)[number]
+    const head = asDict(chat[0])
+    const meta = asDict(head.chat_metadata)
+    if (personaId) meta.persona = personaId
+    else delete meta.persona
+    head.chat_metadata = meta
+    chat[0] = head as (typeof chat)[number]
 
-  await saveChat(avatarUrl, fileName, chat)
+    await saveChat(avatarUrl, fileName, chat)
+  })
 }
 
 /** 读会话里锁定的的人设 id（未锁定返回 null） */

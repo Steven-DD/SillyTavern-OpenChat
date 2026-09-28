@@ -23,7 +23,7 @@
  */
 import type { StChatMessage, StCharacter } from './types'
 import { isChatHeader, parseSendDate, type AuthorsNote } from './chatdoc'
-import { emptyContext, getChatVarStore, getGlobalVarStore, runMacros, type MacroContext } from './macros'
+import { emptyContext, getGlobalVarStore, runMacros, type MacroContext, type MacroVariables } from './macros'
 
 export interface PromptMessage {
   role: 'system' | 'user' | 'assistant'
@@ -48,13 +48,17 @@ export interface BuildPromptOptions {
   worldInfo?: WiPlacement
   /** 作者注释（chat_metadata.note_*；null/不传 = 不注入） */
   authorsNote?: AuthorsNote | null
-  /** 宏引擎附加上下文（变量存储键/模型等；不传用默认值） */
+  /** 宏引擎附加上下文（变量存储/模型等；不传用默认值） */
   macro?: {
     model?: string
     maxResponse?: number
     swipeId?: number
-    /** 会话键（chat 级变量存储；不传 = 变量用瞬态存储） */
-    sessionKey?: string
+    /**
+     * 会话级变量存储（chat_metadata.variables 的 store）。
+     * P1 统一：调用方必须传 store 本体而非存储键 —— 此前经 sessionKey 走
+     * localStorage 副本，与 STscript/正则通路的 chat_metadata 变量互不可见。
+     */
+    chatVars?: MacroVariables
   }
   /** Prompt Manager 配置（prompt_order + 三槽内容；不传走传统固定装配） */
   pm?: PmConfig
@@ -412,9 +416,7 @@ export function buildPrompt(opts: BuildPromptOptions): PromptResult {
     maxContext,
     maxResponse: opts.macro?.maxResponse ?? 2048,
     swipeId: opts.macro?.swipeId ?? 0,
-    chatVars: opts.macro?.sessionKey
-      ? getChatVarStore(opts.macro.sessionKey)
-      : emptyContext().chatVars,
+    chatVars: opts.macro?.chatVars ?? emptyContext().chatVars,
     globalVars: getGlobalVarStore(),
   })
 

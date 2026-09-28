@@ -38,6 +38,7 @@ import {
 } from '@/services/st/chatdoc'
 import { buildPrompt, buildSystemPrompt, withContinue, withImpersonate, type PromptMessage, type WiPlacement } from '@/services/st/prompt'
 import { loadPm } from '@/services/st/promptmanager'
+import { enqueueChatWrite } from '@/services/st/writequeue'
 import {
   createGroup as apiCreateGroup,
   deleteGroup,
@@ -502,10 +503,14 @@ export const useChatStore = defineStore('chat', {
       const prev = this.genOverride
       this.genOverride = override
       try {
-        const raw = await getChat(this.currentAvatar, this.currentFile)
-        if (!raw.length) throw new Error('会话为空，无法写入参数')
-        applyChatGenOverride(raw, override)
-        await saveChat(this.currentAvatar, this.currentFile, raw)
+        const avatar = this.currentAvatar
+        const file = this.currentFile
+        await enqueueChatWrite(async () => {
+          const raw = await getChat(avatar, file)
+          if (!raw.length) throw new Error('会话为空，无法写入参数')
+          applyChatGenOverride(raw, override)
+          await saveChat(avatar, file, raw)
+        })
         this.syncSessMeta()
       } catch (e) {
         this.genOverride = prev // 失败回滚
@@ -522,10 +527,14 @@ export const useChatStore = defineStore('chat', {
       const prev = this.authorsNote
       this.authorsNote = note && note.prompt.trim() ? note : null
       try {
-        const raw = await getChat(this.currentAvatar, this.currentFile)
-        if (!raw.length) throw new Error('会话为空，无法写入作者注释')
-        applyAuthorsNote(raw, this.authorsNote)
-        await saveChat(this.currentAvatar, this.currentFile, raw)
+        const avatar = this.currentAvatar
+        const file = this.currentFile
+        await enqueueChatWrite(async () => {
+          const raw = await getChat(avatar, file)
+          if (!raw.length) throw new Error('会话为空，无法写入作者注释')
+          applyAuthorsNote(raw, this.authorsNote)
+          await saveChat(avatar, file, raw)
+        })
       } catch (e) {
         this.authorsNote = prev // 失败回滚
         this.error = e instanceof Error ? e.message : String(e)
@@ -761,11 +770,15 @@ export const useChatStore = defineStore('chat', {
               Object.keys(this.timedState.cooldown ?? {}).length >
             0
           if ((hasTimed || hadTimed) && this.currentAvatar && this.currentFile) {
-            const raw = await getChat(this.currentAvatar, this.currentFile)
-            if (raw.length) {
-              applyTimedEffects(raw, this.timedState)
-              await saveChat(this.currentAvatar, this.currentFile, raw)
-            }
+            const avatar = this.currentAvatar
+            const file = this.currentFile
+            await enqueueChatWrite(async () => {
+              const raw = await getChat(avatar, file)
+              if (raw.length) {
+                applyTimedEffects(raw, this.timedState)
+                await saveChat(avatar, file, raw)
+              }
+            })
           }
         }
       } catch {
@@ -835,7 +848,8 @@ export const useChatStore = defineStore('chat', {
           model: s.model,
           maxResponse: this.genOverride?.maxTokens ?? s.maxTokens,
           swipeId: this.messages[this.messages.length - 1]?.swipeId ?? 0,
-          sessionKey: this.sessionKeyOf || undefined,
+          // P1 统一：prompt 组装与 STscript/正则共用同一份 chat_metadata.variables 存储
+          chatVars: this.chatVarStore(),
         },
         pm: {
           order: pm.order,
@@ -1038,10 +1052,15 @@ export const useChatStore = defineStore('chat', {
             if (i >= 0) this.messages.splice(i, 1)
           }
         } else {
-          reply.error = true
-          reply.content = e instanceof Error ? e.message : String(e)
-          this.lastError = reply.content
+          // 非 abort 错误（断网/上游中断）：**保留已生成内容**——生成几百字后断线
+          // 不应把输出整段替换成错误文本（对齐 ST 保留部分输出的行为）。
+          // 错误信息放 lastError（UI 有展示）；气泡仅在完全没有产出时才标记为错误。
+          this.lastError = e instanceof Error ? e.message : String(e)
           this.conn = 'unknown'
+          if (!reply.content.trim() && !(reply.reasoning ?? '').trim()) {
+            reply.error = true
+            reply.content = this.lastError
+          }
         }
       } finally {
         this.streaming = false
@@ -1388,11 +1407,15 @@ export const useChatStore = defineStore('chat', {
         out = out.trim()
         if (out) {
           this.summary = out
-          const raw = await getChat(this.currentAvatar, this.currentFile)
-          if (raw.length) {
-            applySummary(raw, out)
-            await saveChat(this.currentAvatar, this.currentFile, raw)
-          }
+          const avatar = this.currentAvatar
+          const file = this.currentFile
+          await enqueueChatWrite(async () => {
+            const raw = await getChat(avatar, file)
+            if (raw.length) {
+              applySummary(raw, out)
+              await saveChat(avatar, file, raw)
+            }
+          })
         }
       } catch (e) {
         if (!ctl.signal.aborted) {
@@ -1585,7 +1608,10 @@ export const useChatStore = defineStore('chat', {
           user_name: 'unused',
           character_name: 'unused',
         }
-        await saveGroupChat(this.groupChatId, [header, ...this.groupLines])
+        const chatId = this.groupChatId
+        await enqueueChatWrite(() =>
+          saveGroupChat(chatId, [header, ...this.groupLines]),
+        )
       } catch (e) {
         this.error = e instanceof Error ? e.message : String(e)
       }
@@ -1737,9 +1763,12 @@ export const useChatStore = defineStore('chat', {
                 if (i >= 0) this.messages.splice(i, 1)
               }
             } else {
-              reply.error = true
-              reply.content = e instanceof Error ? e.message : String(e)
-              this.lastError = reply.content
+              // 非 abort 错误：保留已生成部分（对齐单聊行为），仅无产出时才标记错误气泡
+              this.lastError = e instanceof Error ? e.message : String(e)
+              if (!reply.content.trim() && !(reply.reasoning ?? '').trim()) {
+                reply.error = true
+                reply.content = this.lastError
+              }
             }
             break
           }
@@ -1845,6 +1874,11 @@ export const useChatStore = defineStore('chat', {
 
     /** 删除群组（可选连带聊天记录） */
     async removeGroup(id: string, deleteChats = true) {
+      // 生成中删群会让 runGroupTurn 继续对内存推送"幽灵回复"且不再落盘
+      if (this.streaming && this.group?.id === id) {
+        this.lastError = '群聊正在生成回复，请先停止生成再删除'
+        return
+      }
       try {
         await deleteGroup(id, deleteChats)
         if (this.group?.id === id) {
@@ -1921,6 +1955,9 @@ export const useChatStore = defineStore('chat', {
         name: this.userName,
         sendDate: Date.now(),
       })
+      // 先落盘用户行（对齐 ST「用户消息原样保存」与群聊通路的先行落盘）：
+      // 生成期间崩溃/断电不丢整轮输入。失败回落全量保存（saveCurrent 现已保全 header）。
+      await this.persistUserLine()
       await this.generateReply()
       // M-19 auto-continue：回复过短时自动续写（generateReply 的 streaming 状态已复位）
       if (this.autoContinueEnabled && !this.lastGenAborted) {
@@ -1929,9 +1966,38 @@ export const useChatStore = defineStore('chat', {
       await this.saveCurrent()
     },
 
+    /**
+     * 把末条用户消息行级追加落盘（send 用：生成开始前输入先保存，崩溃不丢）。
+     * insert 允许追加到文件末尾（Rust 侧 index.min(len)）；行级不可用时回落全量保存。
+     */
+    async persistUserLine(): Promise<void> {
+      const m = this.messages[this.messages.length - 1]
+      if (!m || m.role !== 'user' || !this.currentAvatar || !this.currentFile) return
+      // 已知最大行号 +1 = 追加位置（error 气泡等占位消息不入文件、无行号）
+      const at = Math.max(-1, ...this.messages.map((x) => x.lineIndex ?? -1)) + 1
+      try {
+        const avatar = this.currentAvatar
+        const file = this.currentFile
+        await enqueueChatWrite(() =>
+          chatMutateLines(avatar, file, [
+            { op: 'insert', index: at, json: this.currentMessageJson(m) },
+          ]),
+        )
+        m.lineIndex = at
+        this.dirty = false
+      } catch {
+        await this.saveCurrent()
+      }
+    },
+
     /** 重新生成：末条为成功 AI 回复时追加为 swipe 备选（保留旧回复），否则截断重跑 */
     async regenerate() {
       if (this.streaming) return
+      // 群聊会话走群聊重生成通路（删除本轮 AI 发言后按激活策略重跑）
+      if (this.group) {
+        await this.regenerateGroup()
+        return
+      }
       const last = this.messages[this.messages.length - 1]
       if (last && last.role === 'assistant' && !last.error && last.content.trim()) {
         await this.regenerateAsSwipe(last)
@@ -1947,6 +2013,12 @@ export const useChatStore = defineStore('chat', {
 
     /** swipe 追加式重生成：旧回复保留为备选，新回复成为当前显示（对齐 ST swipe 行为） */
     async regenerateAsSwipe(last: DisplayMessage) {
+      // 群聊无单聊 swipe 语义（生成路径依赖 currentCharacter，单聊专用）——
+      // UI 已隐藏入口，这里兜底防脚本/误触把用户消息误当生成结果
+      if (this.group) {
+        this.lastError = '群聊会话请使用「重新生成本轮」'
+        return
+      }
       last.swipes ??= [last.content]
       if (!last.swipes.includes(last.content)) last.swipes.push(last.content)
       this.messages.pop() // 从历史视图移除，重新生成不含它
@@ -1987,6 +2059,7 @@ export const useChatStore = defineStore('chat', {
      *  与 ST 一致：swipe 条恒显 1/1，末尾右滑 = overswipe 生成新备选。 */
     async switchSwipe(index: number, dir: -1 | 1) {
       if (this.streaming) return
+      if (this.group) return // 群聊无 swipe 语义（UI 已隐藏，store 层兜底）
       const m = this.messages[index]
       if (!m || m.role !== 'assistant' || m.pending || m.error) return
       const swipes = m.swipes?.length ? m.swipes : [m.content]
@@ -2005,6 +2078,7 @@ export const useChatStore = defineStore('chat', {
     /** 切换到指定序号的备选（swipe picker 用） */
     async switchSwipeTo(index: number, target: number) {
       if (this.streaming) return
+      if (this.group) return // 群聊无 swipe 语义（UI 已隐藏，store 层兜底）
       const m = this.messages[index]
       if (!m?.swipes?.length) return
       const next = Math.max(0, Math.min(target, m.swipes.length - 1))
@@ -2327,14 +2401,18 @@ export const useChatStore = defineStore('chat', {
           return
         }
         if (!this.currentAvatar || !this.currentFile) return
-        const raw = await getChat(this.currentAvatar, this.currentFile)
-        if (!raw.length) return
-        const head = raw[0] as Record<string, unknown>
-        const meta = (head.chat_metadata ?? {}) as Record<string, unknown>
-        if (Object.keys(this.chatVariables).length) meta.variables = { ...this.chatVariables }
-        else delete meta.variables
-        head.chat_metadata = meta
-        await saveChat(this.currentAvatar, this.currentFile, raw)
+        const avatar = this.currentAvatar
+        const file = this.currentFile
+        await enqueueChatWrite(async () => {
+          const raw = await getChat(avatar, file)
+          if (!raw.length) return
+          const head = raw[0] as Record<string, unknown>
+          const meta = (head.chat_metadata ?? {}) as Record<string, unknown>
+          if (Object.keys(this.chatVariables).length) meta.variables = { ...this.chatVariables }
+          else delete meta.variables
+          head.chat_metadata = meta
+          await saveChat(avatar, file, raw)
+        })
       } catch {
         /* 变量落盘失败不阻断（下次变更会重试） */
       }
@@ -2346,39 +2424,44 @@ export const useChatStore = defineStore('chat', {
       if (!this.messages.some((m) => m.content.trim())) return
       this.saving = true
       try {
-        // chat_metadata 承载人设锁/作者注释/摘要/宏变量/timedWorldInfo 等，
-        // 全量保存必须**保全旧 header**（此前硬编码 {} 会导致每条消息落盘即清空全部
-        // 会话元数据，重开会话/网页端打开即暴露）。user_name/character_name 用当前值
-        // 覆盖以跟进改名；读不到旧档时才退回空 metadata 兜底。
-        let header: StChatMessage = {
-          chat_metadata: {},
-          user_name: this.userName,
-          character_name: this.currentCharacter?.name ?? '',
-        }
-        try {
-          const raw = await getChat(this.currentAvatar, this.currentFile)
-          if (raw.length && raw[0] && typeof raw[0] === 'object') {
-            header = {
-              ...raw[0],
-              user_name: this.userName,
-              character_name: this.currentCharacter?.name ?? '',
-            }
+        const avatar = this.currentAvatar
+        const file = this.currentFile
+        // 整文件写入入队串行：防止与变量/摘要/参数覆盖等读-改-写任务交错（后写者胜回滚）
+        await enqueueChatWrite(async () => {
+          // chat_metadata 承载人设锁/作者注释/摘要/宏变量/timedWorldInfo 等，
+          // 全量保存必须**保全旧 header**（此前硬编码 {} 会导致每条消息落盘即清空全部
+          // 会话元数据，重开会话/网页端打开即暴露）。user_name/character_name 用当前值
+          // 覆盖以跟进改名；读不到旧档时才退回空 metadata 兜底。
+          let header: StChatMessage = {
+            chat_metadata: {},
+            user_name: this.userName,
+            character_name: this.currentCharacter?.name ?? '',
           }
-        } catch {
-          /* 旧档读取失败（如首存前被删）按空 metadata 兜底，行为同旧版 */
-        }
-        const kept = this.messages.filter(
-          (m) => m.content.trim() && !m.error && !m.pending,
-        )
-        const body = toStMessages(kept, this.currentCharacter?.name ?? '')
-        await saveChat(this.currentAvatar, this.currentFile, [header, ...body])
-        // 写回成功：文件结构 = 元数据头 + kept 顺序 → 重排本地行号，行级增量才能对齐
-        const keptSet = new Set(kept)
-        let li = 1
-        for (const m of this.messages) {
-          m.lineIndex = keptSet.has(m) ? li++ : undefined
-        }
-        this.dirty = false
+          try {
+            const raw = await getChat(avatar, file)
+            if (raw.length && raw[0] && typeof raw[0] === 'object') {
+              header = {
+                ...raw[0],
+                user_name: this.userName,
+                character_name: this.currentCharacter?.name ?? '',
+              }
+            }
+          } catch {
+            /* 旧档读取失败（如首存前被删）按空 metadata 兜底，行为同旧版 */
+          }
+          const kept = this.messages.filter(
+            (m) => m.content.trim() && !m.error && !m.pending,
+          )
+          const body = toStMessages(kept, this.currentCharacter?.name ?? '')
+          await saveChat(avatar, file, [header, ...body])
+          // 写回成功：文件结构 = 元数据头 + kept 顺序 → 重排本地行号，行级增量才能对齐
+          const keptSet = new Set(kept)
+          let li = 1
+          for (const m of this.messages) {
+            m.lineIndex = keptSet.has(m) ? li++ : undefined
+          }
+          this.dirty = false
+        })
         await this.loadSessions()
       } catch (e) {
         this.error = e instanceof Error ? e.message : String(e)

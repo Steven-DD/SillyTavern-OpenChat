@@ -142,6 +142,8 @@ export const useWorldsStore = defineStore('worlds', {
 
     select(fileId: string) {
       if (this.currentId === fileId && this.detail) return
+      // 切书前先落盘旧书的未保存改动（P1：防抖定时器跨书竞态会丢改动甚至张冠李戴）
+      void this.flushPendingSave()
       this.currentId = fileId
       void this.loadDetail(fileId)
     },
@@ -149,6 +151,8 @@ export const useWorldsStore = defineStore('worlds', {
     async loadDetail(fileId?: string) {
       const target = fileId ?? this.currentId
       if (!target) return
+      // 直接重载当前书（刷新按钮等路径）同样先落盘，避免未保存改动被 getWorld 覆盖
+      await this.flushPendingSave()
       this.detailLoading = true
       this.dirty = false
       try {
@@ -159,6 +163,20 @@ export const useWorldsStore = defineStore('worlds', {
       } finally {
         this.detailLoading = false
       }
+    },
+
+    /**
+     * 立即落盘未保存改动（清掉防抖定时器）。切书/重载前必须调用 ——
+     * 否则 800ms 窗口内的编辑会随 detail 替换而丢失，或定时器触发时
+     * 把旧书内容写进新书文件。dirty 为假时是空操作。
+     */
+    async flushPendingSave(): Promise<void> {
+      if (this.saveTimer !== undefined) {
+        clearTimeout(this.saveTimer)
+        this.saveTimer = undefined
+      }
+      if (!this.dirty) return
+      await this.save()
     },
 
     /* ---------------- 条目编辑（本地改动 → 防抖保存） ---------------- */
@@ -221,12 +239,18 @@ export const useWorldsStore = defineStore('worlds', {
       }, AUTOSAVE_MS)
     },
 
-    /** 整本写回 ST（保存的是当前 detail 快照；成功后清注入缓存） */
+    /** 整本写回 ST（保存发起时刻的快照与书 id；成功后清注入缓存） */
     async save(): Promise<void> {
-      if (!this.detail || !this.currentId) return
+      // P1：在函数入口捕获 currentId + detail 快照 —— 保存期间用户切书时，
+      // 定时器触发的 save 不能把旧书内容写进新书（也不能被新 detail 污染）
+      const fileId = this.currentId
+      const snapshot = this.detail
+        ? (JSON.parse(JSON.stringify(this.detail)) as StWorldBook)
+        : null
+      if (!snapshot || !fileId) return
       this.saving = true
       try {
-        await saveWorld(this.currentId, JSON.parse(JSON.stringify(this.detail)) as StWorldBook)
+        await saveWorld(fileId, snapshot)
         invalidateWiCache()
         this.dirty = false
       } catch (e) {
