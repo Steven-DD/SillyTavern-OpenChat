@@ -57,6 +57,9 @@ export interface BuildPromptOptions {
      * localStorage 副本，与 STscript/正则通路的 chat_metadata 变量互不可见。
      */
     chatVars?: MacroVariables
+    /** {{pick}} 种子：会话哈希与 reroll 种子（ST chat_metadata.chat_id_hash/pick_reroll_seed 同义） */
+    chatIdHash?: number
+    pickRerollSeed?: number | null
   }
   /** Prompt Manager 配置（prompt_order + 三槽内容，不传走传统固定装配） */
   pm?: PmConfig
@@ -64,6 +67,11 @@ export interface BuildPromptOptions {
   memory?: { content: string; position: number; depth: number; role: number }
   /** 向量检索注入：@Depth system 块 */
   vectors?: { content: string; depth: number }
+  /** 深度注入（角色卡 depth_prompt / chat_metadata.script_injects）：role 0=system 1=user 2=assistant */
+  injections?: { content: string; depth: number; role: number }[]
+  /** /inject position=before/after 的系统提示前/后缀（拼在装配好的系统提示两端） */
+  systemPrefix?: string
+  systemSuffix?: string
 }
 
 /** 世界书注入材料（worldinfo.ts checkWorldInfo 的产出） */
@@ -415,6 +423,8 @@ export function buildPrompt(opts: BuildPromptOptions): PromptResult {
     maxResponse: opts.macro?.maxResponse ?? 2048,
     swipeId: opts.macro?.swipeId ?? 0,
     chatVars: opts.macro?.chatVars ?? emptyContext().chatVars,
+    chatIdHash: opts.macro?.chatIdHash,
+    pickRerollSeed: opts.macro?.pickRerollSeed,
     globalVars: getGlobalVarStore(),
   })
 
@@ -567,6 +577,27 @@ export function buildPrompt(opts: BuildPromptOptions): PromptResult {
       { role: 'system', content: opts.vectors.content.trim() },
       ...messages.slice(at),
     ]
+  }
+
+  // 深度注入（角色卡 depth_prompt / chat_metadata.script_injects）：role 0=system 1=user 2=assistant
+  for (const inj of opts.injections ?? []) {
+    if (!inj.content.trim()) continue
+    const depth = Math.max(0, Math.min(inj.depth, messages.length - 1))
+    const at = Math.max(1, messages.length - depth)
+    const roleMap = ['system', 'user', 'assistant'] as const
+    messages = [
+      ...messages.slice(0, at),
+      { role: roleMap[inj.role] ?? 'system', content: inj.content },
+      ...messages.slice(at),
+    ]
+  }
+
+  // /inject 的 before/after 位置：拼在装配好的系统提示两端（聊天内位置走 injections）
+  {
+    const pre = opts.systemPrefix?.trim()
+    const suf = opts.systemSuffix?.trim()
+    if (pre) sys = pre + '\n' + sys
+    if (suf) sys = sys + '\n' + suf
   }
 
   return {

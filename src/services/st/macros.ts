@@ -9,8 +9,32 @@
  * ── 有意为之的差异 ──
  * - 变量存储：chat 级直接读写 chat_metadata.variables
  * - {{trim}} 非作用域用法返回空串（ST 返回标记做后处理正则，效果近似）
+ * - {{pick}} 种子中的 offset 用「文本内出现序号」而非字符偏移（其余种子成分与网页端一致，
+ *   PRNG 同为 seedrandom，同会话同文本结果稳定）
  * - {{outlet}}/{{hasExtension}}/{{group}} 系列、instruct 序列宏在 App 无对应概念，返回空串
  */
+
+import seedrandom from 'seedrandom'
+
+/**
+ * ST utils.js 的 getStringHash（逐位一致移植）——{{pick}} 种子与网页端同值的前提。
+ */
+export function getStringHash(str: string, seed = 0): number {
+  if (typeof str !== 'string') return 0
+  let h1 = 0xdeadbeef ^ seed
+  let h2 = 0x41c6ce57 ^ seed
+  for (let i = 0, ch; i < str.length; i++) {
+    ch = str.charCodeAt(i)
+    h1 = Math.imul(h1 ^ ch, 2654435761)
+    h2 = Math.imul(h2 ^ ch, 1597334677)
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909)
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909)
+  return 4294967296 * (2097151 & h2) + (h1 >>> 0)
+}
+
+/** 每次 runMacros 调用的 pick 求值环境（同步展开，模块级暂存） */
+let pickRunEnv: { contentHash: number; ordinal: number } | null = null
 
 /* ------------------------------------------------------------------ *
  * 上下文与变量存储
@@ -51,6 +75,10 @@ export interface MacroContext {
   bannedWords: string[]
   chatVars: MacroVariables
   globalVars: MacroVariables
+  /** 会话哈希（getStringHash(chatId)，{{pick}} 种子之一；来自 chat_metadata.chat_id_hash 或会话键） */
+  chatIdHash?: number
+  /** /reroll-pick 重置种子（chat_metadata.pick_reroll_seed） */
+  pickRerollSeed?: number | null
 }
 
 /** localStorage JSON 变量存储 */
@@ -321,21 +349,23 @@ function listArgs(raw: string, unnamed: string[]): string[] {
     .filter(Boolean)
 }
 
-function hashPick(text: string): number {
-  let h = 0
-  for (let i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i)) >>> 0
-  return h
-}
 
 reg('random', ({ unnamed, raw }) => {
   const items = listArgs(raw, unnamed)
   return items.length ? (items[Math.floor(Math.random() * items.length)] ?? '') : ''
 })
-reg('pick', ({ unnamed, raw }) => {
+reg('pick', ({ unnamed, raw, ctx }) => {
   const items = listArgs(raw, unnamed)
   if (!items.length) return ''
-  // pick：按完整原文 hash 稳定选取，同一文本多次组装结果一致（近似 ST 确定性 pick）
-  return items[hashPick(raw) % items.length] ?? ''
+  // 种子与网页端同构：getStringHash([chatIdHash, contentHash, offset, rerollSeed].join('-'))
+  // PRNG 同为 seedrandom → 同会话同文本同位置的选取结果跨端一致
+  const offset = pickRunEnv ? pickRunEnv.ordinal++ : 0
+  const contentHash = pickRunEnv?.contentHash ?? getStringHash(raw)
+  const parts = [ctx.chatIdHash, contentHash, offset, ctx.pickRerollSeed ?? null].filter(
+    (x) => x !== null && x !== undefined,
+  )
+  const rng = seedrandom(String(getStringHash(parts.join('-'))))
+  return items[Math.floor(rng() * items.length)] ?? ''
 })
 
 /** droll 子集：[N]dM[+K/-K]、裸数字 = 1dX（{{roll::20}} = 1d20） */
@@ -505,11 +535,14 @@ export function expandIfBlocks(text: string, ctx: MacroContext): string {
  */
 export function runMacros(text: string, ctx: MacroContext): string {
   if (!text || !text.includes('{{')) return text
+  // pick 求值环境：contentHash = 本次展开文本的哈希（与网页端 env.contentHash 同义）
+  pickRunEnv = { contentHash: getStringHash(text), ordinal: 0 }
   let out = expandIfBlocks(text, ctx)
   for (let i = 0; i < MAX_PASSES; i++) {
     const next = expandOnce(out, ctx)
     if (next === out) break
     out = next
   }
+  pickRunEnv = null
   return out
 }

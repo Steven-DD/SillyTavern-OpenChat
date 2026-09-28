@@ -56,6 +56,8 @@ export interface WiGlobals {
   minActivations: number
   /** 扩窗深度上限（0 = 不限，仅受历史长度限制） */
   minActivationsDepthMax: number
+  /** inclusion group 关键词命中分打分（全局开关；条目级 useGroupScoring 可覆盖） */
+  useGroupScoring: boolean
 }
 const DEFAULT_GLOBALS: WiGlobals = {
   scanDepth: 2,
@@ -66,6 +68,7 @@ const DEFAULT_GLOBALS: WiGlobals = {
   recursive: false,
   minActivations: 0,
   minActivationsDepthMax: 0,
+  useGroupScoring: false,
 }
 
 /**
@@ -364,6 +367,33 @@ export function checkWorldInfo(
     return 'pass'
   }
 
+  /**
+   * useGroupScoring 的关键词命中分（WorldInfoBuffer.getScore）：
+   * 主键命中数；二级键按逻辑计分——AND_ANY 加二级命中数，AND_ALL 全中才加，其余只算主键。
+   */
+  const wiScore = (entry: WiEntry): number => {
+    const text = scanTextOf(entry)
+    let primary = 0
+    for (const k of entry.key ?? []) {
+      if (k.trim() && matchKeys(text, k.trim(), entry, g)) primary++
+    }
+    if (!primary) return 0
+    if (Array.isArray(entry.keysecondary) && entry.keysecondary.some((k) => k.trim())) {
+      let secondary = 0
+      let secondaryTotal = 0
+      for (const k of entry.keysecondary) {
+        if (!k.trim()) continue
+        secondaryTotal++
+        if (matchKeys(text, k.trim(), entry, g)) secondary++
+      }
+      if ((entry.selectiveLogic ?? WI_LOGIC.AND_ANY) === WI_LOGIC.AND_ANY) return primary + secondary
+      if (entry.selectiveLogic === WI_LOGIC.AND_ALL) {
+        return secondary === secondaryTotal ? primary + secondary : primary
+      }
+    }
+    return primary
+  }
+
   const tryActivate = (entry: WiEntry, hit: boolean): boolean => {
     if (!hit || activatedSet.has(entry)) return false
     // 概率掷骰（useProbability && <100）
@@ -480,6 +510,16 @@ export function checkWorldInfo(
     }
     const removed = new Set<WiEntry>()
     for (const members of groups.values()) {
+      // useGroupScoring：组内任一条目开启（或全局开启）且无 sticky 成员时，
+      // 先按关键词命中分淘汰低分开启条目，幸存者再走 winner 选择
+      const isScored = (m: WiEntry) => m.useGroupScoring ?? g.useGroupScoring
+      if (members.some(isScored) && !members.some((m) => stickyActive.has(entryKey(m)))) {
+        const scores = members.map((m) => wiScore(m))
+        const maxScore = Math.max(...scores)
+        members.forEach((m, i) => {
+          if (isScored(m) && (scores[i] ?? 0) < maxScore) removed.add(m)
+        })
+      }
       const alive = members.filter((m) => !removed.has(m))
       if (alive.length <= 1) continue
       const prios = alive.filter((m) => m.groupOverride)

@@ -342,6 +342,17 @@ export interface TimedWorldInfo {
   cooldown?: Record<string, TimedWorldInfoEffect>
 }
 
+/** 读 chat_metadata.script_injects（/inject 持久化结果；结构对齐 ST） */
+export function extractScriptInjects(
+  head: unknown,
+): Record<string, { value?: string; position?: number; depth?: number; role?: number }> {
+  const h = head as
+    | { chat_metadata?: { script_injects?: Record<string, { value?: string; position?: number; depth?: number; role?: number }> } }
+    | undefined
+  const inj = h?.chat_metadata?.script_injects
+  return inj && typeof inj === 'object' ? { ...inj } : {}
+}
+
 /** 读宏变量（chat_metadata.variables） */
 export function chatVariablesOf(chat: unknown[]): Record<string, unknown> {
   if (!chat.length) return {}

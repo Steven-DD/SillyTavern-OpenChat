@@ -32,6 +32,27 @@ function onStartNewChat(opts: NewChatOptions): void {
   if (char.value) void chat.newChatWithConfig(char.value, opts)
 }
 
+/* ---- 消息多选（批量删除） ---- */
+const selectMode = ref(false)
+const selected = ref(new Set<number>())
+function toggleSelectMode(): void {
+  selectMode.value = !selectMode.value
+  selected.value = new Set()
+}
+function toggleSelect(i: number): void {
+  const next = new Set(selected.value)
+  if (next.has(i)) next.delete(i)
+  else next.add(i)
+  selected.value = next
+}
+const batchConfirm = ref(false)
+async function confirmBatchDelete(): Promise<void> {
+  batchConfirm.value = false
+  await chat.removeMessages([...selected.value])
+  selectMode.value = false
+  selected.value = new Set()
+}
+
 /* ---- 消息操作（气泡下方工具条） ---- */
 const removeConfirmAt = ref(-1)
 
@@ -186,9 +207,18 @@ watch(
         </template>
 
         <div class="acts">
-          <!-- 连接状态已并入底部状态条；人设/重新生成移入会话面板与气泡工具条 -->
+          <button
+            v-if="inSession && !chat.streaming"
+            class="dots select-toggle"
+            :class="{ on: selectMode }"
+            :title="selectMode ? '退出多选' : '多选消息'"
+            @click="toggleSelectMode"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>
+          </button>
           <button
             class="dots"
+            :class="{ on: panelOpen }"
             :class="{ on: panelOpen }"
             title="会话设置"
             @click="panelOpen = !panelOpen"
@@ -245,8 +275,15 @@ watch(
         <div v-for="r in rows" :key="r.id">
           <div v-if="r.kind === 'day'" class="daysep">{{ r.label }}</div>
 
-          <MessageBubble
-            v-else
+          <div v-else class="msg-row" :class="{ selectable: selectMode }">
+            <label v-if="selectMode" class="pick">
+              <input
+                type="checkbox"
+                :checked="selected.has(r.i)"
+                @change="toggleSelect(r.i)"
+              />
+            </label>
+            <MessageBubble
             :m="r.m"
             :index="r.i"
             :is-last="r.i === chat.messages.length - 1"
@@ -269,6 +306,7 @@ watch(
             @speak="chat.speakMessage(r.i)"
             @continue="chat.continueReply()"
           />
+          </div>
         </div>
       </template>
     </div>
@@ -279,6 +317,27 @@ watch(
       :character="char"
       @cancel="chat.newChatOpen = false"
       @start="onStartNewChat"
+    />
+
+    <!-- 多选操作条 -->
+    <div v-if="selectMode" class="batchbar">
+      <span>已选 {{ selected.size }} 条</span>
+      <button class="btn" @click="toggleSelectMode">取消</button>
+      <button
+        class="btn btn-primary"
+        :disabled="!selected.size || chat.streaming"
+        @click="batchConfirm = true"
+      >删除所选</button>
+    </div>
+
+    <!-- 批量删除二次确认 -->
+    <ConfirmDialog
+      :open="batchConfirm"
+      title="批量删除消息"
+      :message="'将删除所选 ' + selected.size + ' 条消息，删除后不可恢复'"
+      confirm-text="删除"
+      @confirm="confirmBatchDelete"
+      @cancel="batchConfirm = false"
     />
 
     <!-- 删除消息二次确认 -->
@@ -680,4 +739,39 @@ watch(
   background: var(--c-border);
   transform: none;
 }
+
+/* ---- 消息多选 ---- */
+.msg-row.selectable {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding-inline-start: 6px;
+}
+.msg-row .pick {
+  flex: none;
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+.batchbar {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 52px;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: var(--c-panel, #fff);
+  border: 1px solid var(--c-line, #ddd);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 15%);
+  font-size: 13px;
+}
+.select-toggle.on {
+  color: var(--c-primary, #4a8fd4);
+}
+
 </style>

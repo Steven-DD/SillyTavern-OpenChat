@@ -58,6 +58,35 @@ async function commitRename(): Promise<void> {
 
 /* ---- 信息 Tab：本会话累计 ---- */
 
+/* ---- 信息 Tab：会话词数统计（本地计算；CJK 按字计，其余按词计） ---- */
+const sessionStats = computed(() => {
+  const msgs = chat.messages.filter((m) => m.content.trim() && !m.pending)
+  const words = (s: string): number => {
+    const cjk = (s.match(/[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/g) ?? []).length
+    const rest = s
+      .replace(/[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/g, ' ')
+      .split(/\s+/)
+      .filter(Boolean).length
+    return cjk + rest
+  }
+  const byName = new Map<string, { msgs: number; words: number }>()
+  let totalWords = 0
+  for (const m of msgs) {
+    const w = words(m.content)
+    totalWords += w
+    const key = m.isSystem ? '旁白' : m.role === 'user' ? m.name || '我' : m.name || '角色'
+    const cur = byName.get(key) ?? { msgs: 0, words: 0 }
+    cur.msgs++
+    cur.words += w
+    byName.set(key, cur)
+  }
+  return {
+    total: msgs.length,
+    totalWords,
+    byName: [...byName.entries()].sort((a, b) => b[1].words - a[1].words),
+  }
+})
+
 /* ---- 参数 Tab：会话级覆盖（chat_metadata.app_gen） ---- */
 const useGen = ref(false)
 const temperature = ref(1)
@@ -334,6 +363,17 @@ function goWorlds(): void {
           ></div>
           <div class="stat-r"><span>生成轮数</span><span class="mono">{{ chat.sessionUsage.turns }}</span></div>
           <p class="stat-note">壳侧本地统计；费用按内置牌价估算，仅供参考</p>
+        </div>
+
+        <div class="stat">
+          <p class="stat-t">会话词数统计</p>
+          <div class="stat-r"><span>消息 / 词数</span><span class="mono"
+            >{{ sessionStats.total }} 条 · 约 {{ sessionStats.totalWords }} 词</span
+          ></div>
+          <div v-for="[nm, st] in sessionStats.byName" :key="nm" class="stat-r">
+            <span>{{ nm }}</span><span class="mono">{{ st.msgs }} 条 / {{ st.words }} 词</span>
+          </div>
+          <p class="stat-note">按当前会话消息本地计算（CJK 按字计，其余按词计）</p>
         </div>
 
         <!-- 表情立绘（sprites 立绘 + classify 自动检测，不可用时手动） -->

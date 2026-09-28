@@ -25,6 +25,7 @@ import {
   chatSummary,
   chatTimedEffects,
   chatVariablesOf,
+  extractScriptInjects,
   createChatSeed,
   defaultChatName,
   isChatHeader,
@@ -94,7 +95,7 @@ import {
   vectorsCollectionId,
   type VectorItem,
 } from '@/services/st/vectors'
-import { emptyContext, getGlobalVarStore, runMacros, type MacroContext, type MacroVariables } from '@/services/st/macros'
+import { emptyContext, getGlobalVarStore, getStringHash, runMacros, type MacroContext, type MacroVariables } from '@/services/st/macros'
 import { runScript, type ScriptContext } from '@/services/st/stscript'
 import { formatInstructChat, loadInstruct, type InstructSettings } from '@/services/st/instruct'
 import { loadAutoContinue, saveAutoContinue, type AutoContinueSettings } from '@/services/st/data'
@@ -253,6 +254,10 @@ export const useChatStore = defineStore('chat', {
     timedState: {} as TimedWorldInfo,
     /** 宏变量（chat_metadata.variables） */
     chatVariables: {} as Record<string, unknown>,
+    /** {{pick}} 重置种子（chat_metadata.pick_reroll_seed；/reroll-pick 写入） */
+    pickRerollSeed: null as number | null,
+    /** chat_metadata.script_injects（/inject 持久化结果；openSession 捕获） */
+    scriptInjects: {} as Record<string, { value?: string; position?: number; depth?: number; role?: number }>,
     /** 群聊会话的 chat_metadata（落盘时随 header 写回，避免清空 ST 侧元数据） */
     groupMetadata: {} as Record<string, unknown>,
     /** chat_variables 防抖落盘计时器 */
@@ -570,6 +575,9 @@ export const useChatStore = defineStore('chat', {
         this.summary = chatSummary(raw)
         this.timedState = chatTimedEffects(raw)
         this.chatVariables = chatVariablesOf(raw)
+        // {{pick}} 种子（与网页端同字段；无则视为未重置）
+        this.pickRerollSeed = Number((raw[0] as { chat_metadata?: { pick_reroll_seed?: unknown } } | undefined)?.chat_metadata?.pick_reroll_seed) || null
+        this.scriptInjects = extractScriptInjects(raw[0])
         this.dirty = false
         this.promptInfo = null
         this.lastUsage = null
@@ -714,6 +722,9 @@ export const useChatStore = defineStore('chat', {
         maxResponse: s.maxTokens,
         chatVars: this.chatVarStore(),
         globalVars: getGlobalVarStore(),
+        // {{pick}} 种子：会话哈希（与网页端同为 chatId 的字符串 hash）+ reroll 种子
+        chatIdHash: getStringHash(this.group ? this.groupChatId : this.currentFile || ''),
+        pickRerollSeed: this.pickRerollSeed,
       })
     },
 
@@ -846,6 +857,31 @@ export const useChatStore = defineStore('chat', {
         /* 向量检索失败不阻断 */
       }
 
+      // 深度注入：角色卡 depth_prompt + /inject 持久化（script_injects）
+      const injections: { content: string; depth: number; role: number }[] = []
+      let systemPrefix = ''
+      let systemSuffix = ''
+      const cardDp = (
+        (char.data as { extensions?: { depth_prompt?: { prompt?: unknown; depth?: unknown; role?: unknown } } } | undefined)
+          ?.extensions?.depth_prompt
+      )
+      if (typeof cardDp?.prompt === 'string' && cardDp.prompt.trim()) {
+        injections.push({
+          content: cardDp.prompt.trim(),
+          depth: Number(cardDp.depth) || 4,
+          role: Number(cardDp.role) || 0,
+        })
+      }
+      for (const inj of Object.values(this.scriptInjects ?? {})) {
+        const text = String(inj?.value ?? '')
+        if (!text.trim()) continue
+        const role = Number(inj.role) || 0
+        const depth = Number(inj.depth) || 4
+        if (inj.position === 2) injections.push({ content: text.trim(), depth, role })
+        else if (inj.position === 0) systemPrefix += (systemPrefix ? '\n' : '') + text.trim()
+        else systemSuffix += (systemSuffix ? '\n' : '') + text.trim()
+      }
+
       const built = buildPrompt({
         character: char,
         history: this.buildHistory(char.name),
@@ -865,12 +901,19 @@ export const useChatStore = defineStore('chat', {
         authorsNote: this.authorsNote,
         memory,
         vectors,
+        // 深度注入：角色卡 depth_prompt + chat_metadata.script_injects（ST 同字段）
+        injections,
+        systemPrefix,
+        systemSuffix,
         macro: {
           model: s.model,
           maxResponse: this.genOverride?.maxTokens ?? s.maxTokens,
           swipeId: this.messages[this.messages.length - 1]?.swipeId ?? 0,
           // prompt 组装和 STscript/正则共用同一份 chat_metadata.variables 存储
           chatVars: this.chatVarStore(),
+          // {{pick}} 种子
+          chatIdHash: getStringHash(this.group ? this.groupChatId : this.currentFile || ''),
+          pickRerollSeed: this.pickRerollSeed,
         },
         pm: {
           order: pm.order,
@@ -1510,7 +1553,38 @@ export const useChatStore = defineStore('chat', {
     },
 
     /** 输入 `/` 开头 → 按 STscript 执行（变量走宏存储，{{pipe}} 管道） */
+    /** /reroll-pick：重置 {{pick}} 稳定种子（写 chat_metadata.pick_reroll_seed，跨端同字段） */
+    async rerollPick(): Promise<void> {
+      this.pickRerollSeed = Date.now()
+      try {
+        if (this.group) {
+          this.groupMetadata.pick_reroll_seed = this.pickRerollSeed
+          await this.saveGroupLines()
+          return
+        }
+        const avatar = this.currentAvatar
+        const file = this.currentFile
+        if (!avatar || !file) return
+        await enqueueChatWrite(async () => {
+          const raw = await getChat(avatar, file)
+          if (!raw.length) return
+          const head = raw[0] as Record<string, unknown>
+          const meta = (head.chat_metadata ?? {}) as Record<string, unknown>
+          meta.pick_reroll_seed = this.pickRerollSeed
+          head.chat_metadata = meta
+          await saveChat(avatar, file, raw)
+        })
+      } catch (e) {
+        this.error = e instanceof Error ? e.message : String(e)
+      }
+    },
+
     async runUserScript(script: string): Promise<void> {
+      // /reroll-pick 不走脚本引擎（App 直接实现种子重置）
+      if (script.trim() === '/reroll-pick') {
+        await this.rerollPick()
+        return
+      }
       const ctx: ScriptContext = {
         vars: this.chatVarStore(),
         expand: (text) => runMacros(text, this.macroCtxFor()),
@@ -1569,6 +1643,8 @@ export const useChatStore = defineStore('chat', {
         } catch {
           this.groupMetadata = {}
         }
+        this.pickRerollSeed = Number(this.groupMetadata.pick_reroll_seed) || null
+        this.scriptInjects = extractScriptInjects({ chat_metadata: this.groupMetadata })
         const gv = this.groupMetadata.variables
         this.chatVariables =
           gv && typeof gv === 'object' ? { ...(gv as Record<string, unknown>) } : {}
@@ -2260,6 +2336,67 @@ export const useChatStore = defineStore('chat', {
           await chatMutateLines(this.currentAvatar, this.currentFile, [
             { op: 'delete', index: opLine },
           ])
+          return
+        } catch (e) {
+          this.error = e instanceof Error ? e.message : String(e)
+        }
+      }
+      await this.saveCurrent()
+    },
+
+    /** 批量删除消息（多选模式）：indices 为消息下标（任意顺序）；单聊行级、群聊定位删除 */
+    async removeMessages(indices: number[]): Promise<void> {
+      if (this.streaming || !indices.length) return
+      const targets = [...new Set(indices)].sort((a, b) => b - a) // 降序：删除不影响未处理下标
+      if (this.group) {
+        const deletedLines: number[] = []
+        for (const i of targets) {
+          const m = this.messages[i]
+          if (!m) continue
+          const li = this.groupLineIndexOf(m)
+          if (li >= 0) deletedLines.push(li)
+        }
+        for (const i of targets) {
+          this.messages.splice(i, 1)
+          this.reindexTranslationsAfterRemoval(i)
+        }
+        // 群聊行号 = groupLines 下标：降序删除后按删除位置校正剩余行号
+        deletedLines.sort((a, b) => b - a)
+        for (const li of deletedLines) this.groupLines.splice(li, 1)
+        const asc = [...deletedLines].sort((a, b) => a - b)
+        for (const m of this.messages) {
+          if (m.lineIndex === undefined) continue
+          m.lineIndex -= asc.filter((d) => d < m.lineIndex!).length
+        }
+        await this.saveGroupLines()
+        return
+      }
+      // 单聊：收集文件行号（含未知行号 → 全量保存兜底）
+      const delIdx: number[] = []
+      let allKnown = true
+      for (const i of targets) {
+        const m = this.messages[i]
+        if (!m) continue
+        if (m.lineIndex === undefined) { allKnown = false; continue }
+        delIdx.push(m.lineIndex)
+      }
+      for (const i of targets) {
+        this.messages.splice(i, 1)
+        this.reindexTranslationsAfterRemoval(i)
+      }
+      if (delIdx.length && allKnown && this.currentAvatar && this.currentFile) {
+        delIdx.sort((a, b) => b - a)
+        const ops: ChatLineOp[] = delIdx.map((index) => ({ op: 'delete' as const, index }))
+        try {
+          const avatar = this.currentAvatar
+          const file = this.currentFile
+          await enqueueChatWrite(() => chatMutateLines(avatar, file, ops))
+          const asc = [...delIdx].sort((a, b) => a - b)
+          for (const m of this.messages) {
+            if (m.lineIndex === undefined) continue
+            m.lineIndex -= asc.filter((d) => d < m.lineIndex!).length
+          }
+          this.dirty = false
           return
         } catch (e) {
           this.error = e instanceof Error ? e.message : String(e)
