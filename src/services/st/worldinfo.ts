@@ -17,7 +17,7 @@
  *   5/6=EM 仅 Text Completion，App 不支持 → 按 after 处理
  * - 递归扫描：g.recursive 开启时启用（默认关）；timedEffects
  *   （sticky/cooldown 计数 + delay 消息进度）已实现，状态经调用方持久化到 chat_metadata.timedEffects；
- *   min_activations（默认 0）、useGroupScoring（需匹配度打分）未实现
+ *   min_activations 已实现（激活不足时逐步扩大扫描深度重扫）；useGroupScoring（需匹配度打分）未实现
  */
 import { getCharacter, getSettings, getWorld } from './data'
 import { estimateTokens } from './prompt'
@@ -52,6 +52,10 @@ export interface WiGlobals {
   matchWholeWords: boolean
   /** 递归扫描（ST 默认关，开启后新激活条目的内容并入扫描再匹配，最多 2 轮） */
   recursive: boolean
+  /** min_activations：激活条目数不足时逐步扩大扫描深度重扫（0 = 关） */
+  minActivations: number
+  /** 扩窗深度上限（0 = 不限，仅受历史长度限制） */
+  minActivationsDepthMax: number
 }
 const DEFAULT_GLOBALS: WiGlobals = {
   scanDepth: 2,
@@ -60,6 +64,8 @@ const DEFAULT_GLOBALS: WiGlobals = {
   caseSensitive: false,
   matchWholeWords: false,
   recursive: false,
+  minActivations: 0,
+  minActivationsDepthMax: 0,
 }
 
 /**
@@ -257,16 +263,21 @@ export function checkWorldInfo(
   overrides: Partial<WiGlobals> = {},
   timed?: WiTimedInput,
 ): WiScanResult {
-  const g: WiGlobals = { ...DEFAULT_GLOBALS, ...overrides }
+  const g: WiGlobals = { ...DEFAULT_GLOBALS }
+  // 只合并已定义的覆盖项，防止显式 undefined 打掉默认值
+  for (const [k, v] of Object.entries(overrides)) {
+    if (v !== undefined) (g as unknown as Record<string, unknown>)[k] = v
+  }
   const empty: WiScanResult = { before: '', after: '', depthEntries: [], activated: [], usedTokens: 0 }
   if (!entries.length) return empty
 
   // 扫描文本按深度切片（条目可用 scanDepth 覆盖全局），\x01 连接防跨边界正则误匹配
+  let baseDepth = Math.max(1, g.scanDepth)
   const sliceAt = (depth: number): string =>
     ['\x01', ...historyTexts.slice(-depth).map((t) => t.trim()), ''].join('\n\x01')
   const sliceCache = new Map<number, string>()
   const scanTextOf = (entry: WiEntry): string => {
-    const d = Math.max(1, entry.scanDepth ?? g.scanDepth)
+    const d = Math.max(1, entry.scanDepth ?? baseDepth)
     let t = sliceCache.get(d)
     if (t === undefined) {
       t = sliceAt(d)
@@ -280,6 +291,7 @@ export function checkWorldInfo(
   if (g.budgetCap > 0 && budget > g.budgetCap) budget = g.budgetCap
 
   const activated: WiEntry[] = []
+  const activatedSet = new Set<WiEntry>()
   let used = 0
   let overflowed = false
 
@@ -353,7 +365,7 @@ export function checkWorldInfo(
   }
 
   const tryActivate = (entry: WiEntry, hit: boolean): boolean => {
-    if (!hit) return false
+    if (!hit || activatedSet.has(entry)) return false
     // 概率掷骰（useProbability && <100）
     if (entry.useProbability && (entry.probability ?? 100) < 100) {
       if (Math.random() * 100 > (entry.probability ?? 100)) return false
@@ -368,34 +380,54 @@ export function checkWorldInfo(
       used += estimateTokens(content) + 1
     }
     activated.push(entry)
+    activatedSet.add(entry)
     return true
   }
 
-  for (const entry of entries) {
-    if (entry.disable) continue
-    const hasKeys = Array.isArray(entry.key) && entry.key.some((k) => k.trim())
-    if (!entry.constant && !hasKeys) continue
-    const gate = timedCheck(entry)
-    if (gate === 'skip') continue
+  // 单轮匹配。min_activations 扩窗时会以更大的扫描深度重跑；已激活条目跳过
+  const runMatchPass = (): void => {
+    for (const entry of entries) {
+      if (entry.disable) continue
+      if (activatedSet.has(entry)) continue
+      const hasKeys = Array.isArray(entry.key) && entry.key.some((k) => k.trim())
+      if (!entry.constant && !hasKeys) continue
+      const gate = timedCheck(entry)
+      if (gate === 'skip') continue
 
-    let hit = entry.constant || gate === 'force'
-    if (!hit && hasKeys) {
-      const text = scanTextOf(entry)
-      const primaryKey = (entry.key ?? []).find((k) => k.trim() && matchKeys(text, k.trim(), entry, g))
-      if (primaryKey) {
-        const hasSecondary =
-          entry.selective && Array.isArray(entry.keysecondary) && entry.keysecondary.some((k) => k.trim())
-        hit = !hasSecondary || matchSecondary(entry, text, g)
+      let hit = entry.constant || gate === 'force'
+      if (!hit && hasKeys) {
+        const text = scanTextOf(entry)
+        const primaryKey = (entry.key ?? []).find((k) => k.trim() && matchKeys(text, k.trim(), entry, g))
+        if (primaryKey) {
+          const hasSecondary =
+            entry.selective && Array.isArray(entry.keysecondary) && entry.keysecondary.some((k) => k.trim())
+          hit = !hasSecondary || matchSecondary(entry, text, g)
+        }
       }
-    }
 
-    tryActivate(entry, hit)
+      tryActivate(entry, hit)
+    }
+  }
+  runMatchPass()
+
+  // min_activations：激活条目数不足时逐步扩大扫描深度重跑匹配，
+  // 直到达到条数，或到达深度上限（depth_max，0 = 仅受历史长度限制）
+  const minAct = Math.max(0, Math.floor(g.minActivations ?? 0))
+  const minActMax = Math.max(0, Math.floor(g.minActivationsDepthMax ?? 0))
+  if (minAct > 0) {
+    while (
+      activated.length < minAct &&
+      baseDepth < historyTexts.length &&
+      (minActMax === 0 || baseDepth < minActMax)
+    ) {
+      baseDepth++
+      runMatchPass()
+    }
   }
   if (!activated.length) return empty
 
   // 递归扫描（默认关，g.recursive 开启时）：新激活条目的内容并入扫描再匹配，最多 2 轮
   if (g.recursive) {
-    const activatedSet = new Set<WiEntry>(activated)
     let extraText = activated.map((e) => e.content ?? '').join('\x01')
     for (let pass = 0; pass < 2; pass++) {
       let added = false
@@ -410,7 +442,6 @@ export function checkWorldInfo(
           entry.selective && Array.isArray(entry.keysecondary) && entry.keysecondary.some((k) => k.trim())
         const hit = !hasSecondary || matchSecondary(entry, text, g)
         if (tryActivate(entry, hit)) {
-          activatedSet.add(entry)
           extraText += `\x01${entry.content ?? ''}`
           added = true
         }

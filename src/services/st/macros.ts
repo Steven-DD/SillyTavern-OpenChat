@@ -475,19 +475,29 @@ function expandOnce(text: string, ctx: MacroContext): string {
   })
 }
 
-/** 块级 {{if cond}}…{{else}}…{{/if}}（非嵌套，条件同行内 if） */
+/**
+ * 块级 {{if cond}}…{{else}}…{{/if}}，支持嵌套。
+ * 做法：每轮只匹配「最内层」块（body 内不含 {{if 开标签），求值后外层块在下一轮
+ * 自然成形；最多迭代 MAX_PASSES 轮（不平衡标签时会自然停轮）。
+ */
 export function expandIfBlocks(text: string, ctx: MacroContext): string {
   if (!text.includes('{{')) return text
-  return text.replace(
-    /\{\{\s*if\s*(?:::|:|：)?\s*([^}]*)\}\}([\s\S]*?)\{\{\s*\/\s*if\s*\}\}/g,
-    (_w, condRaw: string, body: string) => {
+  // 内层优先：body 里不允许再出现 {{if 开标签
+  const innermost =
+    /\{\{\s*if\s*(?:::|:|：)?\s*([^}]*)\}\}((?:(?!\{\{\s*if\b)[\s\S])*?)\{\{\s*\/\s*if\s*\}\}/g
+  let out = text
+  for (let i = 0; i < MAX_PASSES; i++) {
+    const next = out.replace(innermost, (_w, condRaw: string, body: string) => {
       // 空条件 = falsy（走 else 分支）
       const m = /\{\{\s*else\s*\}\}/.exec(body)
       const thenBranch = m ? body.slice(0, m.index) : body
       const elseBranch = m ? body.slice(m.index + m[0].length) : ''
       return evalCondition(condRaw, ctx) ? thenBranch : elseBranch
-    },
-  )
+    })
+    if (next === out) break
+    out = next
+  }
+  return out
 }
 
 /**

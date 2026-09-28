@@ -42,6 +42,28 @@ const mk = (uid, p = {}) => ({
   eq(r4.activated.length, 0, 'sticky: 过期后保持失效')
 }
 
+/* ---- min_activations：激活不足时逐步扩大扫描深度重扫 ---- */
+{
+  // 关键词在最旧一条消息里，默认扫描深度（2）扫不到
+  const entries = [mk(1, { key: ['深藏关键词'] })]
+  const texts = ['深藏关键词', '无关', '无关', '无关'] // 旧→新
+  const off = checkWorldInfo(texts, entries, 8192, {}, { state: {}, turn: 5 })
+  eq(off.activated.length, 0, 'min_act: 默认深度不激活')
+  const on = checkWorldInfo(texts, entries, 8192, { minActivations: 1, minActivationsDepthMax: 4 }, { state: {}, turn: 5 })
+  eq(on.activated.length, 1, 'min_act: 扩窗后激活')
+  const capped = checkWorldInfo(texts, entries, 8192, { minActivations: 1, minActivationsDepthMax: 2 }, { state: {}, turn: 5 })
+  eq(capped.activated.length, 0, 'min_act: 深度上限截断')
+  // 已激活条目在扩窗重扫中不重复计数
+  const dedup = checkWorldInfo(
+    ['深藏关键词', '重复关键词', '无关', '无关'],
+    [mk(1, { key: ['深藏关键词'] }), mk(2, { key: ['重复关键词'] })],
+    8192,
+    { minActivations: 2, minActivationsDepthMax: 4 },
+    { state: {}, turn: 5 },
+  )
+  eq(dedup.activated.length, 2, 'min_act: 扩窗重扫不重复激活')
+}
+
 /* ---- timedEffects: cooldown（记录 {start, end=start+N}，区间内跳过、到 end 轮恢复） ---- */
 {
   const entries = [mk(1, { key: ['关键词'], cooldown: 2 })]

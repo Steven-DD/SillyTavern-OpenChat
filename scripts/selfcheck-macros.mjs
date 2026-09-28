@@ -109,6 +109,16 @@ eq(expandIfBlocks('{{if::1}}是{{else}}否{{/if}}', ctx()), '是', 'if: 块级 t
 eq(expandIfBlocks('{{if::}}是{{else}}否{{/if}}', ctx()), '否', 'if: 块级 else')
 eq(expandIfBlocks('{{if::!x}}非{{else}}正{{/if}}', ctx()), '正', 'if: 块级取反')
 eq(R('{{if::yes::A}}{{if::!yes::B}}'), 'A', 'if: 连用')
+eq(
+  expandIfBlocks('{{if::1}}外真{{if::0}}内真{{else}}内假{{/if}}尾{{else}}外假{{/if}}', ctx()),
+  '外真内假尾',
+  'if: 块级嵌套（内层先求值）',
+)
+eq(
+  expandIfBlocks('{{if::0}}外真{{if::1}}内真{{else}}内假{{/if}}{{else}}外假{{if::1}}内{{/if}}{{/if}}', ctx()),
+  '外假内',
+  'if: 嵌套 else 分支同样展开',
+)
 
 /* ---- 变量（chat 级） ---- */
 {

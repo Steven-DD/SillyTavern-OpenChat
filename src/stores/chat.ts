@@ -58,7 +58,7 @@ import {
   type GroupMemberMeta,
 } from '@/services/st/group-orchestrate'
 import { chatPersonaId, resolvePersona, setChatPersona } from '@/services/st/persona'
-import { checkWorldInfo, collectActiveEntries } from '@/services/st/worldinfo'
+import { checkWorldInfo, collectActiveEntries, type WiGlobals } from '@/services/st/worldinfo'
 import type { StCharacter, StChatMessage, StChatSummary } from '@/services/st/types'
 import { useCharacterStore } from './character'
 import { usePersonaStore } from './persona'
@@ -750,7 +750,24 @@ export const useChatStore = defineStore('chat', {
           const texts = this.messages
             .filter((m) => !m.error && !m.pending && m.content.trim())
             .map((m) => m.content)
-          const recursive = localStorage.getItem('app.wi.recursive') === '1'
+          // 全局 WI 参数以服务端 world_info_settings 为基底（跨端一致）；
+          // 本地递归开关（世界书页）显式设置时优先
+          const wiGlobals: Partial<WiGlobals> = { recursive: false }
+          try {
+            const w = ((await getSettings()).world_info_settings ?? {}) as Record<string, unknown>
+            const num = (v: unknown): number | undefined =>
+              Number.isFinite(Number(v)) ? Number(v) : undefined
+            wiGlobals.scanDepth = num(w.world_info_depth)
+            wiGlobals.budgetPercent = num(w.world_info_budget)
+            wiGlobals.budgetCap = num(w.world_info_budget_cap)
+            wiGlobals.minActivations = num(w.world_info_min_activations)
+            wiGlobals.minActivationsDepthMax = num(w.world_info_min_activations_depth_max)
+          } catch {
+            /* 服务端设置读不到 → 全用默认值 */
+          }
+          const localRecursive = localStorage.getItem('app.wi.recursive')
+          wiGlobals.recursive =
+            localRecursive === '1' ? true : localRecursive === '0' ? false : undefined
           // 修剪/补写前的记录数（修剪可能清空 → 仍需写回以删除 timedWorldInfo 键）
           const hadTimed =
             Object.keys(this.timedState.sticky ?? {}).length +
@@ -760,7 +777,7 @@ export const useChatStore = defineStore('chat', {
             texts,
             wiEntries,
             s.maxContext,
-            { recursive },
+            wiGlobals,
             // turn 基准：服务端按含 header 的 chat.length 计数，App 的
             // messages 不含 header，故 +1 补上 header 计数
             { state: this.timedState, turn: this.messages.length + 1 },
