@@ -8,3 +8,5 @@ src-tauri/target
 dev-run.log
 src-tauri/app-run.log
 *.log
+# 设计/对齐文档仅本地维护，不入版本库
+docs/
