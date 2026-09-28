@@ -37,7 +37,7 @@ import {
   type DisplayMessage,
   type TimedWorldInfo,
 } from '@/services/st/chatdoc'
-import { buildPrompt, buildSystemPrompt, withContinue, withImpersonate, type PromptMessage, type WiPlacement } from '@/services/st/prompt'
+import { buildPrompt, buildSystemPrompt, withContinue, withImpersonate, type ContextTemplate, type PromptMessage, type WiPlacement } from '@/services/st/prompt'
 import { loadPm } from '@/services/st/promptmanager'
 import { enqueueChatWrite } from '@/services/st/writequeue'
 import {
@@ -882,6 +882,28 @@ export const useChatStore = defineStore('chat', {
         else systemSuffix += (systemSuffix ? '\n' : '') + text.trim()
       }
 
+      // Text Completion 上下文模板（power_user.context；story_string 等）
+      let context: ContextTemplate | null = null
+      if (s.genType === 'text') {
+        try {
+          const pu = ((await getSettings()).power_user ?? {}) as Record<string, unknown>
+          const c = (pu.context ?? {}) as Record<string, unknown>
+          const str = (v: unknown): string => (typeof v === 'string' ? v : '')
+          if (str(c.story_string).trim()) {
+            context = {
+              storyString: str(c.story_string),
+              chatStart: str(c.chat_start),
+              exampleSeparator: str(c.example_separator),
+              position: Number(c.story_string_position) || 0,
+              depth: Number(c.story_string_depth) || 1,
+              role: Number(c.story_string_role) || 0,
+            }
+          }
+        } catch {
+          /* 服务端设置读不到 → 走传统装配 */
+        }
+      }
+
       const built = buildPrompt({
         character: char,
         history: this.buildHistory(char.name),
@@ -901,10 +923,11 @@ export const useChatStore = defineStore('chat', {
         authorsNote: this.authorsNote,
         memory,
         vectors,
-        // 深度注入：角色卡 depth_prompt + chat_metadata.script_injects（ST 同字段）
+        // 深度注入（角色卡 depth_prompt + /inject 持久化）与系统提示前后缀
         injections,
         systemPrefix,
         systemSuffix,
+        context,
         macro: {
           model: s.model,
           maxResponse: this.genOverride?.maxTokens ?? s.maxTokens,

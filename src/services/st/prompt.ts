@@ -22,6 +22,7 @@
 import type { StChatMessage, StCharacter } from './types'
 import { isChatHeader, parseSendDate, type AuthorsNote } from './chatdoc'
 import { emptyContext, getGlobalVarStore, runMacros, type MacroContext, type MacroVariables } from './macros'
+import Handlebars from 'handlebars'
 
 export interface PromptMessage {
   role: 'system' | 'user' | 'assistant'
@@ -72,6 +73,8 @@ export interface BuildPromptOptions {
   /** /inject position=before/after 的系统提示前/后缀（拼在装配好的系统提示两端） */
   systemPrefix?: string
   systemSuffix?: string
+  /** Text Completion 上下文模板（power_user.context；story_string 等） */
+  context?: ContextTemplate | null
 }
 
 /** 世界书注入材料（worldinfo.ts checkWorldInfo 的产出） */
@@ -188,6 +191,41 @@ export interface PersonaInjection {
   role: number
 }
 
+/** Text Completion 上下文模板（power_user.context；story_string 用 Handlebars 渲染） */
+export interface ContextTemplate {
+  storyString: string
+  chatStart: string
+  exampleSeparator: string
+  /** 0 = 系统提示内；2 = 聊天内 @Depth（ST extension_prompt_types.IN_CHAT） */
+  position: number
+  depth: number
+  role: number
+}
+
+/** story_string 模板编译缓存（同一模板只编译一次） */
+const storyTplCache = new Map<string, HandlebarsTemplateDelegate>()
+
+/**
+ * persona 位置 2/3（TOP_AN/BOTTOM_AN）：把 persona 文本并入作者注释块
+ * （prepend/append，script.js:3204-3225）；AN 缺失时以 persona 独立成 AN 块
+ * （按默认位置 0 注入）。
+ */
+function mergePersonaIntoAn(
+  authorsNote: AuthorsNote | null | undefined,
+  persona?: PersonaInjection | null,
+): AuthorsNote | null | undefined {
+  if (!persona?.description.trim() || (persona.position !== 2 && persona.position !== 3)) {
+    return authorsNote
+  }
+  const desc = persona.description.trim()
+  const base: AuthorsNote =
+    authorsNote?.prompt.trim() ? authorsNote : { prompt: '', position: 0, depth: 4, role: 0, interval: 1 }
+  return {
+    ...base,
+    prompt: persona.position === 2 ? `${desc}\n${base.prompt}`.trim() : `${base.prompt}\n${desc}`.trim(),
+  }
+}
+
 /** Prompt Manager 配置（数据来自 settings.json prompts/prompt_order，见 services/st/promptmanager.ts） */
 export interface PmConfig {
   order: { identifier: string; enabled: boolean }[]
@@ -216,7 +254,8 @@ export function buildSystemParts(
   authorsNote?: AuthorsNote | null,
   macroCtx?: MacroContext,
   pm?: PmConfig,
-): SystemParts {
+  context?: ContextTemplate | null,
+): SystemParts & { storyBlock?: string } {
   const char = character.name
   const sub = (t?: string) =>
     macroCtx
@@ -281,24 +320,54 @@ export function buildSystemParts(
 
   if (worldInfo?.before?.trim()) blocks.push(worldInfo.before.trim())
 
-  const pDesc = persona && persona.position !== 4 && persona.position !== 9
-    ? sub(persona.description)
-    : ''
-  if (pDesc && persona && persona.position === 2) blocks.push(`### About ${userName}
-${pDesc}`)
+  // persona 位置：0/1 = 走 {{persona}}（有模板）或独立块（无模板）；2/3 已并入 AN；4 = @Depth；9 = 不注入
+  const personaInPrompt = persona && (persona.position === 0 || persona.position === 1) ? sub(persona.description) : ''
+
+  const hasStory = !!context?.storyString.trim()
+  let storyBlock: string | undefined
+  if (hasStory) {
+    // story_string（Handlebars 渲染，与网页端同模板语法）：字段宏展开后交给模板
+    const tpl = (() => {
+      const cached = storyTplCache.get(context!.storyString)
+      if (cached) return cached
+      const compiled = Handlebars.compile(context!.storyString, { noEscape: true })
+      storyTplCache.set(context!.storyString, compiled)
+      return compiled
+    })()
+    const rendered = String(
+      tpl({
+        system: sub((character.data as { system_prompt?: string } | undefined)?.system_prompt ?? ''),
+        description: sub(character.description),
+        personality: sub(character.personality),
+        persona: personaInPrompt,
+        scenario: sub(character.scenario),
+        char,
+        user: userName,
+      }),
+    ).replace(/^\n+/, '')
+    storyBlock = rendered.endsWith('\n') ? rendered : rendered + '\n'
+    if (context!.chatStart.trim()) storyBlock += '\n' + context!.chatStart.trim() + '\n'
+    blocks.push(storyBlock)
+  }
 
   if (authorsNote?.prompt.trim() && authorsNote.position === 2) {
     blocks.push(sub(authorsNote.prompt))
   }
 
-  const description = sub(character.description)
-  if (description) blocks.push(description)
+  if (!hasStory) {
+    const description = sub(character.description)
+    if (description) blocks.push(description)
 
-  const personality = sub(character.personality)
-  if (personality) blocks.push(`### Personality\n${personality}`)
+    const personality = sub(character.personality)
+    if (personality) blocks.push(`### Personality\n${personality}`)
 
-  const scenario = sub(character.scenario)
-  if (scenario) blocks.push(`### Scenario\n${scenario}`)
+    const scenario = sub(character.scenario)
+    if (scenario) blocks.push(`### Scenario\n${scenario}`)
+
+    if (personaInPrompt && persona && persona.position === 0) {
+      blocks.push(`### About ${userName}\n${personaInPrompt}`)
+    }
+  }
 
   if (worldInfo?.after?.trim()) blocks.push(worldInfo.after.trim())
 
@@ -306,17 +375,21 @@ ${pDesc}`)
     blocks.push(sub(authorsNote.prompt))
   }
 
-  if (pDesc && persona && persona.position === 0) blocks.push(`### About ${userName}
-${pDesc}`)
-
   if (includeExamples) {
     const examples = sub(character.mes_example)
     if (examples) {
-      blocks.push(`### Example dialogue\n${examples}`)
+      if (hasStory) {
+        // 示例按 <START> 切分，用 example_separator 连接（ST 同款）
+        const sep = context!.exampleSeparator.trim() || '***'
+        const parts = examples.split(/<START>/i).map((x) => x.trim()).filter(Boolean)
+        if (parts.length) blocks.push(parts.join(`\n${sep}\n`))
+      } else {
+        blocks.push(`### Example dialogue\n${examples}`)
+      }
     }
   }
 
-  return { pre: blocks, post: [] }
+  return { pre: blocks, post: [], storyBlock }
 }
 
 /** 兼容包装：仅返回历史前系统提示（post 部分由 buildPrompt 处理） */
@@ -395,7 +468,11 @@ export function buildPrompt(opts: BuildPromptOptions): PromptResult {
     persona = null,
     worldInfo,
     authorsNote,
+    context = null,
   } = opts
+
+  // persona 位置 2/3（TOP_AN/BOTTOM_AN）：并入作者注释文本，随 AN 的位置/深度/角色注入
+  const authorsNoteM = mergePersonaIntoAn(authorsNote, persona)
 
   const reserve =
     opts.reserveForReply ?? Math.min(1024, Math.max(256, Math.floor(maxContext * 0.25)))
@@ -433,11 +510,11 @@ export function buildPrompt(opts: BuildPromptOptions): PromptResult {
   // 作者注释频率门：每 interval 条消息插一次，
   // interval = 1 恒成立；消息数尚未攒到 interval 时不插
   const anActive = (() => {
-    if (!authorsNote?.prompt.trim()) return false
-    const interval = Math.max(1, Math.floor(authorsNote.interval))
+    if (!authorsNoteM?.prompt.trim()) return false
+    const interval = Math.max(1, Math.floor(authorsNoteM.interval))
     return historyMsgs.length > 0 && historyMsgs.length % interval === 0
   })()
-  const anForSystem = anActive && authorsNote && authorsNote.position !== 1 ? authorsNote : null
+  const anForSystem = anActive && authorsNoteM && authorsNoteM.position !== 1 ? authorsNoteM : null
 
   // 先用完整系统提示试；过宽则降级为不含示例的版本
   const parts = buildSystemParts(
@@ -449,6 +526,7 @@ export function buildPrompt(opts: BuildPromptOptions): PromptResult {
     anForSystem,
     macroCtx,
     opts.pm,
+    context,
   )
   let sys = parts.pre.join('\n\n')
   // 总结记忆（position 0 = 系统提示顶部）
@@ -525,14 +603,14 @@ export function buildPrompt(opts: BuildPromptOptions): PromptResult {
   }
 
   // 作者注释「聊天内 @Depth」（position 1，ST 默认位，深度/角色可配）
-  if (anActive && authorsNote && authorsNote.position === 1) {
+  if (anActive && authorsNoteM && authorsNoteM.position === 1) {
     const roleMap = ['system', 'user', 'assistant'] as const
-    const role = roleMap[authorsNote.role] ?? 'system'
-    const depth = Math.max(0, Math.min(authorsNote.depth, messages.length - 1))
+    const role = roleMap[authorsNoteM.role] ?? 'system'
+    const depth = Math.max(0, Math.min(authorsNoteM.depth, messages.length - 1))
     const at = Math.max(1, messages.length - depth)
     messages = [
       ...messages.slice(0, at),
-      { role, content: runMacros(authorsNote.prompt, macroCtx).trim() },
+      { role, content: runMacros(authorsNoteM.prompt, macroCtx).trim() },
       ...messages.slice(at),
     ]
   }
@@ -580,7 +658,12 @@ export function buildPrompt(opts: BuildPromptOptions): PromptResult {
   }
 
   // 深度注入（角色卡 depth_prompt / chat_metadata.script_injects）：role 0=system 1=user 2=assistant
-  for (const inj of opts.injections ?? []) {
+  const injections = [...(opts.injections ?? [])]
+  // story_string_position = IN_CHAT：story string 不进系统提示，按 depth 注入聊天内
+  if (context && context.position === 2 && parts.storyBlock?.trim()) {
+    injections.push({ content: parts.storyBlock.trim(), depth: context.depth, role: context.role })
+  }
+  for (const inj of injections) {
     if (!inj.content.trim()) continue
     const depth = Math.max(0, Math.min(inj.depth, messages.length - 1))
     const at = Math.max(1, messages.length - depth)

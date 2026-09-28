@@ -6,6 +6,8 @@ import Avatar from '@/components/Avatar.vue'
 import { bubbleTime } from '@/utils/time'
 import { useThemeStore } from '@/stores/theme'
 import { applyDisplayRegex, REGEX_PLACEMENT } from '@/services/st/regex'
+import { detectFenceLanguages } from '@/utils/codeDetect'
+import DOMPurify from 'dompurify'
 import type { DisplayMessage } from '@/services/st/chatdoc'
 
 /**
@@ -84,10 +86,28 @@ const swipeCount = computed(() => props.m.swipes?.length || 1)
 const swipeAt = computed(() => props.m.swipeId ?? 0)
 
 /* ---- 显示通路正则（正则脚本由 chat store 预加载到模块缓存） ---- */
-const displayContent = computed(() =>
-  applyDisplayRegex(props.m.content, props.m.role === 'user' ? REGEX_PLACEMENT.USER_INPUT : REGEX_PLACEMENT.AI_OUTPUT),
-)
+const displayContent = computed(() => {
+  const raw = applyDisplayRegex(
+    props.m.content,
+    props.m.role === 'user' ? REGEX_PLACEMENT.USER_INPUT : REGEX_PLACEMENT.AI_OUTPUT,
+  )
+  return props.m.role === 'assistant' ? detectFenceLanguages(raw) : raw
+})
 const displayReasoning = computed(() => applyDisplayRegex(props.m.reasoning ?? '', REGEX_PLACEMENT.REASONING))
+
+/**
+ * 消息 HTML 渲染（P11 对齐：角色卡/HTML 消息按净化后的 HTML 渲染，其余走 Markdown）。
+ * 判定：内容以 HTML 标签开头且含块级闭合标签（卡片式整段 HTML）；
+ * 净化用 DOMPurify 默认白名单（script/事件属性恒拒收）。
+ */
+const HTML_OPEN = /^\s*<[a-zA-Z!][^>]*>/
+const HTML_BLOCK_CLOSE = /<\/(div|p|table|span|style|pre|section|article|details|h[1-6]|ul|ol|dl|blockquote|center|font|body|html)>/i
+const htmlContent = computed(() => {
+  if (props.m.role !== 'assistant') return ''
+  const raw = displayContent.value
+  if (!HTML_OPEN.test(raw) || !HTML_BLOCK_CLOSE.test(raw)) return ''
+  return DOMPurify.sanitize(raw, { FORCE_BODY: true })
+})
 
 /* ---- 代码高亮主题跟随应用主题（shiki 双主题对） ---- */
 const theme = useThemeStore()
@@ -137,9 +157,14 @@ const nextTitle = computed(() =>
         </div>
       </div>
 
-      <!-- 气泡：AI 走 Markdown 流式渲染，用户保持纯文本 -->
+      <!-- 气泡：AI 走 Markdown 流式渲染（整段 HTML 消息走净化后直渲染），用户保持纯文本 -->
       <div v-if="!editing" class="bubble" :class="{ err: m.error }">
-        <Streamdown v-if="m.role === 'assistant'" class="txt md" :content="displayContent" :shiki-theme="shikiThemes" />
+        <div
+          v-if="m.role === 'assistant' && htmlContent"
+          class="txt md cardhtml"
+          v-html="htmlContent"
+        />
+        <Streamdown v-else-if="m.role === 'assistant'" class="txt md" :content="displayContent" :shiki-theme="shikiThemes" />
         <span v-else class="txt">{{ displayContent }}</span
         ><span v-if="m.pending && streaming" class="caret-el">▍</span>
       </div>
