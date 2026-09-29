@@ -164,6 +164,27 @@ async function detectEmotion(): Promise<void> {
   }
 }
 
+/* ---- 气泡自动切换立绘：每条新 AI 回复自动情感识别并切换 ---- */
+const exprAuto = ref(localStorage.getItem('app.expr.auto') === '1')
+function setExprAuto(v: boolean): void {
+  exprAuto.value = v
+  localStorage.setItem('app.expr.auto', v ? '1' : '0')
+}
+let lastClassified = ''
+watch(
+  () => {
+    const last = [...chat.messages]
+      .reverse()
+      .find((m) => m.role === 'assistant' && m.content.trim() && !m.pending && !m.error)
+    return last ? last.content.slice(-200) : ''
+  },
+  (sig) => {
+    if (!exprAuto.value || !sig || sig === lastClassified || emotionBusy.value) return
+    lastClassified = sig
+    void detectEmotion()
+  },
+)
+
 /* ---- 群头像上传 ---- */
 async function onGroupAvatarPick(e: Event): Promise<void> {
   const input = e.target as HTMLInputElement
@@ -393,6 +414,14 @@ function goWorlds(): void {
               />
             </div>
           </div>
+          <label class="fld chk">
+            <input
+              type="checkbox"
+              :checked="exprAuto"
+              @change="setExprAuto(($event.target as HTMLInputElement).checked)"
+            />
+            <span>自动切换立绘（每条新回复自动识别情感）</span>
+          </label>
           <div class="btns">
             <button class="btn" :disabled="emotionBusy" @click="detectEmotion">
               {{ emotionBusy ? '识别中…' : '按最新回复识别表情' }}
