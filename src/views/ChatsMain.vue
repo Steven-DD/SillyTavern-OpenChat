@@ -9,11 +9,28 @@ import NewChatDialog from '@/components/NewChatDialog.vue'
 import ChatPanel from '@/components/ChatPanel.vue'
 import { dayLabel } from '@/utils/time'
 import { fmtCost, fmtTok, priceOf } from '@/services/usage'
+import { loadStTextColors, type StTextColors } from '@/services/st/theme'
+import { useThemeStore } from '@/stores/theme'
 import type { DisplayMessage } from '@/services/st/chatdoc'
 import type { NewChatOptions } from '@/stores/chat'
 
 const chat = useChatStore()
 const gen = useSettingsStore()
+const theme = useThemeStore()
+
+/* ---- ST 主题文本色（斜体/引号/下划线）：对齐网页端 .mes_text 着色 ---- */
+const stColors = ref<StTextColors | null>(null)
+void loadStTextColors().then((c) => (stColors.value = c))
+/** 仅深色模式套用：ST 主题按深底设计，浅色下白斜体会不可读（回落 App 自身样式） */
+const stColorVars = computed<Record<string, string> | undefined>(() => {
+  if (theme.mode === 'light' || !stColors.value) return undefined
+  const c = stColors.value
+  const vars: Record<string, string> = {}
+  if (c.em) vars['--st-c-em'] = c.em
+  if (c.quote) vars['--st-c-quote'] = c.quote
+  if (c.underline) vars['--st-c-underline'] = c.underline
+  return Object.keys(vars).length ? vars : undefined
+})
 
 const draft = ref('')
 const listEl = ref<HTMLElement | null>(null)
@@ -192,7 +209,7 @@ watch(
 </script>
 
 <template>
-  <main class="main page" data-page="chats">
+  <main class="main page" data-page="chats" :style="stColorVars">
     <div class="chat-col">
       <header class="head">
         <template v-if="inSession && char">
@@ -289,6 +306,7 @@ watch(
             :avatar="char?.avatar ?? ''"
             :streaming="chat.streaming"
             :translation="chat.translations[r.i]"
+            :translating="!!chat.translating[r.i]"
             :speaking="chat.speakingIndex === r.i"
             :speaker="chat.group ? r.m.name : undefined"
             :group-chat="!!chat.group"

@@ -242,8 +242,11 @@ export const useChatStore = defineStore('chat', {
     /** 新建会话配置弹窗开关（中栏「＋ 新建会话」与聊天区空态共用） */
     newChatOpen: false,
 
-    /** 消息翻译结果（键 = 消息下标，再点一次删除） */
-    translations: {} as Record<number, string>,    /** 正在朗读的消息下标（-1 = 无） */
+    /** 消息翻译结果（键 = 消息下标；显示/隐藏由气泡端切换，不删除缓存） */
+    translations: {} as Record<number, string>,
+    /** 正在翻译的消息下标（键 = 消息下标，防止重复请求） */
+    translating: {} as Record<number, boolean>,
+    /** 正在朗读的消息下标（-1 = 无） */
     speakingIndex: -1,
     /** 快捷回复按钮（extension_settings.stchat_quick_replies） */
     quickReplies: [] as { label: string; message: string; enabled: boolean; mode?: 'send' | 'insert' }[],
@@ -1372,22 +1375,21 @@ export const useChatStore = defineStore('chat', {
       }
     },
 
-    /** 翻译消息（再点同一条删除译文） */
+    /** 翻译消息（缓存命中直接返回；显示切换由 MessageBubble 端处理） */
     async translateMessage(index: number) {
       const m = this.messages[index]
-      if (!m) return
-      if (this.translations[index]) {
-        const next = { ...this.translations }
-        delete next[index]
-        this.translations = next
-        return
-      }
+      if (!m || this.translating[index] || this.translations[index]) return
+      this.translating = { ...this.translating, [index]: true }
       try {
         const s = await loadTranslateSettings()
         const t = await translateText(m.content, s.target_language, s.provider)
         this.translations = { ...this.translations, [index]: t || '（翻译结果为空）' }
       } catch (e) {
         this.lastError = e instanceof Error ? e.message : String(e)
+      } finally {
+        const next = { ...this.translating }
+        delete next[index]
+        this.translating = next
       }
     },
 
