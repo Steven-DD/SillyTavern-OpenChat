@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { Streamdown } from 'streamdown-vue3'
 import 'streamdown-vue3/styles.css'
 import Avatar from '@/components/Avatar.vue'
@@ -7,6 +7,7 @@ import { bubbleTime } from '@/utils/time'
 import { useThemeStore } from '@/stores/theme'
 import { applyDisplayRegex, REGEX_PLACEMENT } from '@/services/st/regex'
 import { detectFenceLanguages } from '@/utils/codeDetect'
+import { normalizeLegacyHtml } from '@/utils/legacyHtml'
 import DOMPurify from 'dompurify'
 import type { DisplayMessage } from '@/services/st/chatdoc'
 
@@ -22,6 +23,8 @@ const props = defineProps<{
   avatar: string
   streaming: boolean
   translation?: string
+  /** 该条消息正在翻译（按钮加载态） */
+  translating?: boolean
   speaking?: boolean
   /** 群聊发言人名（非空 = 群聊模式：气泡上方显示发言者，隐藏单会话专属操作） */
   speaker?: string
@@ -81,6 +84,28 @@ async function copyText(): Promise<void> {
   }
 }
 
+/* ---- 翻译：译文替换气泡内容显示，可一键回看原文（对齐 ST 翻译扩展替换式语义） ---- */
+const showTrans = ref(false)
+/* 译文到达 → 自动切换为译文；译文被清（换会话/重排）→ 回到原文 */
+watch(
+  () => props.translation,
+  (v, ov) => {
+    if (v && !ov) showTrans.value = true
+    if (!v) showTrans.value = false
+  },
+)
+const transBtnTitle = computed(() =>
+  props.translating ? '翻译中…' : props.translation ? (showTrans.value ? '显示原文' : '显示译文') : '翻译',
+)
+function onTranslateClick(): void {
+  if (props.translating) return
+  if (!props.translation) {
+    emit('translate', props.index)
+    return
+  }
+  showTrans.value = !showTrans.value
+}
+
 /** 末条 AI 回复恒显 swipe 条：无 swipes 字段时按 1 条虚拟备选（右滑即生成） */
 const swipeCount = computed(() => props.m.swipes?.length || 1)
 const swipeAt = computed(() => props.m.swipeId ?? 0)
@@ -91,9 +116,13 @@ const displayContent = computed(() => {
     props.m.content,
     props.m.role === 'user' ? REGEX_PLACEMENT.USER_INPUT : REGEX_PLACEMENT.AI_OUTPUT,
   )
-  return props.m.role === 'assistant' ? detectFenceLanguages(raw) : raw
+  // 仅 assistant 走 Markdown 通路：先探测围栏语言，再把 font/center/u 等
+  // 旧式着色标签改写为 Streamdown 净化白名单内的等价写法（否则颜色全丢）
+  return props.m.role === 'assistant' ? normalizeLegacyHtml(detectFenceLanguages(raw)) : raw
 })
-const displayReasoning = computed(() => applyDisplayRegex(props.m.reasoning ?? '', REGEX_PLACEMENT.REASONING))
+const displayReasoning = computed(() =>
+  normalizeLegacyHtml(applyDisplayRegex(props.m.reasoning ?? '', REGEX_PLACEMENT.REASONING)),
+)
 
 /**
  * 消息 HTML 渲染（P11 对齐：角色卡/HTML 消息按净化后的 HTML 渲染，其余走 Markdown）。
@@ -106,7 +135,8 @@ const htmlContent = computed(() => {
   if (props.m.role !== 'assistant') return ''
   const raw = displayContent.value
   if (!HTML_OPEN.test(raw) || !HTML_BLOCK_CLOSE.test(raw)) return ''
-  return DOMPurify.sanitize(raw, { FORCE_BODY: true })
+  // 整段 HTML 通路同样改写：DOMPurify 虽放行 font，但改写成 span+style 与 Markdown 通路视觉一致
+  return DOMPurify.sanitize(normalizeLegacyHtml(raw), { FORCE_BODY: true })
 })
 
 /* ---- 代码高亮主题跟随应用主题（shiki 双主题对） ---- */
@@ -157,23 +187,30 @@ const nextTitle = computed(() =>
         </div>
       </div>
 
-      <!-- 气泡：AI 走 Markdown 流式渲染（整段 HTML 消息走净化后直渲染），用户保持纯文本 -->
+      <!-- 气泡：AI 走 Markdown 流式渲染（整段 HTML 消息走净化后直渲染），用户保持纯文本；译文态整体替换内容 -->
       <div v-if="!editing" class="bubble" :class="{ err: m.error }">
-        <div
-          v-if="m.role === 'assistant' && htmlContent"
-          class="txt md cardhtml"
-          v-html="htmlContent"
-        />
-        <Streamdown v-else-if="m.role === 'assistant'" class="txt md" :content="displayContent" :shiki-theme="shikiThemes" />
-        <span v-else class="txt">{{ displayContent }}</span
-        ><span v-if="m.pending && streaming" class="caret-el">▍</span>
+        <div v-if="showTrans && translation" class="txt trans-txt">{{ translation }}</div>
+        <template v-else>
+          <div
+            v-if="m.role === 'assistant' && htmlContent"
+            class="txt md cardhtml"
+            v-html="htmlContent"
+          />
+          <Streamdown v-else-if="m.role === 'assistant'" class="txt md" :content="displayContent" :shiki-theme="shikiThemes" />
+          <span v-else class="txt">{{ displayContent }}</span
+          ><span v-if="m.pending && streaming" class="caret-el">▍</span>
+        </template>
       </div>
 
-      <!-- 翻译结果 -->
-      <div v-if="translation" class="translation">{{ translation }}</div>
+      <!-- 原文/译文切换（仅已有译文时出现） -->
+      <div v-if="translation && !editing" class="trans-bar">
+        <button class="tbtn" type="button" @click="showTrans = !showTrans">
+          {{ showTrans ? '显示原文' : '显示译文' }}
+        </button>
+      </div>
 
       <!-- 行内编辑态 -->
-      <div v-else class="edit-box" @keydown.esc="cancelEdit">
+      <div v-if="editing" class="edit-box" @keydown.esc="cancelEdit">
         <textarea
           ref="ta"
           v-model="editText"
@@ -285,11 +322,11 @@ const nextTitle = computed(() =>
         <button
           class="op"
           type="button"
-          :class="{ active: !!translation }"
-          title="翻译"
-          @click="emit('translate', index)"
+          :class="{ active: !!translation && showTrans, busy: translating }"
+          :title="transBtnTitle"
+          @click="onTranslateClick"
         >
-          译
+          {{ translating ? '◌' : '译' }}
         </button>
         <button
           class="op"
@@ -478,10 +515,27 @@ const nextTitle = computed(() =>
   margin: 6px 0;
   padding-left: 20px;
 }
+/* ST 主题文本着色（对齐网页端 .mes_text em/i、u、q、blockquote）：
+   变量由 ChatsMain 从 ST settings.json power_user 当前主题注入，
+   浅色主题不注入时回落 inherit，保持可读 */
+.md :deep(em),
+.md :deep(i),
+.reason-body :deep(em),
+.reason-body :deep(i) {
+  color: var(--st-c-em, inherit);
+}
+.md :deep(u),
+.reason-body :deep(u) {
+  color: var(--st-c-underline, inherit);
+}
+.md :deep(q),
+.reason-body :deep(q) {
+  color: var(--st-c-quote, inherit);
+}
 .md :deep(blockquote) {
   margin: 6px 0;
   padding: 2px 10px;
-  border-left: 3px solid var(--c-border);
+  border-left: 3px solid var(--st-c-quote, var(--c-border));
   color: var(--c-text-2);
 }
 .md :deep(table) {
@@ -663,17 +717,38 @@ const nextTitle = computed(() =>
   color: var(--p-600);
 }
 
-/* 翻译结果 */
-.translation {
-  margin-top: 3px;
-  padding: 6px 10px;
-  border-left: 3px solid var(--p-400, var(--c-border));
+/* 翻译：译文态直接替换气泡内容；下方只留轻量切换 */
+.trans-txt {
+  color: var(--c-text);
+}
+.trans-bar {
+  display: flex;
+  margin-top: 2px;
+}
+.msg.user .trans-bar {
+  justify-content: flex-end;
+}
+.tbtn {
+  padding: 1px 4px;
+  font-size: 10px;
+  color: var(--c-text-3);
   border-radius: var(--radius-sm);
-  background: var(--c-panel);
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--c-text-2);
-  white-space: pre-wrap;
-  word-break: break-word;
+  transition: color 0.12s;
+}
+.tbtn:hover {
+  color: var(--p-500, var(--c-text));
+}
+.op.busy {
+  color: var(--p-500, var(--c-text-2));
+  animation: busy-pulse 1s ease-in-out infinite;
+}
+@keyframes busy-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 </style>
