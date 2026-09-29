@@ -71,6 +71,16 @@ async function ensureCsrf(): Promise<string> {
   return csrfPending
 }
 
+/** GET，返回纯文本（/view 类文本端点用；JSON 端点用 stGet） */
+export async function stGetText(path: string): Promise<string> {
+  const res = await fetch(`${stBase()}${path}`, {
+    credentials: 'include',
+    headers: relayAuthHeaders(),
+  })
+  if (!res.ok) throw new Error(`读取失败（${path}，HTTP ${res.status}）`)
+  return res.text()
+}
+
 export async function stGet<T>(path: string): Promise<T> {
   const res = await fetch(`${stBase()}${path}`, {
     credentials: 'include',

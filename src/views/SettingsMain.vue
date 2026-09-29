@@ -18,7 +18,8 @@ import {
 import type { ChatSourceDef } from '@/services/st/api'
 import { TEXTGEN_BACKENDS, fetchTextModels } from '@/services/st/textgen'
 import { getSettings, loadAutoContinue } from '@/services/st/data'
-import { runMaidReport, finalizeMaid, deleteMaidFiles, maidViewUrl, type MaidReport } from '@/services/st/datamaid'
+import { runMaidReport, finalizeMaid, deleteMaidFiles, maidViewPath, type MaidReport } from '@/services/st/datamaid'
+import { stGetText } from '@/services/st/client'
 import { sidecar } from '@/services/tauri/bridge'
 import DataDirCard from '@/components/DataDirCard.vue'
 import PromptManagerCard from '@/components/PromptManagerCard.vue'
@@ -154,8 +155,27 @@ async function deleteSelectedMaidUi(): Promise<void> {
   }
 }
 
-function maidViewUi(hash: string): void {
-  if (maid.value.token) window.open(maidViewUrl(maid.value.token, hash), '_blank')
+const maidViewer = ref<{ open: boolean; title: string; content: string; busy: boolean }>({
+  open: false,
+  title: '',
+  content: '',
+  busy: false,
+})
+
+/** /view 查看器：App 内嵌模态（window.open 在 Tauri 无效，且 /view 走中继需带 token） */
+async function maidViewUi(hash: string): Promise<void> {
+  if (!maid.value.token) return
+  const rec = Object.values(maid.value.report ?? {})
+    .flat()
+    .find((r) => r.hash === hash)
+  maidViewer.value = { open: true, title: rec?.name ?? hash, content: '', busy: true }
+  try {
+    maidViewer.value.content = await stGetText(maidViewPath(maid.value.token, hash))
+  } catch (e) {
+    maidViewer.value.content = `读取失败：${e instanceof Error ? e.message : String(e)}`
+  } finally {
+    maidViewer.value.busy = false
+  }
 }
 
 function fmtMaidSize(size?: number): string {
@@ -1049,10 +1069,65 @@ onMounted(() => {
         </section>
       </template>
     </div>
+
+    <!-- maid /view 内嵌查看器（Tauri 下 window.open 无效；fetch 走中继带 token） -->
+    <div v-if="maidViewer.open" class="viewer-mask" @click.self="maidViewer.open = false">
+      <div class="viewer">
+        <div class="viewer-head">
+          <span class="viewer-title">{{ maidViewer.title }}</span>
+          <button class="btn btn-sm" @click="maidViewer.open = false">关闭</button>
+        </div>
+        <pre class="viewer-body">{{ maidViewer.busy ? '读取中…' : maidViewer.content }}</pre>
+      </div>
+    </div>
   </main>
 </template>
 
 <style scoped>
+/* ---- maid /view 查看器 ---- */
+.viewer-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgb(0 0 0 / 45%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.viewer {
+  width: min(76vw, 860px);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--c-panel, #fff);
+  border: 1px solid var(--c-line, #ddd);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.viewer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--c-line, #ddd);
+  font-size: 13px;
+}
+.viewer-title {
+  font-weight: 500;
+  word-break: break-all;
+}
+.viewer-body {
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 70vh;
+}
+
 .main {
   flex: 1;
   min-width: 0;

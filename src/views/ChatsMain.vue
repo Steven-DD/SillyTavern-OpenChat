@@ -8,7 +8,7 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import NewChatDialog from '@/components/NewChatDialog.vue'
 import ChatPanel from '@/components/ChatPanel.vue'
 import { dayLabel } from '@/utils/time'
-import { fmtCost, fmtTok, priceOf } from '@/services/usage'
+import { estimateTokens, fmtCost, fmtTok, priceOf } from '@/services/usage'
 import { loadStTextColors, type StTextColors } from '@/services/st/theme'
 import { useThemeStore } from '@/stores/theme'
 import type { DisplayMessage } from '@/services/st/chatdoc'
@@ -69,6 +69,9 @@ async function confirmBatchDelete(): Promise<void> {
   selectMode.value = false
   selected.value = new Set()
 }
+
+/* ---- 输入框实时 token 预估（本地估算；发送时另有精确计数链路） ---- */
+const draftTokens = computed(() => (draft.value.trim() ? estimateTokens(draft.value) : 0))
 
 /* ---- 消息操作（气泡下方工具条） ---- */
 const removeConfirmAt = ref(-1)
@@ -420,6 +423,7 @@ watch(
           @keydown.enter.exact.prevent="send"
         />
         <div class="tools">
+          <span v-if="draftTokens" class="tok-est" title="本地估算，仅供预览">≈ {{ draftTokens }} tok</span>
           <span v-if="chat.lastError" class="err-tip" :title="chat.lastError">{{ chat.lastError }}</span>
           <!-- 群聊：再来一轮（按当前编排重掷发言人） -->
           <button
@@ -789,6 +793,19 @@ watch(
 }
 .select-toggle.on {
   color: var(--c-primary, #4a8fd4);
+}
+
+
+/* ---- 长会话渲染窗口化：视口外的消息行跳过渲染（高度按最近一次渲染记忆） ---- */
+.msg-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
+}
+.tok-est {
+  margin-inline-end: auto;
+  color: var(--c-text-3, #98a2b3);
+  font-size: 12px;
+  user-select: none;
 }
 
 </style>

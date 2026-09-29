@@ -6,7 +6,7 @@
  * - /delete {token, hashes} 按 hash 选择性删除
  * - /finalize {token} 全量清理（token 一次性，用后失效）
  */
-import { stPostJson, stPostVoid, stBase } from './client'
+import { stPostJson, stPostVoid } from './client'
 
 /** 脱敏后的文件记录 */
 export interface MaidRecord {
@@ -53,6 +53,6 @@ export async function deleteMaidFiles(token: string, hashes: string[]): Promise<
 }
 
 /** 逐项查看文件的浏览器 URL（GET，cookie 鉴权，可直接 window.open） */
-export function maidViewUrl(token: string, hash: string): string {
-  return `${stBase()}/api/data-maid/view?token=${encodeURIComponent(token)}&hash=${encodeURIComponent(hash)}`
+export function maidViewPath(token: string, hash: string): string {
+  return `/api/data-maid/view?token=${encodeURIComponent(token)}&hash=${encodeURIComponent(hash)}`
 }

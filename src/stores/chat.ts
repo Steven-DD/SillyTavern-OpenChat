@@ -74,6 +74,31 @@ import {
   type SessionUsage,
 } from '@/services/usage'
 import { countTokensRemote } from '@/services/st/tokenizer'
+
+/* ---- 翻译持久化（localStorage：会话键 → 正文哈希 → 译文；换会话/重开不丢） ---- */
+const TRANSLATIONS_KEY = 'app.translations'
+const TRANSLATIONS_CAP = 2000
+
+function loadTranslationsStore(): Record<string, Record<string, string>> {
+  try {
+    const v = JSON.parse(localStorage.getItem(TRANSLATIONS_KEY) ?? '{}')
+    return v && typeof v === 'object' ? (v as Record<string, Record<string, string>>) : {}
+  } catch {
+    return {}
+  }
+}
+
+function persistTranslation(key: string, content: string, text: string): void {
+  const all = loadTranslationsStore()
+  const bucket = (all[key] ??= {})
+  bucket[String(hashMessage(content))] = text
+  // 简单 FIFO 容量控制
+  const entries = Object.entries(all[key] ?? {})
+  if (entries.length > TRANSLATIONS_CAP) {
+    for (const [sig] of entries.slice(0, entries.length - TRANSLATIONS_CAP)) delete bucket[sig]
+  }
+  localStorage.setItem(TRANSLATIONS_KEY, JSON.stringify(all))
+}
 import { generateText, messagesToPrompt } from '@/services/st/textgen'
 import { runRegex, activeRegexScripts, loadRegexScripts, REGEX_PLACEMENT } from '@/services/st/regex'
 import { loadQuickReplies } from '@/services/st/extensions'
@@ -572,6 +597,16 @@ export const useChatStore = defineStore('chat', {
         this.currentAvatar = avatar
         this.currentFile = fileId
         this.messages = toDisplayMessages(raw, { userFallback: this.userName, charFallback: charName })
+        // 翻译持久化回填：按正文哈希匹配（换会话/重开不丢）
+        {
+          const tKey = `${avatar}/${fileId}`
+          const bucket = loadTranslationsStore()[tKey] ?? {}
+          this.translations = {}
+          this.messages.forEach((m, i) => {
+            const sig = String(hashMessage(m.content))
+            if (bucket[sig]) this.translations[i] = bucket[sig]!
+          })
+        }
         this.lockedPersonaId = chatPersonaId(raw)
         this.genOverride = chatGenOverride(raw)
         this.authorsNote = chatAuthorsNote(raw)
@@ -1384,6 +1419,9 @@ export const useChatStore = defineStore('chat', {
         const s = await loadTranslateSettings()
         const t = await translateText(m.content, s.target_language, s.provider)
         this.translations = { ...this.translations, [index]: t || '（翻译结果为空）' }
+        // 持久化（按会话 + 正文哈希）：换会话/重开不丢
+        const tKey = this.group ? `group/${this.groupChatId}` : `${this.currentAvatar}/${this.currentFile}`
+        persistTranslation(tKey, m.content, this.translations[index] ?? '')
       } catch (e) {
         this.lastError = e instanceof Error ? e.message : String(e)
       } finally {
@@ -1692,6 +1730,16 @@ export const useChatStore = defineStore('chat', {
           userFallback: this.userName,
           charFallback: g?.name ?? '群聊',
         })
+        // 翻译持久化回填（群聊键 = group/<chatId>）
+        {
+          const tKey = `group/${chatId}`
+          const bucket = loadTranslationsStore()[tKey] ?? {}
+          this.translations = {}
+          this.messages.forEach((m, i) => {
+            const sig = String(hashMessage(m.content))
+            if (bucket[sig]) this.translations[i] = bucket[sig]!
+          })
+        }
         // 恢复 SWAP 轮换游标：最后一位 AI 发言者
         const meta = this.groupMemberMeta()
         const nameToAvatar = new Map(Object.values(meta).map((m) => [m.name, m.avatar]))
@@ -2549,7 +2597,18 @@ export const useChatStore = defineStore('chat', {
       ) {
         return m.lineIndex
       }
-      return this.groupLines.map((l) => l.mes).lastIndexOf(m.content)
+      // 正文回退：多条同文时取与已知行号最接近的一个，并回写（此前 lastIndexOf 会定位到重复文本的最后一条）
+      let best = -1
+      for (let i = 0; i < this.groupLines.length; i++) {
+        if (this.groupLines[i].mes !== m.content) continue
+        if (m.lineIndex === undefined) {
+          best = i
+          continue
+        }
+        if (best < 0 || Math.abs(i - m.lineIndex) < Math.abs(best - m.lineIndex)) best = i
+      }
+      if (best >= 0) m.lineIndex = best
+      return best
     },
 
     /** 删行后维护本地行号：> opLine 的全部偏移 delta */
