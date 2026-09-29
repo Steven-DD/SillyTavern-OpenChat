@@ -4,7 +4,7 @@
  * - 正则脚本 CRUD（settings.json extension_settings.regex）
  * - 快捷回复 CRUD（extension_settings.stchat_quick_replies，App 自有键）
  * - 翻译设置（extension_settings.stchat_translate，8 家供应商走 ST 服务端）
- * - TTS 设置与试听（/api/speech/synthesize，本地 transformers 引擎）
+ * - TTS 设置与试听（多供应商：本地 SpeechT5 / 系统语音 / Edge / OpenAI / ElevenLabs）
  * 扩展的安装/搜索/列表/详情在「插件」页。
  */
 import { onMounted, ref } from 'vue'
@@ -40,7 +40,18 @@ import {
   saveTranslateSettings,
   TRANSLATE_PROVIDERS,
 } from '@/services/st/translate'
-import { loadSpeechSettings, saveSpeechSettings, speakText, stopSpeech, isSpeaking } from '@/services/st/speech'
+import {
+  loadSpeechSettings,
+  saveSpeechSettings,
+  loadTtsSettings,
+  saveTtsSettings,
+  loadEdgeVoices,
+  speakText,
+  stopSpeech,
+  isSpeaking,
+  TTS_PROVIDERS,
+  type TtsProvider,
+} from '@/services/st/speech'
 import { loadInstruct, type InstructSettings } from '@/services/st/instruct'
 
 const msg = ref('')
@@ -160,6 +171,15 @@ const instruct = ref<InstructSettings | null>(null)
 const provider = ref('google')
 const targetLang = ref('zh')
 const ttsModel = ref('')
+const ttsProvider = ref<TtsProvider>('speecht5')
+const ttsEdgeVoice = ref('')
+const ttsEdgeRate = ref(0)
+const ttsOpenaiModel = ref('tts-1')
+const ttsOpenaiVoice = ref('alloy')
+const ttsOpenaiSpeed = ref(1)
+const ttsElModel = ref('eleven_multilingual_v2')
+const ttsElVoiceId = ref('')
+const edgeVoices = ref<string[]>([])
 const ttsBusy = ref(false)
 
 /* ---- 记忆（Summarize）/ 向量记忆 ---- */
@@ -210,9 +230,29 @@ async function persistTranslate(): Promise<void> {
 async function persistTts(): Promise<void> {
   try {
     await saveSpeechSettings({ model: ttsModel.value.trim() })
-    note('TTS 模型已保存')
+    await saveTtsSettings({
+      provider: ttsProvider.value,
+      edge: { voice: ttsEdgeVoice.value.trim(), rate: Number(ttsEdgeRate.value) || 0 },
+      openai: {
+        model: ttsOpenaiModel.value.trim(),
+        voice: ttsOpenaiVoice.value.trim(),
+        speed: Number(ttsOpenaiSpeed.value) || 1,
+      },
+      elevenlabs: { modelId: ttsElModel.value.trim(), voiceId: ttsElVoiceId.value.trim() },
+    })
+    note('TTS 设置已保存')
   } catch (e) {
     note(`保存失败：${e instanceof Error ? e.message : String(e)}`, false)
+  }
+}
+
+/** 切到 Edge 供应商时拉一次语音列表 */
+async function onTtsProviderChange(): Promise<void> {
+  if (ttsProvider.value !== 'edge' || edgeVoices.value.length) return
+  try {
+    edgeVoices.value = await loadEdgeVoices()
+  } catch (e) {
+    note(`Edge 语音列表加载失败（需 ST 端启用 edge-tts）：${e instanceof Error ? e.message : String(e)}`, false)
   }
 }
 
@@ -222,7 +262,7 @@ async function testTts(): Promise<void> {
     if (isSpeaking()) stopSpeech()
     else await speakText('你好，这是语音朗读测试。')
   } catch (e) {
-    note(`合成失败（首次使用会下载模型，请稍后重试）：${e instanceof Error ? e.message : String(e)}`, false)
+    note(`合成失败：${e instanceof Error ? e.message : String(e)}`, false)
   } finally {
     ttsBusy.value = false
   }
@@ -236,6 +276,16 @@ onMounted(async () => {
   provider.value = t.provider
   targetLang.value = t.target_language
   ttsModel.value = s.model
+  const tts = await loadTtsSettings(true)
+  ttsProvider.value = tts.provider
+  ttsEdgeVoice.value = tts.edge.voice
+  ttsEdgeRate.value = tts.edge.rate
+  ttsOpenaiModel.value = tts.openai.model
+  ttsOpenaiVoice.value = tts.openai.voice
+  ttsOpenaiSpeed.value = tts.openai.speed
+  ttsElModel.value = tts.elevenlabs.modelId
+  ttsElVoiceId.value = tts.elevenlabs.voiceId
+  if (tts.provider === 'edge') void onTtsProviderChange()
   // 记忆 / 向量
   memEnabled.value = await loadMemoryAppEnabled()
   const mem = await loadMemorySettings(true)
@@ -392,18 +442,67 @@ onMounted(async () => {
     </div>
 
     <div class="sub">
-      <div class="sub-h"><span>TTS 朗读（本地引擎）</span></div>
+      <div class="sub-h"><span>TTS 朗读</span></div>
       <label class="fld">
+        <span class="lb">供应商</span>
+        <select v-model="ttsProvider" class="field field-select" @change="onTtsProviderChange">
+          <option v-for="x in TTS_PROVIDERS" :key="x.id" :value="x.id">{{ x.label }}</option>
+        </select>
+      </label>
+      <label v-if="ttsProvider === 'speecht5'" class="fld">
         <span class="lb">模型</span>
         <input v-model="ttsModel" class="field" placeholder="Xenova/speecht5_tts" />
       </label>
+      <template v-if="ttsProvider === 'edge'">
+        <label class="fld">
+          <span class="lb">语音</span>
+          <select v-if="edgeVoices.length" v-model="ttsEdgeVoice" class="field field-select">
+            <option v-for="v in edgeVoices" :key="v" :value="v">{{ v }}</option>
+          </select>
+          <input v-else v-model="ttsEdgeVoice" class="field" placeholder="zh-CN-XiaoxiaoNeural" />
+        </label>
+        <label class="fld">
+          <span class="lb">语速（-50 ~ +50）</span>
+          <input v-model.number="ttsEdgeRate" class="field" type="number" min="-50" max="50" />
+        </label>
+      </template>
+      <template v-if="ttsProvider === 'openai'">
+        <label class="fld">
+          <span class="lb">模型</span>
+          <select v-model="ttsOpenaiModel" class="field field-select">
+            <option value="tts-1">tts-1</option>
+            <option value="tts-1-hd">tts-1-hd</option>
+            <option value="gpt-4o-mini-tts">gpt-4o-mini-tts</option>
+          </select>
+        </label>
+        <label class="fld">
+          <span class="lb">语音</span>
+          <select v-model="ttsOpenaiVoice" class="field field-select">
+            <option v-for="v in ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']" :key="v" :value="v">{{ v }}</option>
+          </select>
+        </label>
+        <label class="fld">
+          <span class="lb">语速（0.25 ~ 4）</span>
+          <input v-model.number="ttsOpenaiSpeed" class="field" type="number" step="0.25" min="0.25" max="4" />
+        </label>
+      </template>
+      <template v-if="ttsProvider === 'elevenlabs'">
+        <label class="fld">
+          <span class="lb">模型 ID</span>
+          <input v-model="ttsElModel" class="field" placeholder="eleven_multilingual_v2" />
+        </label>
+        <label class="fld">
+          <span class="lb">Voice ID</span>
+          <input v-model="ttsElVoiceId" class="field" placeholder="21m00Tcm4TlvDq8ikWAM" />
+        </label>
+      </template>
       <div class="btns">
         <button class="btn btn-sm" @click="persistTts">保存</button>
         <button class="btn btn-sm" :disabled="ttsBusy" @click="testTts">
           {{ ttsBusy ? '合成中…' : '试听' }}
         </button>
       </div>
-      <p class="hint">首次合成会下载语音模型（较慢）。消息工具条点 🔊 朗读 / 再点停止。</p>
+      <p class="hint">消息工具条点 🔊 朗读 / 再点停止。Edge/OpenAI 走 ST 服务端；ElevenLabs 密钥在 ST 网页端配置。</p>
     </div>
 
     <!-- 记忆（Summarize） -->
