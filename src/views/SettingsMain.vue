@@ -21,6 +21,8 @@ import { getSettings, loadAutoContinue } from '@/services/st/data'
 import { runMaidReport, finalizeMaid, deleteMaidFiles, maidViewPath, type MaidReport } from '@/services/st/datamaid'
 import { stGetText } from '@/services/st/client'
 import { sidecar } from '@/services/tauri/bridge'
+import { check } from '@tauri-apps/plugin-updater'
+import { relaunch } from '@tauri-apps/plugin-process'
 import DataDirCard from '@/components/DataDirCard.vue'
 import PromptManagerCard from '@/components/PromptManagerCard.vue'
 import ExtensionsCard from '@/components/ExtensionsCard.vue'
@@ -549,9 +551,35 @@ function onVersionTap(): void {
 }
 
 const updateMsg = ref('')
-function checkUpdate(): void {
-  // 预留：App 未发布，无更新源可查；发布后接更新渠道
-  updateMsg.value = `当前为开发版（${appVersion.value}），暂未提供更新检查`
+const updBusy = ref(false)
+
+/** 应用内检查更新（GitHub Releases；桌面版可用） */
+async function checkUpdate(): Promise<void> {
+  if (updBusy.value) return
+  if (!sidecar.isDesktop) {
+    updateMsg.value = '仅桌面版支持应用内更新'
+    return
+  }
+  updBusy.value = true
+  updateMsg.value = '正在检查更新…'
+  try {
+    const u = await check()
+    if (!u) {
+      updateMsg.value = `已是最新版本（${appVersion.value}）`
+      return
+    }
+    updateMsg.value = `发现新版本 ${u.version}，正在下载安装…`
+    await u.downloadAndInstall((event) => {
+      if (event.event === 'Started') updateMsg.value = `下载中（${event.data.contentLength ?? 0} 字节）…`
+      else if (event.event === 'Progress') updateMsg.value = '下载中…'
+      else if (event.event === 'Finished') updateMsg.value = '下载完成，即将重启应用…'
+    })
+    await relaunch()
+  } catch (e) {
+    updateMsg.value = `更新失败：${e instanceof Error ? e.message : String(e)}`
+  } finally {
+    updBusy.value = false
+  }
 }
 
 onMounted(() => {

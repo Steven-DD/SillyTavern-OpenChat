@@ -21,6 +21,8 @@
   "dependencies": {
     "@tauri-apps/api": "^2.9.0",
     "@tauri-apps/plugin-dialog": "^2.7.3",
+    "@tauri-apps/plugin-process": "^2.4.0",
+    "@tauri-apps/plugin-updater": "^2.13.1",
     "dompurify": "^3.4.16",
     "handlebars": "^4.7.9",
     "highlight.js": "^11.12.0",
