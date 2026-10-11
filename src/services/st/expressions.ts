@@ -93,3 +93,18 @@ export async function loadSpriteFallback(): Promise<string> {
     return ''
   }
 }
+
+/** 写 ST 表情扩展的 fallback 表情（空白 = 删除键） */
+export async function saveSpriteFallback(name: string): Promise<void> {
+  const { getSettings, saveSettingsFull } = await import('./data')
+  const settings = await getSettings()
+  const ext = ((settings as Record<string, unknown>).extension_settings as
+    | Record<string, unknown>
+    | undefined) ?? {}
+  const expr = (ext.expressions as Record<string, unknown> | undefined) ?? {}
+  if (name.trim()) expr.fallback_expression = name
+  else delete expr.fallback_expression
+  ext.expressions = expr
+  ;(settings as Record<string, unknown>).extension_settings = ext
+  await saveSettingsFull(settings)
+}

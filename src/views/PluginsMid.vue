@@ -139,7 +139,7 @@ onMounted(() => {
         <span class="rt">{{ summaryOf(p) }}</span>
       </button>
 
-      <!-- ST 插件 -->
+      <!-- ST 插件（ST 端专用的内置扩展不展示） -->
       <div class="plug-group">ST 插件（{{ shown.length }}）</div>
       <div v-if="ext.loading && !shown.length" class="notice-bar">检测插件中…</div>
       <div v-else-if="ext.error" class="notice-bar err">插件检测失败：{{ ext.error }}</div>

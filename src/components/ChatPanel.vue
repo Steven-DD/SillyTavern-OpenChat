@@ -15,6 +15,8 @@ import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useChatStore } from '@/stores/chat'
 import { usePersonaStore } from '@/stores/persona'
+import { useWorldsStore } from '@/stores/worlds'
+import VariablePanel from '@/components/VariablePanel.vue'
 import { useSettingsStore } from '@/stores/settings'
 import { getCharacter } from '@/services/st/data'
 import type { StCharacter } from '@/services/st/types'
@@ -237,6 +239,73 @@ function pushAn(): void {
   })
 }
 
+/* ---- 风月前置/后置词（chat_metadata.fy_*，包裹每条用户消息） ---- */
+const fyPrefix = ref('')
+const fySuffix = ref('')
+
+watch(
+  () => [props.open, chat.sessionKeyOf] as const,
+  ([o]) => {
+    if (!o) return
+    const fy = chat.prefixSuffix
+    fyPrefix.value = fy?.prefix ?? ''
+    fySuffix.value = fy?.suffix ?? ''
+  },
+  { immediate: true },
+)
+
+function pushFy(): void {
+  void chat.setPrefixSuffix({ prefix: fyPrefix.value, suffix: fySuffix.value })
+}
+
+/* ---- 风月作品外观：BGM / 内置 CSS（chat_metadata.fy_bgm/fy_css） ---- */
+const fyBgm = ref('')
+const fyCss = ref('')
+
+watch(
+  () => [props.open, chat.sessionKeyOf] as const,
+  ([o]) => {
+    if (!o) return
+    fyBgm.value = chat.fyExtras?.bgm ?? ''
+    fyCss.value = chat.fyExtras?.css ?? ''
+  },
+  { immediate: true },
+)
+
+function pushFyExtras(): void {
+  void chat.setFyExtras({ bgm: fyBgm.value, css: fyCss.value })
+}
+
+/* ---- 风月用户自定义层提示词（chat_metadata.fy_user_prompt，System 注入） ---- */
+const fyUserPrompt = ref('')
+
+watch(
+  () => [props.open, chat.sessionKeyOf] as const,
+  ([o]) => {
+    if (!o) return
+    fyUserPrompt.value = chat.userPrompt
+  },
+  { immediate: true },
+)
+
+function pushUserPrompt(): void {
+  void chat.setUserPrompt(fyUserPrompt.value)
+}
+
+/* ---- 风月用户世界书（chat_metadata.fy_user_world，条目参与世界书扫描） ---- */
+const worlds = useWorldsStore()
+const fyUserWorld = ref('')
+
+watch(
+  () => [props.open, chat.sessionKeyOf] as const,
+  ([o]) => {
+    if (!o) return
+    fyUserWorld.value = chat.userWorld
+    if (!worlds.loaded) void worlds.load()
+  },
+  { immediate: true },
+)
+
 /* ---- 世界书 Tab：角色卡绑定（只读，深层卡才带 data.extensions.world） ---- */
 const deep = ref<StCharacter | null>(null)
 
@@ -361,6 +430,35 @@ function goWorlds(): void {
           </div>
         </div>
 
+        <!-- 风月作品外观 -->
+        <label class="fld">
+          <span class="lbl">BGM（音乐 URL，留空回落角色卡扩展）</span>
+          <input v-model="fyBgm" class="in" spellcheck="false" placeholder="https://…/bgm.mp3" :disabled="chat.streaming" @change="pushFyExtras" />
+        </label>
+        <label class="fld">
+          <span class="lbl">内置 CSS（作用于整个聊天页，可用 #customized-* 钩子；留空回落角色卡扩展）</span>
+          <textarea v-model="fyCss" class="in" rows="4" spellcheck="false" :disabled="chat.streaming" @change="pushFyExtras"></textarea>
+        </label>
+        <p class="hint">风月作品外观：修改即写盘并即时生效（chat_metadata.fy_bgm/fy_css）；未填写时使用角色卡 data.extensions.bgm/css</p>
+        <label class="fld">
+          <span class="lbl">自定义提示词（风月玩家层：注入 System，权重高于 Mod 层与作品设定）</span>
+          <textarea v-model="fyUserPrompt" class="in" rows="4" spellcheck="false" :disabled="chat.streaming" @change="pushUserPrompt"></textarea>
+        </label>
+        <label class="fld">
+          <span class="lbl">用户世界书（风月玩家层：条目参与世界书扫描）</span>
+          <select
+            class="in"
+            :value="fyUserWorld"
+            :disabled="chat.streaming"
+            @change="chat.setUserWorld(($event.target as HTMLSelectElement).value)"
+          >
+            <option v-if="!worlds.loaded && fyUserWorld" :value="fyUserWorld" disabled>世界书列表加载中…</option>
+            <option value="">不挂载</option>
+            <option v-for="w in worlds.list" :key="w.file_id" :value="w.file_id">{{ w.name || w.file_id }}</option>
+          </select>
+        </label>
+        <p class="hint">用户自定义层：修改即写盘并即时生效（chat_metadata.fy_user_prompt/fy_user_world）；叠加序 = 作品提示词 → Mod 层（角色卡）→ 本层</p>
+
         <label v-if="persona.personas.length" class="fld">
           <span class="lbl">人设（本会话）</span>
           <select
@@ -460,6 +558,10 @@ function goWorlds(): void {
         <p v-else class="hint">
           全局：温度 {{ gen.temperature }} · Top P {{ gen.topP }} · 回复 {{ gen.maxTokens }} tok（在「设置 → 模型」修改）
         </p>
+
+        <!-- 风月变量区（chat_metadata.variables，可查看/编辑/删除） -->
+        <div class="sep-line" />
+        <VariablePanel />
       </div>
 
       <!-- 记忆：作者注释 -->
@@ -515,6 +617,32 @@ function goWorlds(): void {
           按固定频率向对话注入的提示（ST 经典用法：防出戏提醒、文风约束等）
         </p>
 
+        <!-- 风月前置/后置词 -->
+        <div class="sep-line" />
+        <label class="fld">
+          <span class="lbl">前置词（拼在每条用户消息前）</span>
+          <textarea
+            v-model="fyPrefix"
+            class="in"
+            rows="2"
+            placeholder="例：[当前阶段请参照提示词中的文风要求进行创作]"
+            :disabled="chat.streaming"
+            @change="pushFy"
+          ></textarea>
+        </label>
+        <label class="fld">
+          <span class="lbl">后置词（拼在每条用户消息后）</span>
+          <textarea
+            v-model="fySuffix"
+            class="in"
+            rows="2"
+            placeholder="例：[回复末尾必须更新状态栏和记忆区]"
+            :disabled="chat.streaming"
+            @change="pushFy"
+          ></textarea>
+        </label>
+        <p class="hint">风月式包裹：修改即写盘并即时生效；只影响发给 AI 的上下文，不改聊天记录，也不计入系统提示</p>
+
         <!-- 自动记忆（Summarize） -->
         <div class="sep-line" />
         <div class="fld">
@@ -526,7 +654,7 @@ function goWorlds(): void {
             {{ chat.streaming ? '生成中…' : '更新摘要' }}
           </button>
         </div>
-        <p class="hint">摘要写入会话文件（chat_metadata.summary）；频率/注入深度在「设置 → 通用 → 插件功能」配置</p>
+        <p class="hint">摘要写入会话文件（chat_metadata.summary）；频率/注入深度在「设置 → 通用 → 插件功能」配置。有摘要时历史只带最近一轮对话（风月语义），长记忆交给摘要</p>
       </div>
 
       <!-- 世界书 -->

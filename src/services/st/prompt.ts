@@ -73,6 +73,23 @@ export interface BuildPromptOptions {
   /** /inject position=before/after 的系统提示前/后缀（拼在装配好的系统提示两端） */
   systemPrefix?: string
   systemSuffix?: string
+  /**
+   * 风月前置/后置词（作品级，chat_metadata.fy_* 或角色卡 data.extensions 兜底）：
+   * 与世界书 userPrefix/userSuffix 缓冲区一起，按
+   * `[作品前置 + WI前置] 输入 [WI后置 + 作品后置]` 包裹每条 user 消息。
+   */
+  userPrefix?: string
+  userSuffix?: string
+  /**
+   * 风月 Mod 层提示词（作者级，角色卡 data.extensions.mod_prompt）：
+   * 紧跟 App 提示词（main）之后注入 System 区。
+   */
+  modPrompt?: string
+  /**
+   * 风月用户自定义层提示词（玩家级，chat_metadata.fy_user_prompt）：
+   * 排在 Mod 层之后（风月上下文布局：提示词 → Mod → 用户自定义 → 总结）。
+   */
+  userPrompt?: string
   /** Text Completion 上下文模板（power_user.context；story_string 等） */
   context?: ContextTemplate | null
 }
@@ -85,6 +102,10 @@ export interface WiPlacement {
   after: string
   /** @Depth：按深度插进聊天消息流 */
   depthEntries?: { depth: number; role: 'system' | 'user' | 'assistant'; content: string }[]
+  /** 风月扩展：position=7 条目触发内容，并入每条 user 消息开头 */
+  userPrefix?: string
+  /** 风月扩展：position=8 条目触发内容，并入每条 user 消息结尾 */
+  userSuffix?: string
 }
 
 export interface PromptResult {
@@ -255,6 +276,8 @@ export function buildSystemParts(
   macroCtx?: MacroContext,
   pm?: PmConfig,
   context?: ContextTemplate | null,
+  /** 风月 Mod/用户自定义提示词层（紧跟 main 之后注入） */
+  extra?: { modPrompt?: string; userPrompt?: string },
 ): SystemParts & { storyBlock?: string } {
   const char = character.name
   const sub = (t?: string) =>
@@ -309,6 +332,14 @@ export function buildSystemParts(
       const content = blockFor(item.identifier)
       if (!content.trim()) continue
       ;(seenHistory ? post : pre).push(content)
+      // 风月 Mod/用户自定义层：紧跟 App 提示词（main）之后
+      //（上下文布局：提示词 → Mod → 用户自定义；权重序 自定义 > Mod）
+      if (item.identifier === 'main') {
+        const mod = sub(extra?.modPrompt)
+        if (mod) pre.push(mod)
+        const up = sub(extra?.userPrompt)
+        if (up) pre.push(up)
+      }
     }
     return { pre, post }
   }
@@ -317,6 +348,14 @@ export function buildSystemParts(
   const blocks: string[] = []
 
   blocks.push(mainText)
+
+  // 风月 Mod/用户自定义层（同 PM 路径的插入位置）
+  {
+    const mod = sub(extra?.modPrompt)
+    if (mod) blocks.push(mod)
+    const up = sub(extra?.userPrompt)
+    if (up) blocks.push(up)
+  }
 
   if (worldInfo?.before?.trim()) blocks.push(worldInfo.before.trim())
 
@@ -425,6 +464,7 @@ function historyToMessages(
   charName: string,
   userName: string,
   macroCtx?: MacroContext,
+  wrap?: { prefix: string; suffix: string },
 ): PromptMessage[] {
   const out: PromptMessage[] = []
   for (const m of history) {
@@ -437,7 +477,7 @@ function historyToMessages(
       macroCtx ? runMacros(raw, macroCtx) : substituteMacros(raw, charName, userName)
     ).trim()
     if (!content) continue
-    // 填充宏上下文历史（{{lastMessage}}/{{input}} 等按已见消息取值）
+    // 填充宏上下文历史（{{lastMessage}}/{{input}} 等按已见消息取值，取原始内容不带回绕文本）
     if (macroCtx) {
       macroCtx.history.push({ role: m.is_user ? 'user' : 'assistant', content })
       if (m.is_user) {
@@ -445,7 +485,12 @@ function historyToMessages(
         if (ts !== undefined) macroCtx.lastUserSendDate = ts
       }
     }
-    out.push({ role: m.is_user ? 'user' : 'assistant', content })
+    // 风月式 wrap：user 消息拼 `[前置] + 输入 + [后置]`（宏上下文仍读原始内容）
+    const wrapped =
+      m.is_user && (wrap?.prefix || wrap?.suffix)
+        ? [wrap?.prefix, content, wrap?.suffix].filter(Boolean).join('\n')
+        : content
+    out.push({ role: m.is_user ? 'user' : 'assistant', content: wrapped })
   }
   return out
 }
@@ -505,7 +550,12 @@ export function buildPrompt(opts: BuildPromptOptions): PromptResult {
     globalVars: getGlobalVarStore(),
   })
 
-  const historyMsgs = historyToMessages(history, character.name, userName, macroCtx)
+  const historyMsgs = historyToMessages(history, character.name, userName, macroCtx, {
+    // 风月 wrap 缓冲区：作品级前置/后置词 + 世界书 position 7/8 触发内容
+    // （前置 = 作品前置词在前；后置 = WI 后置内容拼在作品后置词之后，对齐风月的拼接约定）
+    prefix: [opts.userPrefix?.trim(), worldInfo?.userPrefix?.trim()].filter(Boolean).join('\n'),
+    suffix: [opts.userSuffix?.trim(), worldInfo?.userSuffix?.trim()].filter(Boolean).join('\n'),
+  })
 
   // 作者注释频率门：每 interval 条消息插一次，
   // interval = 1 恒成立；消息数尚未攒到 interval 时不插
@@ -517,6 +567,7 @@ export function buildPrompt(opts: BuildPromptOptions): PromptResult {
   const anForSystem = anActive && authorsNoteM && authorsNoteM.position !== 1 ? authorsNoteM : null
 
   // 先用完整系统提示试；过宽则降级为不含示例的版本
+  const fyExtra = { modPrompt: opts.modPrompt, userPrompt: opts.userPrompt }
   const parts = buildSystemParts(
     character,
     userName,
@@ -527,6 +578,7 @@ export function buildPrompt(opts: BuildPromptOptions): PromptResult {
     macroCtx,
     opts.pm,
     context,
+    fyExtra,
   )
   let sys = parts.pre.join('\n\n')
   // 总结记忆（position 0 = 系统提示顶部）
@@ -545,6 +597,8 @@ export function buildPrompt(opts: BuildPromptOptions): PromptResult {
       anForSystem,
       macroCtx,
       opts.pm,
+      undefined,
+      fyExtra,
     ).pre.join('\n\n')
     if (estimateTokens(lean) < estimateTokens(sys)) {
       sys = lean
@@ -563,6 +617,12 @@ export function buildPrompt(opts: BuildPromptOptions): PromptResult {
     suffixSum[i] = histTokens[i]! + suffixSum[i + 1]!
   }
   let start = 0
+  // 风月语义：AI 总结开启且有内容 → 历史固定只保留最近一轮（最后 2 条：
+  // 上一条 AI 回复 + 本轮用户输入），长期记忆完全交给注入的总结。
+  // 仍受预算裁剪约束（总结+系统提示超预算时继续从最旧丢）。
+  if (opts.memory?.content.trim()) {
+    start = Math.max(0, historyMsgs.length - 2)
+  }
   while (historyMsgs.length - start > 1 && sysTokens + suffixSum[start]! > budget) {
     start++
   }

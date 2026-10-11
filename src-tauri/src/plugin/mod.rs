@@ -295,10 +295,11 @@ impl PluginHost {
         host.autobind_data_root_if_needed();
 
         println!(
-            "[plugin] 载入 {} 个插件清单（{} 个必要 / {} 个可选）",
+            "[plugin] 载入系统插件 {} 个（必要 {} / 可选 {}）：{}",
             host.manifests.len(),
             host.manifests.iter().filter(|m| m.tier == "required").count(),
-            host.manifests.iter().filter(|m| m.tier != "required").count()
+            host.manifests.iter().filter(|m| m.tier != "required").count(),
+            host.manifests.iter().map(|m| m.id.as_str()).collect::<Vec<_>>().join(", ")
         );
         host
     }

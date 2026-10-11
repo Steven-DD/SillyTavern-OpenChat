@@ -310,6 +310,119 @@ export function applyAuthorsNote(chat: unknown[], note: AuthorsNote | null): voi
   chat[0] = head as (typeof chat)[number]
 }
 
+/* ---------------- 风月前置/后置词（chat_metadata.fy_*） ---------------- */
+
+/**
+ * 风月式前置/后置词：组装 prompt 时对每条 user 消息做 `[前置] + 输入 + [后置]`
+ * 包裹（只影响发送上下文，不改落盘内容）。键名带 fy_ 前缀避免与 ST 原生键冲突。
+ */
+export interface ChatPrefixSuffix {
+  prefix: string
+  suffix: string
+}
+
+/** 读会话前置/后置词（两项都为空 → null） */
+export function chatPrefixSuffix(chat: unknown[]): ChatPrefixSuffix | null {
+  if (!chat.length) return null
+  const meta = asDict(asDict(chat[0]).chat_metadata)
+  const prefix = typeof meta.fy_prefix === 'string' ? meta.fy_prefix : ''
+  const suffix = typeof meta.fy_suffix === 'string' ? meta.fy_suffix : ''
+  if (!prefix.trim() && !suffix.trim()) return null
+  return { prefix, suffix }
+}
+
+/** 写会话前置/后置词（两项全空 = 删除键） */
+export function applyPrefixSuffix(chat: unknown[], v: ChatPrefixSuffix | null): void {
+  if (!chat.length) return
+  const head = asDict(chat[0])
+  const meta = asDict(head.chat_metadata)
+  if (v && (v.prefix.trim() || v.suffix.trim())) {
+    meta.fy_prefix = v.prefix
+    meta.fy_suffix = v.suffix
+  } else {
+    delete meta.fy_prefix
+    delete meta.fy_suffix
+  }
+  head.chat_metadata = meta
+  chat[0] = head as (typeof chat)[number]
+}
+
+/* ---------------- 风月 BGM / 内置 CSS（chat_metadata.fy_bgm / fy_css） ---------------- */
+
+/** 风月作品外观：会话级覆盖（fy_*），缺省逐字段回落角色卡 data.extensions.bgm/css */
+export interface FyExtras {
+  bgm: string
+  css: string
+}
+
+/** 读会话 BGM/内置 CSS（两项都为空 → null） */
+export function chatFyExtras(chat: unknown[]): FyExtras | null {
+  if (!chat.length) return null
+  const meta = asDict(asDict(chat[0]).chat_metadata)
+  const bgm = typeof meta.fy_bgm === 'string' ? meta.fy_bgm : ''
+  const css = typeof meta.fy_css === 'string' ? meta.fy_css : ''
+  if (!bgm.trim() && !css.trim()) return null
+  return { bgm, css }
+}
+
+/** 写会话 BGM/内置 CSS（两项全空 = 删除键；空字段 = 该字段回落角色卡扩展） */
+export function applyFyExtras(chat: unknown[], v: FyExtras | null): void {
+  if (!chat.length) return
+  const head = asDict(chat[0])
+  const meta = asDict(head.chat_metadata)
+  if (v && (v.bgm.trim() || v.css.trim())) {
+    if (v.bgm.trim()) meta.fy_bgm = v.bgm
+    else delete meta.fy_bgm
+    if (v.css.trim()) meta.fy_css = v.css
+    else delete meta.fy_css
+  } else {
+    delete meta.fy_bgm
+    delete meta.fy_css
+  }
+  head.chat_metadata = meta
+  chat[0] = head as (typeof chat)[number]
+}
+
+/* ---------------- 风月用户自定义提示词（chat_metadata.fy_user_prompt） ---------------- */
+
+/** 读用户自定义层提示词（玩家级，Mod 层之上；空 = null） */
+export function chatUserPrompt(chat: unknown[]): string {
+  if (!chat.length) return ''
+  const meta = asDict(asDict(chat[0]).chat_metadata)
+  return typeof meta.fy_user_prompt === 'string' ? meta.fy_user_prompt : ''
+}
+
+/** 写用户自定义层提示词（空白 = 删除键） */
+export function applyUserPrompt(chat: unknown[], v: string): void {
+  if (!chat.length) return
+  const head = asDict(chat[0])
+  const meta = asDict(head.chat_metadata)
+  if (v.trim()) meta.fy_user_prompt = v
+  else delete meta.fy_user_prompt
+  head.chat_metadata = meta
+  chat[0] = head as (typeof chat)[number]
+}
+
+/* ---------------- 风月用户世界书（chat_metadata.fy_user_world） ---------------- */
+
+/** 读用户自定义层挂载的世界书名（空 = 未挂载） */
+export function chatUserWorld(chat: unknown[]): string {
+  if (!chat.length) return ''
+  const meta = asDict(asDict(chat[0]).chat_metadata)
+  return typeof meta.fy_user_world === 'string' ? meta.fy_user_world : ''
+}
+
+/** 写用户自定义层挂载的世界书名（空白 = 删除键） */
+export function applyUserWorld(chat: unknown[], v: string): void {
+  if (!chat.length) return
+  const head = asDict(chat[0])
+  const meta = asDict(head.chat_metadata)
+  if (v.trim()) meta.fy_user_world = v
+  else delete meta.fy_user_world
+  head.chat_metadata = meta
+  chat[0] = head as (typeof chat)[number]
+}
+
 /* ---------------- 总结记忆 / timedEffects（chat_metadata） ---------------- */
 
 /** 读会话摘要（chat_metadata.summary） */

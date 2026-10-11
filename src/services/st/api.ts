@@ -1,4 +1,4 @@
-import { stPost, stPostJson, stStream } from './client'
+import { stGenerateBlocking, stPost, stPostJson, stStream } from './client'
 
 /** 探测 ST 后端是否在线（连通性检查，供状态条使用）。ST 1.19: POST /api/settings/get */
 export async function probeSt(): Promise<boolean> {
@@ -138,6 +138,11 @@ export interface GenerateOptions {
   onUsage?: (usage: { prompt: number; completion: number }) => void
   /** 中断信号（「停止生成」用，中断后已生成的增量内容保留在调用方） */
   signal?: AbortSignal
+  /**
+   * 流式开关：true=SSE 流式（默认），false=一次性返回完整文本（风月"整块输出"）。
+   * 缺省读 localStorage `app.gen.stream`（'0' = 非流式）。
+   */
+  stream?: boolean
 }
 
 /**
@@ -398,6 +403,16 @@ export interface SamplerParams {
   repetitionPenalty?: number
 }
 
+/** 流式开关解析：显式传参优先，缺省读 localStorage（'0' = 非流式整块） */
+function wantStream(opts: GenerateOptions): boolean {
+  if (opts.stream !== undefined) return opts.stream
+  try {
+    return localStorage.getItem('app.gen.stream') !== '0'
+  } catch {
+    return true
+  }
+}
+
 function buildBody(
   model: string,
   source: ChatCompletionSource,
@@ -409,7 +424,8 @@ function buildBody(
     model,
     temperature: opts.temperature ?? 0.9,
     max_tokens: opts.maxTokens ?? 2048,
-    stream: true,
+    // 流式开关（默认 SSE 流式；app.gen.stream='0' 时整块返回，风月非流式语义）
+    stream: wantStream(opts),
     chat_completion_source: source,
     // ⚠ 刻意不传 use_sysprompt：ST 只在它为真时才把 system 放进 systemInstruction。
     // 我们的历史以开场白（assistant）开头，若 system 走 systemInstruction，
@@ -565,17 +581,33 @@ export async function generate(
     for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
       let emitted = false
       try {
-        await stStream(
-          '/api/backends/chat-completions/generate',
-          buildBody(model, source, opts),
-          (d) => {
-            emitted = true
-            onDelta(d)
-          },
-          onReasoning,
-          opts.onUsage,
-          { signal: opts.signal },
-        )
+        const reqBody = buildBody(model, source, opts)
+        if (wantStream(opts)) {
+          await stStream(
+            '/api/backends/chat-completions/generate',
+            reqBody,
+            (d) => {
+              emitted = true
+              onDelta(d)
+            },
+            onReasoning,
+            opts.onUsage,
+            { signal: opts.signal },
+          )
+        } else {
+          // 非流式（风月"整块输出"）：一次性 JSON，onDelta 单次全量回调
+          await stGenerateBlocking(
+            '/api/backends/chat-completions/generate',
+            reqBody,
+            (d) => {
+              emitted = true
+              onDelta(d)
+            },
+            onReasoning,
+            opts.onUsage,
+            { signal: opts.signal },
+          )
+        }
         return model
       } catch (e) {
         lastErr = e

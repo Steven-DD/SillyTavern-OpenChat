@@ -85,20 +85,27 @@ function pickFile() {
 
 async function onFile(e: Event) {
   const input = e.target as HTMLInputElement
-  const file = input.files?.[0]
+  const files = Array.from(input.files ?? [])
   input.value = '' // 允许重复导入同一文件
-  if (!file) return
+  if (!files.length) return
   msg.value = ''
-  try {
-    const name = await worlds.importFile(file)
-    panelOpen.value = false
-    msgOk.value = true
-    msg.value = `已导入世界书「${name}」`
-    layout.showDetail()
-  } catch (e) {
-    msgOk.value = false
-    msg.value = e instanceof Error ? e.message : String(e)
+  const results: string[] = []
+  let anyOk = false
+  let anyFail = false
+  for (const file of files) {
+    try {
+      const name = await worlds.importFile(file)
+      anyOk = true
+      results.push(`✓ 已导入世界书「${name}」`)
+    } catch (err) {
+      anyFail = true
+      results.push(`✗ ${file.name}：${err instanceof Error ? err.message : String(err)}`)
+    }
   }
+  msgOk.value = !anyFail
+  msg.value = results.join('；')
+  if (anyOk) layout.showDetail()
+  if (anyOk && !anyFail) panelOpen.value = false
 }
 
 onMounted(() => {

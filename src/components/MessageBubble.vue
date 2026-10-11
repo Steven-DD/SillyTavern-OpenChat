@@ -1,21 +1,30 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import { Streamdown } from 'streamdown-vue3'
-import 'streamdown-vue3/styles.css'
+import { MarkdownRender, setCustomComponents } from 'markstream-vue'
+import 'markstream-vue/index.css'
+import ThinkingBlock from '@/components/ThinkingBlock.vue'
 import Avatar from '@/components/Avatar.vue'
 import { bubbleTime } from '@/utils/time'
 import { useThemeStore } from '@/stores/theme'
 import { applyDisplayRegex, REGEX_PLACEMENT } from '@/services/st/regex'
 import { detectFenceLanguages } from '@/utils/codeDetect'
-import { normalizeLegacyHtml } from '@/utils/legacyHtml'
-import DOMPurify from 'dompurify'
 import type { DisplayMessage } from '@/services/st/chatdoc'
 
 /**
- * 单条消息气泡：Markdown 流式渲染（AI，shiki 代码高亮 + rehype-sanitize 净化）
- * + 显示通路正则脚本 + 推理折叠块 + 操作工具条（编辑/重发/分支/书签/删除/翻译/朗读）
- * + Swipe 切换/picker（末条 AI）。
+ * 单条消息气泡：markstream-vue 流式 Markdown 渲染（AI 消息，shiki 代码高亮，
+ * htmlPolicy=trusted 放行卡内 HTML/<style>，仅拦 script 与事件属性）
+ * + 显示通路正则脚本 + 推理折叠块 + <thinking> 思维链折叠（自定义标签映射）
+ * + 操作工具条（编辑/重发/分支/书签/删除/翻译/朗读）+ Swipe 切换/picker（末条 AI）。
  */
+
+/** 自定义 HTML 类标签：解析器收拢完整 <thinking>…</thinking> 为节点，映射到折叠组件 */
+const CUSTOM_HTML_TAGS: readonly string[] = ['thinking']
+const HTML_POLICY = 'trusted' as const
+/** markstream 自定义组件注册 id（MessageBubble 与 ThinkingBlock 嵌套渲染共用） */
+const MD_CUSTOM_ID = 'st-chat'
+
+setCustomComponents(MD_CUSTOM_ID, { thinking: ThinkingBlock })
+
 const props = defineProps<{
   m: DisplayMessage
   index: number
@@ -29,6 +38,8 @@ const props = defineProps<{
   /** 群聊发言人名（非空 = 群聊模式：气泡上方显示发言者，隐藏单会话专属操作） */
   speaker?: string
   groupChat?: boolean
+  /** 作品内置 CSS 是否生效（风月 data-has-css 语义） */
+  hasCss?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -106,9 +117,19 @@ function onTranslateClick(): void {
   showTrans.value = !showTrans.value
 }
 
-/** 末条 AI 回复恒显 swipe 条：无 swipes 字段时按 1 条虚拟备选（右滑即生成） */
+/** 末条 AI 回复恒显 swipe 条：无 swipes 字段时按 1 条虚拟备选（右滑即生成）；
+ *  首条消息（开场白）带多条备选时也显示（风月/ST 的开场白切换，无 overswipe 生成语义） */
 const swipeCount = computed(() => props.m.swipes?.length || 1)
 const swipeAt = computed(() => props.m.swipeId ?? 0)
+const isGreeting = computed(() => props.index === 0 && (props.m.swipes?.length ?? 0) > 1)
+const showSwipes = computed(
+  () =>
+    !props.groupChat &&
+    props.m.role === 'assistant' &&
+    !props.m.pending &&
+    !props.m.error &&
+    (props.isLast || isGreeting.value),
+)
 
 /* ---- 显示通路正则（正则脚本由 chat store 预加载到模块缓存） ---- */
 const displayContent = computed(() => {
@@ -116,36 +137,20 @@ const displayContent = computed(() => {
     props.m.content,
     props.m.role === 'user' ? REGEX_PLACEMENT.USER_INPUT : REGEX_PLACEMENT.AI_OUTPUT,
   )
-  // 仅 assistant 走 Markdown 通路：先探测围栏语言，再把 font/center/u 等
-  // 旧式着色标签改写为 Streamdown 净化白名单内的等价写法（否则颜色全丢）
-  return props.m.role === 'assistant' ? normalizeLegacyHtml(detectFenceLanguages(raw)) : raw
+  // 无语言标记的代码围栏先探测语言回写围栏头，交给下游 shiki 高亮
+  return props.m.role === 'assistant' ? detectFenceLanguages(raw) : raw
 })
 const displayReasoning = computed(() =>
-  normalizeLegacyHtml(applyDisplayRegex(props.m.reasoning ?? '', REGEX_PLACEMENT.REASONING)),
+  applyDisplayRegex(props.m.reasoning ?? '', REGEX_PLACEMENT.REASONING),
 )
 
-/**
- * 消息 HTML 渲染（P11 对齐：角色卡/HTML 消息按净化后的 HTML 渲染，其余走 Markdown）。
- * 判定：内容以 HTML 标签开头且含块级闭合标签（卡片式整段 HTML）；
- * 净化用 DOMPurify 默认白名单（script/事件属性恒拒收）。
- */
-const HTML_OPEN = /^\s*<[a-zA-Z!][^>]*>/
-const HTML_BLOCK_CLOSE = /<\/(div|p|table|span|style|pre|section|article|details|h[1-6]|ul|ol|dl|blockquote|center|font|body|html)>/i
-const htmlContent = computed(() => {
-  if (props.m.role !== 'assistant') return ''
-  const raw = displayContent.value
-  if (!HTML_OPEN.test(raw) || !HTML_BLOCK_CLOSE.test(raw)) return ''
-  // 整段 HTML 通路同样改写：DOMPurify 虽放行 font，但改写成 span+style 与 Markdown 通路视觉一致
-  return DOMPurify.sanitize(normalizeLegacyHtml(raw), { FORCE_BODY: true })
-})
-
-/* ---- 代码高亮主题跟随应用主题（shiki 双主题对） ---- */
+/* ---- 代码高亮主题跟随应用主题（markstream themes 顺序为 [dark, light]） ---- */
 const theme = useThemeStore()
-const shikiThemes = computed<[string, string]>(() => {
-  const dark =
-    theme.mode === 'dark' ? 'github-dark' : theme.mode === 'dusk' ? 'one-dark-pro' : 'github-dark'
-  return ['github-light', dark]
-})
+const darkTheme = computed(() =>
+  theme.mode === 'dark' ? 'github-dark' : theme.mode === 'dusk' ? 'one-dark-pro' : 'github-dark',
+)
+const mdThemes = computed<[string, string]>(() => [darkTheme.value, 'github-light'])
+const isDark = computed(() => theme.mode === 'dark' || theme.mode === 'dusk')
 
 /* ---- Swipe picker：点 n/N 弹出备选预览列表 ---- */
 const pickerOpen = ref(false)
@@ -160,43 +165,81 @@ function pickSwipe(i: number): void {
   if (i !== swipeAt.value) emit('swipeTo', props.index, i)
 }
 
-const nextTitle = computed(() =>
-  swipeAt.value >= swipeCount.value - 1 ? '生成新备选（overswipe）' : '下一备选',
-)
+const nextTitle = computed(() => {
+  if (isGreeting.value) return '下一备选开场白'
+  return swipeAt.value >= swipeCount.value - 1 ? '生成新备选（overswipe）' : '下一备选'
+})
 </script>
 
 <template>
-  <div class="msg" :class="[m.role, { hiddenMsg: m.isSystem }]">
-    <Avatar v-if="m.role === 'assistant'" class="mava" :avatar="avatar" :name="m.name" />
-    <div class="wrap">
+  <!-- id 钩子对齐风月 #customized-* 表（每条消息同 id，卡内 CSS 以 #id 选择器批量命中） -->
+  <div
+    class="msg"
+    :class="[m.role, { hiddenMsg: m.isSystem }]"
+    :id="m.role === 'user' ? 'customized-question' : 'customized-answer'"
+  >
+    <Avatar
+      v-if="m.role === 'assistant'"
+      id="customized-answer-avatar"
+      class="mava"
+      :avatar="avatar"
+      :name="m.name"
+    />
+    <div id="customized-answer-container" class="wrap">
       <div class="meta">
         <span class="mn">{{ m.name }}</span>
         <span v-if="m.isSystem" class="hidden-badge">已隐藏 · 不进上下文</span>
-        <span class="msg-time">{{ bubbleTime(m.sendDate) }}</span>
+        <span
+          :id="m.role === 'user' ? 'customized-question-content-created-time' : 'customized-answer-content-created-time'"
+          class="msg-time"
+          >{{ bubbleTime(m.sendDate) }}</span
+        >
       </div>
 
       <!-- 推理折叠块（extra.reasoning） -->
       <div v-if="m.reasoning" class="reason">
-        <button class="reason-head" type="button" @click="reasonManual = !reasonOpen">
+        <button id="customized-answer-content-thinking-line" class="reason-head" type="button" @click="reasonManual = !reasonOpen">
           <span class="rh-icon">✦</span>
           <span>{{ m.pending && streaming ? '深度思考中…' : '已深度思考' }}</span>
           <span class="rh-arrow" :class="{ open: reasonOpen }">▾</span>
         </button>
         <div v-show="reasonOpen" class="reason-body">
-          <Streamdown :content="displayReasoning" :shiki-theme="shikiThemes" />
+          <MarkdownRender
+            class="txt md"
+            :content="displayReasoning"
+            mode="chat"
+            final
+            :themes="mdThemes"
+            :is-dark="isDark"
+          />
         </div>
       </div>
 
-      <!-- 气泡：AI 走 Markdown 流式渲染（整段 HTML 消息走净化后直渲染），用户保持纯文本；译文态整体替换内容 -->
-      <div v-if="!editing" class="bubble" :class="{ err: m.error }">
+      <!-- 气泡：AI 走 markstream 流式渲染（trusted 策略放行卡内 HTML/<style>，
+           <thinking> 块映射为折叠组件），用户保持纯文本；译文态整体替换内容 -->
+      <div
+        v-if="!editing"
+        class="bubble"
+        :class="{ err: m.error }"
+        :id="m.role === 'user' ? 'customized-question-content' : 'customized-answer-content'"
+        :data-has-css="hasCss ? 'true' : 'false'"
+      >
         <div v-if="showTrans && translation" class="txt trans-txt">{{ translation }}</div>
         <template v-else>
-          <div
-            v-if="m.role === 'assistant' && htmlContent"
-            class="txt md cardhtml"
-            v-html="htmlContent"
+          <MarkdownRender
+            v-if="m.role === 'assistant'"
+            id="customized-answer-content-markdown"
+            class="txt md"
+            :content="displayContent"
+            mode="chat"
+            :final="!(m.pending && streaming)"
+            :html-policy="HTML_POLICY"
+            :custom-id="MD_CUSTOM_ID"
+            :custom-html-tags="CUSTOM_HTML_TAGS"
+            :themes="mdThemes"
+            :is-dark="isDark"
+            :node-virtual="false"
           />
-          <Streamdown v-else-if="m.role === 'assistant'" class="txt md" :content="displayContent" :shiki-theme="shikiThemes" />
           <span v-else class="txt">{{ displayContent }}</span
           ><span v-if="m.pending && streaming" class="caret-el">▍</span>
         </template>
@@ -227,11 +270,8 @@ const nextTitle = computed(() =>
       <!-- 群聊：发言者名 -->
       <div v-if="groupChat && speaker && !editing" class="speaker">{{ speaker }}</div>
 
-      <!-- Swipe 切换 + picker（末条 AI 恒显，群聊不适用） -->
-      <div
-        v-if="!groupChat && m.role === 'assistant' && isLast && !m.pending && !m.error && !editing"
-        class="swipe-bar"
-      >
+      <!-- Swipe 切换 + picker（末条 AI 恒显；开场白有备选时首条消息显示，群聊不适用） -->
+      <div v-if="showSwipes && !editing" class="swipe-bar">
         <button
           class="sw"
           type="button"
@@ -269,7 +309,7 @@ const nextTitle = computed(() =>
         <button
           class="sw"
           type="button"
-          :disabled="streaming"
+          :disabled="streaming || (isGreeting && swipeAt >= swipeCount - 1)"
           :title="nextTitle"
           @click="emit('swipe', index, 1)"
         >
@@ -278,7 +318,11 @@ const nextTitle = computed(() =>
       </div>
 
       <!-- 操作工具条：气泡下方，悬停显示（参考 ST 消息操作布局） -->
-      <div class="ops" :class="{ user: m.role === 'user' }">
+      <div
+        :id="m.role === 'user' ? 'customized-message-question-actions' : 'customized-message-answer-actions'"
+        class="ops"
+        :class="{ user: m.role === 'user' }"
+      >
         <span
           v-if="m.bookmarkLink"
           class="op bm"
@@ -286,12 +330,13 @@ const nextTitle = computed(() =>
         >
           ⚑
         </span>
-        <button class="op" type="button" :title="copied ? '已复制' : '复制'" @click="copyText">
+        <button id="customized-copy-button" class="op" type="button" :title="copied ? '已复制' : '复制'" @click="copyText">
           {{ copied ? '✓' : '⧉' }}
         </button>
-        <button v-if="!editing && !groupChat" class="op" type="button" title="编辑" @click="startEdit">✎</button>
+        <button v-if="!editing && !groupChat" id="customized-edit-button" class="op" type="button" title="编辑" @click="startEdit">✎</button>
         <button
           v-if="m.role === 'user' && !groupChat"
+          id="customized-resend-button"
           class="op"
           type="button"
           title="重发（删除此后的消息并重新生成）"
@@ -301,6 +346,7 @@ const nextTitle = computed(() =>
         </button>
         <button
           v-else-if="!groupChat && m.role === 'assistant' && isLast && !m.pending && !m.error"
+          id="customized-reload-button"
           class="op"
           type="button"
           title="继续生成（从当前内容续写）"
@@ -317,7 +363,7 @@ const nextTitle = computed(() =>
         >
           ⟳
         </button>
-        <button v-if="!groupChat" class="op" type="button" title="从此分支" @click="emit('branch', index)">⑂</button>
+        <button v-if="!groupChat" id="customized-branch-and-share-button" class="op" type="button" title="从此分支" @click="emit('branch', index)">⑂</button>
         <button v-if="!groupChat" class="op" type="button" title="添加书签" @click="emit('bookmark', index)">⚑</button>
         <button
           class="op"
@@ -347,7 +393,7 @@ const nextTitle = computed(() =>
         >
           {{ m.isSystem ? '👁' : '🚫' }}
         </button>
-        <button v-if="!groupChat" class="op danger" type="button" title="删除" @click="emit('remove', index)">✕</button>
+        <button v-if="!groupChat" id="customized-delete-button" class="op danger" type="button" title="删除" @click="emit('remove', index)">✕</button>
       </div>
     </div>
   </div>
@@ -486,7 +532,7 @@ const nextTitle = computed(() =>
   animation: blink 0.9s infinite;
 }
 
-/* Markdown 内容（覆盖 streamdown 默认边距，适配气泡） */
+/* Markdown 内容（覆盖 markstream 默认边距，适配气泡） */
 .md :deep(p) {
   margin: 0 0 6px;
 }

@@ -263,18 +263,41 @@ export const BUILTIN_EXT_INFO: Record<string, { desc: string; app: string }> = {
   attachments: { desc: '附件管理：把文件附加到消息', app: 'ST 网页端使用；App 暂未接入' },
   caption: { desc: '图像反推：为图片生成文字说明发给模型', app: 'ST 网页端使用；App 暂未接入' },
   'connection-manager': { desc: '连接管理：一键切换 API 连接预设', app: 'App 的「设置 → 模型」承担同等职责' },
-  expressions: { desc: '表情立绘：按消息情感切换角色立绘', app: 'ST 网页端使用；App 暂未接入' },
+  expressions: { desc: '表情立绘：按消息情感切换角色立绘', app: '已集成：会话配置面板立绘点选 + 情感自动切换；fallback 设置在 设置 → 通用 → 插件功能' },
   gallery: { desc: '图库：角色聊天中生成的图片管理', app: 'ST 网页端使用；App 暂未接入' },
-  memory: { desc: '总结记忆：定期摘要并注入提示词', app: '未集成；作者注释已内置（会话配置 → 记忆）' },
+  memory: { desc: '总结记忆：定期摘要并注入提示词', app: '已集成：设置 → 通用 → 插件功能（自动摘要频率/注入位置）；手动更新在会话配置 → 记忆' },
   'quick-reply': { desc: '快捷回复：可配置按钮发送预设消息/脚本', app: '已集成：聊天输入区上方按钮条（管理在 设置 → 通用）' },
   regex: { desc: '正则脚本：对输入/输出/提示词做查找替换', app: '已集成：编辑管理在 设置 → 通用' },
   'stable-diffusion': { desc: '文生图：本地/云端 SD 生成图片', app: 'ST 网页端使用；App 暂未接入' },
   speech: { desc: '语音合成/识别：本地 TTS 与语音输入', app: '已集成 TTS 朗读：消息工具条 🔊' },
   'token-counter': { desc: 'Token 计数器：独立文本计数面板', app: 'App 状态条已显示每轮 token 用量' },
   translate: { desc: '翻译：消息/输入翻译（多家供应商）', app: '已集成：消息工具条「译」' },
-  vectors: { desc: '向量存储：数据源向量化 + 检索注入', app: '未集成（依赖会话级注入编排，后续排期）' },
+  vectors: { desc: '向量存储：数据源向量化 + 检索注入', app: '已集成：设置 → 通用 → 插件功能（消息向量化 + 检索注入）' },
   shared: { desc: '共享：跨扩展的共享数据', app: 'ST 网页端使用' },
   slideshow: { desc: '幻灯片：背景幻灯片播放', app: 'ST 网页端使用' },
+}
+
+/**
+ * ST 端专用的内置扩展（App 生成链路完全不消费，插件列表默认隐藏；
+ * 打开「显示 ST 端专用」可查看管理）。
+ */
+const ST_ONLY_BUILTIN = new Set([
+  'assets',
+  'attachments',
+  'caption',
+  'connection-manager',
+  'gallery',
+  'shared',
+  'slideshow',
+  'stable-diffusion',
+  'token-counter',
+])
+
+/** 内置扩展是否 ST 端专用（App 不消费；第三方扩展一律返回 false 保留管理入口） */
+export function isStOnlyExtension(name: string, type: string): boolean {
+  if (type !== 'system') return false
+  const bare = name.startsWith('third-party/') ? name.slice('third-party/'.length) : name
+  return ST_ONLY_BUILTIN.has(bare)
 }
 
 /** 扩展在 App 侧的使用说明（内置查表，第三方给通用说明） */

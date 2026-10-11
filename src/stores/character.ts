@@ -42,6 +42,16 @@ export interface CharacterEditPatch {
   characterVersion?: string
   /** 高级字段：备选开场白（每条一项） */
   alternateGreetings?: string[]
+  /** 风月扩展：详细介绍（HTML+JS，查看时在 iframe 沙箱运行；存 data.extensions.detailed_intro） */
+  detailedIntro?: string
+  /** 风月扩展：Mod 层提示词（作者级 System 注入；存 data.extensions.mod_prompt） */
+  modPrompt?: string
+  /** 风月扩展：Mod 层挂载的世界书（条目参与扫描；存 data.extensions.mod_world） */
+  modWorld?: string
+  /** 风月扩展：内置 CSS（作品级聊天页美化；存 data.extensions.css） */
+  css?: string
+  /** 风月扩展：BGM 音乐 URL（存 data.extensions.bgm） */
+  bgm?: string
 }
 
 export const useCharacterStore = defineStore('character', {
@@ -209,6 +219,32 @@ export const useCharacterStore = defineStore('character', {
       if (!base) throw new Error('未选择角色卡')
       this.saving = true
       try {
+        // 风月扩展键（data.extensions.detailed_intro/mod_prompt）：ST charaFormatData
+        // 以 json_data 为基底保留未知外键，故写回 json_data 字符串而非顶层字段（会被丢弃）
+        let jsonData = base.json_data
+        if (
+          patch.detailedIntro !== undefined ||
+          patch.modPrompt !== undefined ||
+          patch.modWorld !== undefined ||
+          patch.css !== undefined ||
+          patch.bgm !== undefined
+        ) {
+          try {
+            const obj = (jsonData ? JSON.parse(jsonData) : {}) as {
+              data?: { extensions?: Record<string, unknown> }
+            }
+            obj.data = obj.data ?? {}
+            obj.data.extensions = obj.data.extensions ?? {}
+            if (patch.detailedIntro !== undefined) obj.data.extensions.detailed_intro = patch.detailedIntro
+            if (patch.modPrompt !== undefined) obj.data.extensions.mod_prompt = patch.modPrompt
+            if (patch.modWorld !== undefined) obj.data.extensions.mod_world = patch.modWorld
+            if (patch.css !== undefined) obj.data.extensions.css = patch.css
+            if (patch.bgm !== undefined) obj.data.extensions.bgm = patch.bgm
+            jsonData = JSON.stringify(obj)
+          } catch {
+            /* json_data 缺失/损坏时跳过该扩展键，其余字段照常保存 */
+          }
+        }
         await editCharacter({
           avatar_url: base.avatar,
           ch_name: patch.name ?? base.name,
@@ -224,8 +260,8 @@ export const useCharacterStore = defineStore('character', {
           // 保留原会话指向与创建时间，避免 ST 侧被重置
           chat: base.chat,
           create_date: base.create_date,
-          // 保留 V2/V3 卡里的其它外键字段
-          json_data: base.json_data,
+          // 保留 V2/V3 卡里的其它外键字段（可能已并入 detailed_intro 扩展键）
+          json_data: jsonData,
           // 高级字段（以详情/列表项为基底合并，v2 字段顶层或 data 内取）
           creator: patch.creator ?? str(base.creator) ?? str(base.data?.creator) ?? '',
           character_version:

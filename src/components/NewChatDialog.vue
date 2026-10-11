@@ -103,6 +103,11 @@ function start() {
   }
   const g = greetings.value[greetingIdx.value]
   if (g && g.text.trim()) opts.greetingText = g.text
+  // 备选全集写入首条消息 swipes（ST 语义：会话内可 swipe 切换开场白）
+  if (greetings.value.length > 1) {
+    opts.greetingSwipes = greetings.value.map((x) => x.text)
+    opts.greetingIdx = greetingIdx.value
+  }
   if (personaId.value) opts.personaId = personaId.value
   if (useGen.value) {
     opts.genOverride = {

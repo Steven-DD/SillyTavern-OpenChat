@@ -14,6 +14,7 @@ import {
   getDisabledExtensions,
   setExtensionDisabled,
   getDisabledExtensions as fetchDisabled,
+  isStOnlyExtension,
   type DiscoveredExtension,
   type ExtVersionInfo,
   type ExtUpdateResult,
@@ -37,10 +38,14 @@ export const useExtensionsStore = defineStore('extensions', {
   }),
 
   getters: {
+    /** App 可用扩展（ST 端专用的内置扩展不展示；第三方扩展保留管理入口） */
     filtered(state): DiscoveredExtension[] {
       const kw = state.search.trim().toLowerCase()
-      if (!kw) return state.list
-      return state.list.filter((x) => x.name.toLowerCase().includes(kw))
+      return state.list.filter((x) => {
+        if (isStOnlyExtension(x.name, x.type)) return false
+        if (!kw) return true
+        return x.name.toLowerCase().includes(kw)
+      })
     },
     selected(state): DiscoveredExtension | null {
       return state.list.find((x) => x.name === state.selectedName) ?? null

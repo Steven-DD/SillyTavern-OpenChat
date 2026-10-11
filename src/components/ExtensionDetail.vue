@@ -64,7 +64,9 @@ watch(
     branches.value = []
     if (!name) return
     void getExtensionManifest(name).then((m) => (manifest.value = m))
-    void refreshGit()
+    // ⚠ 内置扩展（type=system）不在 data/default-user/extensions 目录下，
+    // ST 的 /version 只查该目录 → 必须跳过（否则报 "Directory does not exist"）
+    if (isThirdParty.value) void refreshGit()
   },
   { immediate: true },
 )
@@ -148,15 +150,20 @@ const isThirdParty = computed(() => !!selected.value && !selected.value.type.inc
 
 function onCtx(e: MouseEvent): void {
   if (!selected.value) return
+  // 内置扩展（system）：只保留启停（更新/分支/移动/删除仅对第三方目录有意义）
   const items = [
     {
       id: 'toggle',
       label: ext.isDisabled(selected.value.name) ? '启用' : '停用',
     },
-    { id: 'update', label: '更新' },
-    ...(isThirdParty.value ? [{ id: 'branch', label: branchOpen.value ? '收起分支列表' : '切换分支' }] : []),
-    { id: 'move', label: isGlobal.value ? '移到用户目录' : '移到全局目录' },
-    { id: 'delete', label: '删除', danger: true },
+    ...(isThirdParty.value
+      ? [
+          { id: 'update', label: '更新' },
+          { id: 'branch', label: branchOpen.value ? '收起分支列表' : '切换分支' },
+          { id: 'move', label: isGlobal.value ? '移到用户目录' : '移到全局目录' },
+          { id: 'delete', label: '删除', danger: true },
+        ]
+      : []),
   ]
   ctx.show(e, items, (id) => {
     if (id === 'toggle') void toggleDisabled()
@@ -188,6 +195,7 @@ const displayName = computed(() => manifest.value?.display_name || selected.valu
             <span :class="git.upToDate ? 'ok-t' : 'warn-t'">{{ git.upToDate ? '已是最新' : '有可用更新' }}</span>
           </template>
           <template v-else-if="git?.notRepo">非 Git 仓库（本地目录安装）</template>
+          <template v-else-if="!isThirdParty">内置扩展（随 ST 更新）</template>
           <template v-else>未获取到版本信息</template>
         </div>
       </div>

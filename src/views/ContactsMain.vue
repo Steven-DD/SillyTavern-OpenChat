@@ -3,17 +3,24 @@ import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useCharacterStore, type CharacterEditPatch } from '@/stores/character'
 import { useChatStore } from '@/stores/chat'
+import { useWorldsStore } from '@/stores/worlds'
 import Avatar from '@/components/Avatar.vue'
 
 const router = useRouter()
 const chars = useCharacterStore()
 const chat = useChatStore()
+const worlds = useWorldsStore()
 
 const char = computed(() => chars.detail ?? chars.current)
 
 const editing = ref(false)
 const form = ref<CharacterEditPatch>({})
 const msg = ref('')
+
+/* Mod 世界书选择器需要世界书列表（进编辑态时确保已加载） */
+watch(editing, (v) => {
+  if (v && !worlds.loaded) void worlds.load()
+})
 
 function fillFromCard() {
   const c = char.value
@@ -38,8 +45,45 @@ function fillFromCard() {
       : Array.isArray(c?.alternate_greetings)
         ? (c.alternate_greetings as string[]).filter((x) => typeof x === 'string')
         : [],
+    detailedIntro: detailedIntroOf(c),
+    modPrompt: modPromptOf(c),
+    modWorld: modWorldOf(c),
+    css: cardCssOf(c),
+    bgm: cardBgmOf(c),
   }
 }
+
+/** 风月详细介绍（data.extensions.detailed_intro，HTML+JS） */
+function detailedIntroOf(c: typeof chars.detail): string {
+  const ext = c?.data?.extensions as { detailed_intro?: unknown } | undefined
+  return typeof ext?.detailed_intro === 'string' ? ext.detailed_intro : ''
+}
+
+/** 风月 Mod 层提示词（data.extensions.mod_prompt，作者级 System 注入） */
+function modPromptOf(c: typeof chars.detail): string {
+  const ext = c?.data?.extensions as { mod_prompt?: unknown } | undefined
+  return typeof ext?.mod_prompt === 'string' ? ext.mod_prompt : ''
+}
+
+/** 风月 Mod 层挂载的世界书（data.extensions.mod_world） */
+function modWorldOf(c: typeof chars.detail): string {
+  const ext = c?.data?.extensions as { mod_world?: unknown } | undefined
+  return typeof ext?.mod_world === 'string' ? ext.mod_world : ''
+}
+
+/** 风月内置 CSS / BGM（data.extensions.css / bgm，作品级默认，会话级可覆盖） */
+function cardCssOf(c: typeof chars.detail): string {
+  const ext = c?.data?.extensions as { css?: unknown } | undefined
+  return typeof ext?.css === 'string' ? ext.css : ''
+}
+function cardBgmOf(c: typeof chars.detail): string {
+  const ext = c?.data?.extensions as { bgm?: unknown } | undefined
+  return typeof ext?.bgm === 'string' ? ext.bgm : ''
+}
+
+const intro = computed(() => detailedIntroOf(char.value))
+/** 沙箱预览开关（iframe sandbox=allow-scripts：可跑 JS，无同源/存储/顶层导航权限） */
+const introOpen = ref(false)
 watch(char, fillFromCard, { immediate: true })
 
 const tagsText = computed({
@@ -184,6 +228,7 @@ const meta = computed(() => {
         </div>
         <div class="acts">
           <template v-if="!editing">
+            <button v-if="intro" class="btn" @click="introOpen = true">详细介绍</button>
             <button class="btn btn-primary" @click="startChat">发消息</button>
           </template>
           <template v-else>
@@ -252,6 +297,30 @@ const meta = computed(() => {
               <span class="lb">备选开场白（一行一条，Swipe 备选用）</span>
               <textarea v-model="altGreetingsText" class="field field-area" rows="4" />
             </label>
+            <label class="fld">
+              <span class="lb">详细介绍（风月创作：HTML+JS，保存后在沙箱中渲染预览）</span>
+              <textarea v-model="form.detailedIntro" class="field field-area" rows="8" spellcheck="false" />
+            </label>
+            <label class="fld">
+              <span class="lb">Mod 提示词（风月作者层：注入 System，紧跟作品提示词之后）</span>
+              <textarea v-model="form.modPrompt" class="field field-area" rows="5" spellcheck="false" />
+            </label>
+            <label class="fld">
+              <span class="lb">Mod 世界书（风月作者层：条目参与世界书扫描）</span>
+              <select v-model="form.modWorld" class="field">
+                <option v-if="!worlds.loaded && form.modWorld" :value="form.modWorld" disabled>世界书列表加载中…</option>
+                <option value="">不挂载</option>
+                <option v-for="w in worlds.list" :key="w.file_id" :value="w.file_id">{{ w.name || w.file_id }}</option>
+              </select>
+            </label>
+            <label class="fld">
+              <span class="lb">内置 CSS（作品级聊天页美化：气泡/状态栏/输入区，用 #customized-* 钩子定位；会话级可覆盖）</span>
+              <textarea v-model="form.css" class="field field-area" rows="6" spellcheck="false" />
+            </label>
+            <label class="fld">
+              <span class="lb">BGM（音乐 URL，进入会话后顶栏出现播放开关）</span>
+              <input v-model="form.bgm" class="field" type="text" placeholder="https://…/bgm.mp3" spellcheck="false" />
+            </label>
           </template>
 
           <p class="warn">保存将重写角色卡文件，不影响已有会话。</p>
@@ -297,6 +366,23 @@ const meta = computed(() => {
           </section>
         </template>
       </div>
+
+      <!-- 详细介绍：iframe 沙箱渲染（风月语义：可跑 JS/完整 CSS，无同源与顶层导航权限） -->
+      <Teleport to="body">
+        <div v-if="introOpen" class="intro-mask" @click.self="introOpen = false">
+          <div class="intro-dlg" role="dialog" aria-modal="true">
+            <header class="intro-head">
+              <span class="intro-tt">{{ char.name }} · 详细介绍</span>
+              <button class="intro-x" title="关闭" @click="introOpen = false">×</button>
+            </header>
+            <iframe
+              class="intro-frame"
+              sandbox="allow-scripts"
+              :srcdoc="intro"
+            />
+          </div>
+        </div>
+      </Teleport>
     </template>
   </main>
 </template>
@@ -470,5 +556,56 @@ const meta = computed(() => {
 .v {
   color: var(--c-text);
   word-break: break-all;
+}
+/* 详细介绍沙箱遮罩 */
+.intro-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(0 0 0 / 55%);
+}
+.intro-dlg {
+  display: flex;
+  flex-direction: column;
+  width: min(860px, 100%);
+  height: min(86vh, 900px);
+  border-radius: var(--radius-lg);
+  background: var(--c-bg);
+  border: 1px solid var(--c-border);
+  overflow: hidden;
+}
+.intro-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--c-border);
+}
+.intro-tt {
+  font-size: 13px;
+  font-weight: 600;
+}
+.intro-x {
+  margin-left: auto;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--c-text-3);
+  font-size: 15px;
+}
+.intro-x:hover {
+  background: var(--c-panel);
+  color: var(--c-text);
+}
+.intro-frame {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  background: #fff;
 }
 </style>

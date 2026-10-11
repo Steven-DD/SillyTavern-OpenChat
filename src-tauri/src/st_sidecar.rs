@@ -404,6 +404,35 @@ fn launch_and_watch(
                         s.emit(&handle, "ready", "SillyTavern 已就绪");
                     }
                     println!("[sidecar] SillyTavern 就绪（端口 {port}）");
+                    // ST 插件检测（对齐 UI「插件」页的「ST 插件」组）；失败不影响启动
+                    let discover = client
+                        .get(format!("http://127.0.0.1:{port}/api/extensions/discover"))
+                        .send()
+                        .await;
+                    if let Ok(r) = discover {
+                        if r.status().is_success() {
+                            #[derive(serde::Deserialize)]
+                            struct ExtEntry {
+                                #[serde(default)]
+                                name: String,
+                            }
+                            match r.text().await {
+                                Ok(text) => match serde_json::from_str::<Vec<ExtEntry>>(&text) {
+                                    Ok(list) => {
+                                        let names: Vec<String> =
+                                            list.into_iter().map(|e| e.name).collect();
+                                        println!(
+                                            "[plugin] 检测到 ST 插件 {} 个：{}",
+                                            names.len(),
+                                            names.join(", ")
+                                        );
+                                    }
+                                    Err(e) => eprintln!("[plugin] ST 插件清单解析失败: {e}"),
+                                },
+                                Err(e) => eprintln!("[plugin] ST 插件清单读取失败: {e}"),
+                            }
+                        }
+                    }
                     return;
                 }
             }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
 import Avatar from '@/components/Avatar.vue'
@@ -9,7 +9,7 @@ import NewChatDialog from '@/components/NewChatDialog.vue'
 import ChatPanel from '@/components/ChatPanel.vue'
 import { dayLabel } from '@/utils/time'
 import { estimateTokens, fmtCost, fmtTok, priceOf } from '@/services/usage'
-import { loadStTextColors, type StTextColors } from '@/services/st/theme'
+import { loadStTextColors, stTextColorsToVars, type StTextColors } from '@/services/st/theme'
 import { useThemeStore } from '@/stores/theme'
 import type { DisplayMessage } from '@/services/st/chatdoc'
 import type { NewChatOptions } from '@/stores/chat'
@@ -21,21 +21,75 @@ const theme = useThemeStore()
 /* ---- ST 主题文本色（斜体/引号/下划线）：对齐网页端 .mes_text 着色 ---- */
 const stColors = ref<StTextColors | null>(null)
 void loadStTextColors().then((c) => (stColors.value = c))
-/** 仅深色模式套用：ST 主题按深底设计，浅色下白斜体会不可读（回落 App 自身样式） */
+/** 全模式套用；浅色下仅把过亮颜色压暗（ST 主题按深底设计，纯白斜体直接上会不可读） */
 const stColorVars = computed<Record<string, string> | undefined>(() => {
-  if (theme.mode === 'light' || !stColors.value) return undefined
-  const c = stColors.value
-  const vars: Record<string, string> = {}
-  if (c.em) vars['--st-c-em'] = c.em
-  if (c.quote) vars['--st-c-quote'] = c.quote
-  if (c.underline) vars['--st-c-underline'] = c.underline
+  if (!stColors.value) return undefined
+  const vars = stTextColorsToVars(stColors.value, theme.mode === 'light')
   return Object.keys(vars).length ? vars : undefined
 })
 
 const draft = ref('')
 const listEl = ref<HTMLElement | null>(null)
-
 const char = computed(() => chat.currentCharacter)
+
+/* ---- 流式/非流式开关（风月"整块输出"；localStorage app.gen.stream，'0'=非流式） ---- */
+const streamMode = ref(localStorage.getItem('app.gen.stream') !== '0')
+function toggleStream(): void {
+  streamMode.value = !streamMode.value
+  try {
+    localStorage.setItem('app.gen.stream', streamMode.value ? '1' : '0')
+  } catch {
+    /* 隐私模式等存储不可用时仅本会话生效 */
+  }
+}
+
+/* ---- 风月作品外观：内置 CSS 注入 + BGM（会话 fy_* 优先，逐字段回落角色卡扩展） ---- */
+const cardExt = computed(
+  () =>
+    (char.value?.data as { extensions?: { css?: unknown; bgm?: unknown } } | undefined)
+      ?.extensions,
+)
+const workCss = computed(
+  () => (chat.fyExtras?.css || (typeof cardExt.value?.css === 'string' ? cardExt.value.css : '')).trim(),
+)
+const workBgm = computed(
+  () => (chat.fyExtras?.bgm || (typeof cardExt.value?.bgm === 'string' ? cardExt.value.bgm : '')).trim(),
+)
+const hasWorkCss = computed(() => !!workCss.value)
+
+/** 内置 CSS：挂全局 <style id="customized-work-css">，随会话/配置变化热替换 */
+watch(
+  workCss,
+  (css) => {
+    document.getElementById('customized-work-css')?.remove()
+    if (css) {
+      const el = document.createElement('style')
+      el.id = 'customized-work-css'
+      el.textContent = css
+      document.head.appendChild(el)
+    }
+  },
+  { immediate: true },
+)
+onUnmounted(() => document.getElementById('customized-work-css')?.remove())
+
+/* BGM：顶栏音乐按钮开关（记忆在 localStorage），循环播放 */
+const bgmOn = ref(localStorage.getItem('app.bgm.on') === '1')
+const audioEl = ref<HTMLAudioElement | null>(null)
+watch([workBgm, bgmOn], ([src, on]) => {
+  const a = audioEl.value
+  if (!a) return
+  if (on && src) void a.play().catch(() => undefined) // 自动播放策略拦截时静默，点按钮重试
+  else a.pause()
+})
+function toggleBgm(): void {
+  bgmOn.value = !bgmOn.value
+  try {
+    localStorage.setItem('app.bgm.on', bgmOn.value ? '1' : '0')
+  } catch {
+    /* 存储不可用仅本会话生效 */
+  }
+}
 
 /** 是否已打开具体会话（未打开时主区显示中性空状态，不显示自动选中的角色占位） */
 const inSession = computed(() => !!chat.currentFile)
@@ -236,7 +290,20 @@ watch(
           >
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>
           </button>
+          <!-- 风月 BGM：配置了音乐才显示（data-show 语义对齐 #header-setting-music） -->
           <button
+            v-if="inSession && workBgm"
+            id="header-setting-music"
+            class="dots"
+            :class="{ on: bgmOn }"
+            data-show="true"
+            :title="bgmOn ? '暂停背景音乐' : '播放背景音乐'"
+            @click="toggleBgm"
+          >
+            ♪
+          </button>
+          <button
+            id="header-setting-button"
             class="dots"
             :class="{ on: panelOpen }"
             title="会话设置"
@@ -246,6 +313,7 @@ watch(
           </button>
         </div>
       </header>
+      <audio v-if="workBgm" id="customized-bgm-audio" ref="audioEl" loop preload="none" :src="workBgm" />
 
     <div ref="listEl" class="msgs">
       <!-- 未打开会话：中性空状态（不显示自动选中的角色占位） -->
@@ -313,6 +381,7 @@ watch(
             :speaking="chat.speakingIndex === r.i"
             :speaker="chat.group ? r.m.name : undefined"
             :group-chat="!!chat.group"
+            :has-css="hasWorkCss"
             @edit="onEditMsg"
             @remove="onRemoveMsg"
             @resend="onResendMsg"
@@ -409,8 +478,9 @@ watch(
           {{ q.label }}
         </button>
       </div>
-      <div class="input-box">
+      <div id="customized-ai-input-container" class="input-box">
         <textarea
+          id="ai-chat-input"
           v-model="draft"
           class="ta"
           :placeholder="
@@ -422,8 +492,8 @@ watch(
           :disabled="!inSession || chat.streaming"
           @keydown.enter.exact.prevent="send"
         />
-        <div class="tools">
-          <span v-if="draftTokens" class="tok-est" title="本地估算，仅供预览">≈ {{ draftTokens }} tok</span>
+        <div id="ai-input-controls" class="tools">
+          <span v-if="draftTokens" id="ai-input-control-input-length" class="tok-est" title="本地估算，仅供预览">≈ {{ draftTokens }} tok</span>
           <span v-if="chat.lastError" class="err-tip" :title="chat.lastError">{{ chat.lastError }}</span>
           <!-- 群聊：再来一轮（按当前编排重掷发言人） -->
           <button
@@ -446,8 +516,22 @@ watch(
           >
             代写
           </button>
+          <!-- 流式/整块切换（风月 #customized-flow-button 语义） -->
+          <button
+            v-if="inSession && !chat.group"
+            id="customized-flow-button"
+            class="btn-impersonate btn-flow"
+            type="button"
+            :data-state="streamMode ? 'streaming' : 'blocking'"
+            :disabled="chat.streaming"
+            :title="streamMode ? '当前：流式输出（逐字上屏）。点击切换为整块返回' : '当前：整块返回（生成完一次显示）。点击切换回流式'"
+            @click="toggleStream"
+          >
+            {{ streamMode ? '流式' : '整块' }}
+          </button>
           <!-- 流式期间变「停止」：中断 SSE，已生成部分保留落盘 -->
           <button
+            id="ai-send-button"
             class="btn-send"
             :class="{ stop: chat.streaming }"
             :disabled="!inSession || (!chat.streaming && !draft.trim())"

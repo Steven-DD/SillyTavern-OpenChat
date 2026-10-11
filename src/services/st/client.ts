@@ -159,6 +159,65 @@ export async function stPostVoid(path: string, body: unknown): Promise<void> {
 }
 
 /**
+ * 非流式生成：POST（stream:false）→ 服务端一次性 JSON → 单次 onDelta 全量回调。
+ * 格式兼容 stStream 的三大家族：OpenAI（choices[0].message.content）/
+ * Google（candidates parts）/ DeepSeek 类 reasoning_content；错误对象统一抛出。
+ */
+export async function stGenerateBlocking(
+  path: string,
+  body: unknown,
+  onDelta: (text: string) => void,
+  onReasoning?: (text: string) => void,
+  onUsage?: (usage: { prompt: number; completion: number }) => void,
+  opts?: { signal?: AbortSignal },
+): Promise<void> {
+  const res = await stPost(path, body, { signal: opts?.signal })
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`
+    try {
+      const err = (await res.json()) as { message?: string; error?: { message?: string } }
+      if (err.error?.message) detail = err.error.message
+      else if (err.message) detail = err.message
+    } catch {
+      /* 保留状态码 */
+    }
+    throw new Error(`生成请求失败（${detail}）`)
+  }
+  const data = (await res.json()) as {
+    choices?: { message?: { content?: string; reasoning_content?: string } }[]
+    candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] } }[]
+    usage?: { prompt_tokens?: number; completion_tokens?: number }
+    usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number }
+    error?: { message?: string; status?: string }
+    message?: string
+  }
+  if (data.error) {
+    throw new Error(`ST 返回错误（${data.error.message ?? data.error.status}）`)
+  }
+  if (data.message && !data.choices && !data.candidates) {
+    throw new Error(`ST 返回错误（${data.message}）`)
+  }
+  const parts = data.candidates?.[0]?.content?.parts ?? []
+  const thought = parts.filter((p) => p.thought).map((p) => p.text ?? '').join('')
+  if (thought && onReasoning) onReasoning(thought)
+  const reasoning = data.choices?.[0]?.message?.reasoning_content ?? ''
+  if (reasoning && onReasoning) onReasoning(reasoning)
+  const text =
+    data.choices?.[0]?.message?.content ??
+    parts.filter((p) => !p.thought).map((p) => p.text ?? '').join('')
+  if (text) onDelta(text)
+  if (onUsage) {
+    const u = data.usage
+    const g = data.usageMetadata
+    if (u && (typeof u.prompt_tokens === 'number' || typeof u.completion_tokens === 'number')) {
+      onUsage({ prompt: u.prompt_tokens ?? 0, completion: u.completion_tokens ?? 0 })
+    } else if (g) {
+      onUsage({ prompt: g.promptTokenCount ?? 0, completion: g.candidatesTokenCount ?? 0 })
+    }
+  }
+}
+
+/**
  * SSE 流式请求：逐块回调增量文本。
  *
  * ST 各后端源的流式格式并不统一：

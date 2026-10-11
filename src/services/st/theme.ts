@@ -44,3 +44,44 @@ export async function loadStTextColors(force = false): Promise<StTextColors | nu
   }
   return cache
 }
+
+/** 解析 CSS 颜色的相对亮度（0-1）。支持 rgb/rgba 与 #hex（3/6 位）；解析失败返回 null */
+export function cssLuminance(css: string): number | null {
+  const m = css.match(/rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/i)
+  if (m) {
+    const r = Number(m[1])
+    const g = Number(m[2])
+    const b = Number(m[3])
+    return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+  }
+  const hex = css.trim().startsWith('#') ? css.trim().slice(1) : ''
+  if (/^[0-9a-f]{3}$|^[0-9a-f]{6}$/i.test(hex)) {
+    const full = hex.length === 3 ? [...hex].map((x) => x + x).join('') : hex
+    const r = parseInt(full.slice(0, 2), 16)
+    const g = parseInt(full.slice(2, 4), 16)
+    const b = parseInt(full.slice(4, 6), 16)
+    return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+  }
+  return null
+}
+
+/** 浅色底适配：过亮的颜色（如 Azure 主题的纯白斜体）压暗到可读，其余原样 */
+export function adaptColorForLight(css: string): string {
+  const l = cssLuminance(css)
+  if (l !== null && l > 0.6) return `color-mix(in srgb, ${css} 55%, #26282b)`
+  return css
+}
+
+/** 把 ST 主题文本色转成 CSS 变量组；light=true 时对过亮颜色做压暗适配 */
+export function stTextColorsToVars(c: StTextColors, light: boolean): Record<string, string> {
+  const adapt = (v?: string): string | undefined =>
+    v ? (light ? adaptColorForLight(v) : v) : undefined
+  const vars: Record<string, string> = {}
+  const em = adapt(c.em)
+  const quote = adapt(c.quote)
+  const underline = adapt(c.underline)
+  if (em) vars['--st-c-em'] = em
+  if (quote) vars['--st-c-quote'] = quote
+  if (underline) vars['--st-c-underline'] = underline
+  return vars
+}

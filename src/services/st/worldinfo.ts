@@ -15,6 +15,7 @@
  *   否则按 groupWeight 掷骰（world-info.js filterByInclusionGroups）
  * - 注入位置：0=↑Char（角色定义前）1=↓Char（角色定义后）2/3=作者注释上下（并入 after）4=@Depth 按深度插聊天流
  *   5/6=EM 仅 Text Completion，App 不支持 → 按 after 处理
+ *   7/8=风月扩展：前置词/后置词缓冲区，触发后并入每条 user 消息首尾（App 专属，不进 system）
  * - 递归扫描：g.recursive 开启时启用（默认关）；timedEffects
  *   （sticky/cooldown 计数 + delay 消息进度）已实现，状态经调用方持久化到 chat_metadata.timedEffects；
  *   min_activations 已实现（激活不足时逐步扩大扫描深度重扫）；useGroupScoring（需匹配度打分）未实现
@@ -32,6 +33,10 @@ export const WI_POSITION = {
   atDepth: 4,
   EMTop: 5,
   EMBottom: 6,
+  /** 风月扩展：并入每条 user 消息开头（前置词缓冲区） */
+  userPrefix: 7,
+  /** 风月扩展：并入每条 user 消息结尾（后置词缓冲区） */
+  userSuffix: 8,
 } as const
 
 /** 二级关键词逻辑 */
@@ -117,6 +122,10 @@ export interface WiScanResult {
   after: string
   /** @Depth：按深度插到聊天消息流 */
   depthEntries: WiDepthEntry[]
+  /** 风月扩展：并入每条 user 消息开头（order 升序拼接） */
+  userPrefix: string
+  /** 风月扩展：并入每条 user 消息结尾（order 升序拼接） */
+  userSuffix: string
   /** 本次激活的条目（给状态条/UI 展示） */
   activated: { world: string; uid: number; comment: string }[]
   /** 激活内容消耗的估算 token */
@@ -184,9 +193,10 @@ async function loadBook(name: string): Promise<WiEntry[]> {
  * 收集当前角色生效的世界书条目：角色绑定书优先（组内 order 降序），全局书随后。
  * 排序采用 character_first 策略。
  */
-export async function collectActiveEntries(avatar: string): Promise<WiEntry[]> {
+export async function collectActiveEntries(avatar: string, extraBooks: string[] = []): Promise<WiEntry[]> {
   const [globalNames, charWorld] = await Promise.all([loadGlobalSelect(), loadCharWorld(avatar)])
-  const names = [...new Set([charWorld, ...globalNames].filter((x): x is string => !!x))]
+  // extraBooks：风月 Mod 层/用户自定义层挂载的世界书（卡扩展/会话级，按全局书桶合并）
+  const names = [...new Set([charWorld, ...extraBooks, ...globalNames].filter((x): x is string => !!x))]
   const charEntries: WiEntry[] = []
   const globalEntries: WiEntry[] = []
   for (const n of names) {
@@ -271,7 +281,15 @@ export function checkWorldInfo(
   for (const [k, v] of Object.entries(overrides)) {
     if (v !== undefined) (g as unknown as Record<string, unknown>)[k] = v
   }
-  const empty: WiScanResult = { before: '', after: '', depthEntries: [], activated: [], usedTokens: 0 }
+  const empty: WiScanResult = {
+    before: '',
+    after: '',
+    depthEntries: [],
+    userPrefix: '',
+    userSuffix: '',
+    activated: [],
+    usedTokens: 0,
+  }
   if (!entries.length) return empty
 
   // 扫描文本按深度切片（条目可用 scanDepth 覆盖全局），\x01 连接防跨边界正则误匹配
@@ -552,6 +570,8 @@ export function checkWorldInfo(
   // 分桶：order 降序遍历 + unshift → 最终 order 升序排列
   const beforeArr: string[] = []
   const afterArr: string[] = []
+  const userPrefixArr: string[] = []
+  const userSuffixArr: string[] = []
   const depthMap = new Map<string, WiDepthEntry>()
   for (const e of [...activated].sort((a, b) => (b.order ?? 0) - (a.order ?? 0))) {
     const content = e.content ?? ''
@@ -559,6 +579,8 @@ export function checkWorldInfo(
     if (pos === WI_POSITION.before) beforeArr.unshift(content)
     else if (pos === WI_POSITION.after || pos === WI_POSITION.ANTop || pos === WI_POSITION.ANBottom || pos === WI_POSITION.EMTop || pos === WI_POSITION.EMBottom)
       afterArr.unshift(content)
+    else if (pos === WI_POSITION.userPrefix) userPrefixArr.unshift(content)
+    else if (pos === WI_POSITION.userSuffix) userSuffixArr.unshift(content)
     else if (pos === WI_POSITION.atDepth) {
       const d = e.depth ?? DEFAULT_DEPTH
       const roleMap = ['system', 'user', 'assistant'] as const
@@ -574,6 +596,8 @@ export function checkWorldInfo(
     before: beforeArr.join('\n'),
     after: afterArr.join('\n'),
     depthEntries: [...depthMap.values()],
+    userPrefix: userPrefixArr.join('\n'),
+    userSuffix: userSuffixArr.join('\n'),
     activated: activated.map((e) => ({ world: e.world, uid: e.uid, comment: e.comment ?? '' })),
     usedTokens: used,
   }

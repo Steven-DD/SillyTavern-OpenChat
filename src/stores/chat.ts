@@ -22,10 +22,18 @@ import {
   applyTimedEffects,
   chatAuthorsNote,
   chatGenOverride,
+  chatPrefixSuffix,
+  chatFyExtras,
+  chatUserPrompt,
+  applyUserPrompt,
+  chatUserWorld,
+  applyUserWorld,
   chatSummary,
   chatTimedEffects,
   chatVariablesOf,
   extractScriptInjects,
+  applyPrefixSuffix,
+  applyFyExtras,
   createChatSeed,
   defaultChatName,
   isChatHeader,
@@ -34,7 +42,9 @@ import {
   toStMessages,
   type AuthorsNote,
   type ChatGenOverride,
+  type ChatPrefixSuffix,
   type DisplayMessage,
+  type FyExtras,
   type TimedWorldInfo,
 } from '@/services/st/chatdoc'
 import { buildPrompt, buildSystemPrompt, withContinue, withImpersonate, type ContextTemplate, type PromptMessage, type WiPlacement } from '@/services/st/prompt'
@@ -136,6 +146,10 @@ export interface NewChatOptions {
   fileId: string
   /** 开场白文本（空 = 用角色卡首条消息） */
   greetingText?: string
+  /** 开场白备选全集（[首条消息, ...备选]，写入首条消息 swipes 供会话内切换） */
+  greetingSwipes?: string[]
+  /** 选中的开场白序号（对应 greetingSwipes 下标） */
+  greetingIdx?: number
   /** 锁定人设 id（空 = 跟随默认人设） */
   personaId?: string
   /** 会话级生成参数覆盖（不传 = 跟随全局设置） */
@@ -230,6 +244,14 @@ export const useChatStore = defineStore('chat', {
     genOverride: null as ChatGenOverride | null,
     /** 作者注释（来自 chat_metadata.note_*，null = 未设置） */
     authorsNote: null as AuthorsNote | null,
+    /** 风月前置/后置词（来自 chat_metadata.fy_*，null = 未设置） */
+    prefixSuffix: null as ChatPrefixSuffix | null,
+    /** 风月 BGM/内置 CSS（来自 chat_metadata.fy_bgm/fy_css，null = 未设置） */
+    fyExtras: null as FyExtras | null,
+    /** 风月用户自定义层提示词（来自 chat_metadata.fy_user_prompt） */
+    userPrompt: '',
+    /** 风月用户自定义层挂载的世界书（来自 chat_metadata.fy_user_world） */
+    userWorld: '',
     messages: [] as DisplayMessage[],
     loadingChat: false,
     saving: false,
@@ -575,6 +597,102 @@ export const useChatStore = defineStore('chat', {
       }
     },
 
+    /**
+     * 设置风月前置/后置词（写 chat_metadata.fy_prefix/fy_suffix，包裹每条
+     * user 消息首尾，只影响发送上下文不落盘）。两项全空 = 清除。生成中禁改。
+     */
+    async setPrefixSuffix(v: ChatPrefixSuffix) {
+      if (!this.currentAvatar || !this.currentFile || this.streaming) return
+      const next: ChatPrefixSuffix | null =
+        v.prefix.trim() || v.suffix.trim() ? { prefix: v.prefix, suffix: v.suffix } : null
+      const prev = this.prefixSuffix
+      this.prefixSuffix = next
+      try {
+        const avatar = this.currentAvatar
+        const file = this.currentFile
+        await enqueueChatWrite(async () => {
+          const raw = await getChat(avatar, file)
+          if (!raw.length) throw new Error('会话为空，无法写入前置/后置词')
+          applyPrefixSuffix(raw, next)
+          await saveChat(avatar, file, raw)
+        })
+      } catch (e) {
+        this.prefixSuffix = prev // 失败回滚
+        this.error = e instanceof Error ? e.message : String(e)
+      }
+    },
+
+    /**
+     * 设置风月 BGM/内置 CSS（写 chat_metadata.fy_bgm/fy_css）。
+     * 空字段 = 该字段回落角色卡 data.extensions；两项全空 = 清除。生成中禁改。
+     */
+    async setFyExtras(v: FyExtras) {
+      if (!this.currentAvatar || !this.currentFile || this.streaming) return
+      const next: FyExtras | null =
+        v.bgm.trim() || v.css.trim() ? { bgm: v.bgm, css: v.css } : null
+      const prev = this.fyExtras
+      this.fyExtras = next
+      try {
+        const avatar = this.currentAvatar
+        const file = this.currentFile
+        await enqueueChatWrite(async () => {
+          const raw = await getChat(avatar, file)
+          if (!raw.length) throw new Error('会话为空，无法写入作品外观')
+          applyFyExtras(raw, next)
+          await saveChat(avatar, file, raw)
+        })
+      } catch (e) {
+        this.fyExtras = prev // 失败回滚
+        this.error = e instanceof Error ? e.message : String(e)
+      }
+    },
+
+    /**
+     * 设置风月用户自定义层提示词（写 chat_metadata.fy_user_prompt，
+     * 注入 System 区 Mod 层之后）。空白 = 清除。生成中禁改。
+     */
+    async setUserPrompt(v: string) {
+      if (!this.currentAvatar || !this.currentFile || this.streaming) return
+      const prev = this.userPrompt
+      this.userPrompt = v
+      try {
+        const avatar = this.currentAvatar
+        const file = this.currentFile
+        await enqueueChatWrite(async () => {
+          const raw = await getChat(avatar, file)
+          if (!raw.length) throw new Error('会话为空，无法写入自定义提示词')
+          applyUserPrompt(raw, v)
+          await saveChat(avatar, file, raw)
+        })
+      } catch (e) {
+        this.userPrompt = prev // 失败回滚
+        this.error = e instanceof Error ? e.message : String(e)
+      }
+    },
+
+    /**
+     * 设置风月用户自定义层挂载的世界书（写 chat_metadata.fy_user_world，
+     * 条目参与世界书扫描）。空白 = 卸载。生成中禁改。
+     */
+    async setUserWorld(v: string) {
+      if (!this.currentAvatar || !this.currentFile || this.streaming) return
+      const prev = this.userWorld
+      this.userWorld = v
+      try {
+        const avatar = this.currentAvatar
+        const file = this.currentFile
+        await enqueueChatWrite(async () => {
+          const raw = await getChat(avatar, file)
+          if (!raw.length) throw new Error('会话为空，无法写入用户世界书')
+          applyUserWorld(raw, v)
+          await saveChat(avatar, file, raw)
+        })
+      } catch (e) {
+        this.userWorld = prev // 失败回滚
+        this.error = e instanceof Error ? e.message : String(e)
+      }
+    },
+
     async openSession(avatar: string, fileId: string) {
       if (this.streaming) return
       // 切会话前把 400ms 防抖窗口内的变量变更落盘（否则旧会话丢改动）
@@ -610,6 +728,10 @@ export const useChatStore = defineStore('chat', {
         this.lockedPersonaId = chatPersonaId(raw)
         this.genOverride = chatGenOverride(raw)
         this.authorsNote = chatAuthorsNote(raw)
+        this.prefixSuffix = chatPrefixSuffix(raw)
+        this.fyExtras = chatFyExtras(raw)
+        this.userPrompt = chatUserPrompt(raw)
+        this.userWorld = chatUserWorld(raw)
         this.summary = chatSummary(raw)
         this.timedState = chatTimedEffects(raw)
         this.chatVariables = chatVariablesOf(raw)
@@ -674,6 +796,12 @@ export const useChatStore = defineStore('chat', {
       const greeting = opts.greetingText?.trim()
       if (greeting && seed.length > 1) {
         seed[1] = { ...seed[1], mes: greeting }
+      }
+      // ST 语义：开场白备选写入首条消息 swipes（[first_mes, ...alternate_greetings]），
+      // 会话内首条消息可 swipe 切换开场白
+      if (opts.greetingSwipes && opts.greetingSwipes.length > 1 && seed.length > 1) {
+        const idx = Math.min(Math.max(0, opts.greetingIdx ?? 0), opts.greetingSwipes.length - 1)
+        seed[1] = { ...seed[1], mes: opts.greetingSwipes[idx]!, swipes: [...opts.greetingSwipes], swipe_id: idx }
       }
       // 会话元数据：人设锁定 + 生成参数覆盖（chat_metadata 自由结构）
       const override = opts.genOverride
@@ -789,12 +917,22 @@ export const useChatStore = defineStore('chat', {
         this.lockedPersonaId,
       )
 
-      // 世界书：收集生效条目（角色绑定书 + 全局勾选书）→ 扫描最近消息 → 激活注入
+      // 风月扩展读取：前置/后置词回落、Mod 层（作者级，卡扩展）/用户层世界书
+      const fyExt = (
+        (char.data as {
+          extensions?: { prefix?: unknown; suffix?: unknown; mod_prompt?: unknown; mod_world?: unknown }
+        } | undefined)?.extensions
+      )
+      const modPrompt = typeof fyExt?.mod_prompt === 'string' ? fyExt.mod_prompt : ''
+      const modWorld = typeof fyExt?.mod_world === 'string' ? fyExt.mod_world : ''
+      const fyWorlds = [modWorld, this.userWorld].filter((x) => !!x.trim())
+
+      // 世界书：收集生效条目（角色绑定书 + 风月两层 + 全局勾选书）→ 扫描最近消息 → 激活注入
       // timedEffects 状态随扫描推进，有计数时写回 chat_metadata.timedEffects
       let wi: WiPlacement | undefined
       let wiActivated = 0
       try {
-        const wiEntries = await collectActiveEntries(char.avatar)
+        const wiEntries = await collectActiveEntries(char.avatar, fyWorlds)
         if (wiEntries.length) {
           const texts = this.messages
             .filter((m) => !m.error && !m.pending && m.content.trim())
@@ -832,8 +970,15 @@ export const useChatStore = defineStore('chat', {
             { state: this.timedState, turn: this.messages.length + 1 },
           )
           wiActivated = res.activated.length
-          if (res.before || res.after || res.depthEntries.length) {
-            wi = { before: res.before, after: res.after, depthEntries: res.depthEntries }
+          if (res.before || res.after || res.depthEntries.length || res.userPrefix || res.userSuffix) {
+            wi = {
+              before: res.before,
+              after: res.after,
+              depthEntries: res.depthEntries,
+              // 风月扩展：position 7/8 条目触发内容并入每条 user 消息首尾
+              userPrefix: res.userPrefix,
+              userSuffix: res.userSuffix,
+            }
           }
           // timedWorldInfo 有变化（修剪过期 / 新增记录）→ 持久化
           const hasTimed =
@@ -942,6 +1087,13 @@ export const useChatStore = defineStore('chat', {
         }
       }
 
+      // 风月前置/后置词：会话 chat_metadata.fy_* 为准，缺省回落角色卡
+      // data.extensions.prefix/suffix（作品级默认，App 专属扩展键）
+      const fy = this.prefixSuffix ?? {
+        prefix: typeof fyExt?.prefix === 'string' ? fyExt.prefix : '',
+        suffix: typeof fyExt?.suffix === 'string' ? fyExt.suffix : '',
+      }
+
       const built = buildPrompt({
         character: char,
         history: this.buildHistory(char.name),
@@ -965,6 +1117,12 @@ export const useChatStore = defineStore('chat', {
         injections,
         systemPrefix,
         systemSuffix,
+        // 风月前置/后置词（包裹每条 user 消息）
+        userPrefix: fy.prefix,
+        userSuffix: fy.suffix,
+        // 风月 Mod/用户自定义提示词层（System 区 main 之后依次注入）
+        modPrompt,
+        userPrompt: this.userPrompt,
         context,
         macro: {
           model: s.model,
@@ -1724,6 +1882,10 @@ export const useChatStore = defineStore('chat', {
         this.lockedPersonaId = null
         this.genOverride = null
         this.authorsNote = null
+        this.prefixSuffix = null
+        this.fyExtras = null
+        this.userPrompt = ''
+        this.userWorld = ''
         this.summary = ''
         this.timedState = {}
         this.messages = toDisplayMessages(lines, {
@@ -2243,6 +2405,8 @@ export const useChatStore = defineStore('chat', {
       const next = (m.swipeId ?? 0) + dir
       if (next < 0) return
       if (next >= swipes.length) {
+        // 开场白（首条消息）：只有既定备选，无 overswipe 生成语义
+        if (index === 0) return
         // overswipe：已是最后一条备选仍右滑 → 追加生成新备选（ST 的 OVERSWIPE 行为）
         if (dir === 1 && m.role === 'assistant' && !m.pending && !m.error) {
           await this.regenerateAsSwipe(m)

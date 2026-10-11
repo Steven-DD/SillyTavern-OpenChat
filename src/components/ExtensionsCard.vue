@@ -53,6 +53,7 @@ import {
   type TtsProvider,
 } from '@/services/st/speech'
 import { loadInstruct, type InstructSettings } from '@/services/st/instruct'
+import { loadSpriteFallback, saveSpriteFallback } from '@/services/st/expressions'
 
 const msg = ref('')
 const msgOk = ref(false)
@@ -182,14 +183,28 @@ const ttsElVoiceId = ref('')
 const edgeVoices = ref<string[]>([])
 const ttsBusy = ref(false)
 
-/* ---- 记忆（Summarize）/ 向量记忆 ---- */
+/* ---- 记忆（Summarize）/ 向量记忆 / 表情 ---- */
 const memEnabled = ref(false)
 const memInterval = ref(10)
 const memDepth = ref(2)
 const memPosition = ref(1)
+const memPrompt = ref('')
+const memWords = ref(200)
+const memTemplate = ref('')
 const vecEnabled = ref(false)
 const vecTopK = ref(4)
 const vecDepth = ref(4)
+const vecSource = ref('transformers')
+const vecTemplate = ref('')
+const exprFallback = ref('')
+
+/** ST vectors 扩展支持的嵌入源 */
+const VECTOR_SOURCES = [
+  { id: 'transformers', label: '本地 Transformers（默认，无需密钥）' },
+  { id: 'openai', label: 'OpenAI（text-embedding）' },
+  { id: 'llama', label: 'Local LLama.cpp' },
+  { id: 'ollama', label: 'Ollama' },
+]
 
 async function persistMemory(): Promise<void> {
   try {
@@ -198,6 +213,9 @@ async function persistMemory(): Promise<void> {
       interval: Math.max(1, Math.floor(memInterval.value) || 1),
       depth: Math.max(0, Math.floor(memDepth.value) || 0),
       position: memPosition.value,
+      prompt: memPrompt.value,
+      words: Math.max(16, Math.floor(memWords.value) || 200),
+      template: memTemplate.value,
     })
     note('记忆设置已保存')
   } catch (e) {
@@ -211,8 +229,19 @@ async function persistVectors(): Promise<void> {
     await saveVectorSettings({
       top_k: Math.max(1, Math.floor(vecTopK.value) || 4),
       depth: Math.max(0, Math.floor(vecDepth.value) || 0),
+      source: vecSource.value,
+      template: vecTemplate.value,
     })
     note('向量记忆设置已保存')
+  } catch (e) {
+    note(`保存失败：${e instanceof Error ? e.message : String(e)}`, false)
+  }
+}
+
+async function persistExpressions(): Promise<void> {
+  try {
+    await saveSpriteFallback(exprFallback.value)
+    note('表情设置已保存')
   } catch (e) {
     note(`保存失败：${e instanceof Error ? e.message : String(e)}`, false)
   }
@@ -292,10 +321,16 @@ onMounted(async () => {
   memInterval.value = mem.interval
   memDepth.value = mem.depth
   memPosition.value = mem.position
+  memPrompt.value = mem.prompt
+  memWords.value = mem.words
+  memTemplate.value = mem.template
   vecEnabled.value = await loadVectorsAppEnabled()
   const vec = await loadVectorSettings(true)
   vecTopK.value = vec.top_k
   vecDepth.value = vec.depth
+  vecSource.value = vec.source
+  vecTemplate.value = vec.template
+  exprFallback.value = await loadSpriteFallback()
 })
 </script>
 
@@ -533,6 +568,20 @@ onMounted(async () => {
           <input v-model.number="memDepth" class="field" type="number" min="0" :disabled="memPosition !== 1" />
         </label>
       </div>
+      <label class="fld">
+        <span class="lb">摘要提示词（{{ '\{\{words\}\}' }} 替换为字数上限）</span>
+        <textarea v-model="memPrompt" class="field" rows="4" spellcheck="false"></textarea>
+      </label>
+      <div class="row2f">
+        <label class="fld">
+          <span class="lb">摘要字数上限</span>
+          <input v-model.number="memWords" class="field" type="number" min="16" max="1024" />
+        </label>
+      </div>
+      <label class="fld">
+        <span class="lb">注入模板（{{ '\{\{summary\}\}' }} 替换为摘要）</span>
+        <input v-model="memTemplate" class="field" spellcheck="false" />
+      </label>
       <div class="btns">
         <button class="btn btn-sm btn-primary" @click="persistMemory">保存记忆设置</button>
       </div>
@@ -551,6 +600,12 @@ onMounted(async () => {
           <input type="checkbox" v-model="vecEnabled" />
         </label>
         <label class="fld">
+          <span class="lb">嵌入源</span>
+          <select v-model="vecSource" class="field">
+            <option v-for="s in VECTOR_SOURCES" :key="s.id" :value="s.id">{{ s.label }}</option>
+          </select>
+        </label>
+        <label class="fld">
           <span class="lb">检索条数（Top K）</span>
           <input v-model.number="vecTopK" class="field" type="number" min="1" max="20" />
         </label>
@@ -559,12 +614,32 @@ onMounted(async () => {
           <input v-model.number="vecDepth" class="field" type="number" min="0" />
         </label>
       </div>
+      <label class="fld">
+        <span class="lb">注入模板（{{ '\{\{text\}\}' }} 替换为检索内容）</span>
+        <textarea v-model="vecTemplate" class="field" rows="2" spellcheck="false"></textarea>
+      </label>
       <div class="btns">
         <button class="btn btn-sm btn-primary" @click="persistVectors">保存向量设置</button>
       </div>
       <p class="hint">
-        消息自动向量化（ST 服务端本地嵌入），生成前按当前输入检索相关历史并注入。
-        数据存 ST 服务端 vectors/ 目录。
+        消息自动向量化（ST 服务端按嵌入源生成向量），生成前按当前输入检索相关历史并注入。
+        数据存 ST 服务端 vectors/ 目录；OpenAI/Ollama 等远端源的密钥在 ST 网页端 API 页配置。
+      </p>
+    </div>
+
+    <!-- 表情立绘 -->
+    <div class="sub">
+      <div class="sub-h"><span>表情立绘（Expressions）</span></div>
+      <label class="fld">
+        <span class="lb">fallback 表情（立绘缺失/情感未识别时使用，需与立绘文件名一致）</span>
+        <input v-model="exprFallback" class="field" placeholder="如 neutral / smile" spellcheck="false" />
+      </label>
+      <div class="btns">
+        <button class="btn btn-sm btn-primary" @click="persistExpressions">保存表情设置</button>
+      </div>
+      <p class="hint">
+        会话配置面板展示角色立绘：classify 可用时按消息情感自动切换，否则手动点选；
+        此处设置兜底表情。立绘文件放 ST 服务端角色的 sprites/ 目录。
       </p>
     </div>
 

@@ -34,6 +34,8 @@ export interface MemorySettings {
   depth: number
   role: number
   position: number
+  /** 摘要字数上限（prompt 里 {{words}} 替换） */
+  words: number
 }
 
 let cache: MemorySettings | null = null
@@ -56,6 +58,7 @@ export async function loadMemorySettings(force = false): Promise<MemorySettings>
     depth: typeof raw?.depth === 'number' ? Math.max(0, Math.floor(raw.depth)) : MEMORY_DEFAULTS.depth,
     role: typeof raw?.role === 'number' ? raw.role : MEMORY_DEFAULTS.role,
     position: raw?.position === 0 || raw?.position === 1 ? raw.position : MEMORY_DEFAULTS.position,
+    words: typeof raw?.words === 'number' && raw.words > 0 ? Math.floor(raw.words) : MEMORY_DEFAULTS.words,
   }
   return cache
 }
