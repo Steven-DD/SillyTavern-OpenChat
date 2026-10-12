@@ -8,6 +8,7 @@ import { bubbleTime } from '@/utils/time'
 import { useThemeStore } from '@/stores/theme'
 import { applyDisplayRegex, REGEX_PLACEMENT } from '@/services/st/regex'
 import { detectFenceLanguages } from '@/utils/codeDetect'
+import { substituteMacros } from '@/services/st/prompt'
 import type { DisplayMessage } from '@/services/st/chatdoc'
 
 /**
@@ -40,6 +41,10 @@ const props = defineProps<{
   groupChat?: boolean
   /** 作品内置 CSS 是否生效（风月 data-has-css 语义） */
   hasCss?: boolean
+  /** 用户名（显示期 {{user}} 宏替换用） */
+  userName?: string
+  /** 角色名（显示期 {{char}} 宏替换用） */
+  charName?: string
 }>()
 
 const emit = defineEmits<{
@@ -137,11 +142,20 @@ const displayContent = computed(() => {
     props.m.content,
     props.m.role === 'user' ? REGEX_PLACEMENT.USER_INPUT : REGEX_PLACEMENT.AI_OUTPUT,
   )
+  // 显示期宏替换（对齐 ST messageFormatting 的 substituteParams）：{{user}}/{{char}} 等
+  // 用户消息里 {{char}} = 角色名；AI 消息以发言者名（群聊为发言人）优先
+  const charForSub =
+    props.m.role === 'user' ? props.charName ?? '' : props.m.name || props.charName || ''
+  const subbed = substituteMacros(raw, charForSub, props.userName ?? '')
   // 无语言标记的代码围栏先探测语言回写围栏头，交给下游 shiki 高亮
-  return props.m.role === 'assistant' ? detectFenceLanguages(raw) : raw
+  return props.m.role === 'assistant' ? detectFenceLanguages(subbed) : subbed
 })
 const displayReasoning = computed(() =>
-  applyDisplayRegex(props.m.reasoning ?? '', REGEX_PLACEMENT.REASONING),
+  substituteMacros(
+    applyDisplayRegex(props.m.reasoning ?? '', REGEX_PLACEMENT.REASONING),
+    props.m.name || props.charName || '',
+    props.userName ?? '',
+  ),
 )
 
 /* ---- 代码高亮主题跟随应用主题（markstream themes 顺序为 [dark, light]） ---- */

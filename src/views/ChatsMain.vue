@@ -382,6 +382,8 @@ watch(
             :speaker="chat.group ? r.m.name : undefined"
             :group-chat="!!chat.group"
             :has-css="hasWorkCss"
+            :user-name="chat.userName"
+            :char-name="char?.name"
             @edit="onEditMsg"
             @remove="onRemoveMsg"
             @resend="onResendMsg"
