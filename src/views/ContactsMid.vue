@@ -102,9 +102,10 @@ function pick(avatar: string) {
   layout.showDetail() // 窄屏单栏：进入内容页
 }
 
-/* ---------- 右键菜单：发消息 / 编辑 / 导出 / 删除 ---------- */
+/* ---------- 右键菜单：新建会话 / 编辑 / 导出 / 删除 ---------- */
 function startChatFor(c: StCharacter) {
-  void chat.openWithCharacter(c).then(() => router.push('/chats'))
+  chat.pendingNewChatAvatar = c.avatar // 会话页消费：直接进会话配置弹窗
+  void router.push('/chats')
 }
 
 function editFor(c: StCharacter) {
@@ -133,7 +134,7 @@ function onCtx(c: StCharacter, e: MouseEvent) {
   ctx.show(
     e,
     [
-      { id: 'chat', label: '发消息' },
+      { id: 'chat', label: '新建会话' },
       { id: 'edit', label: '编辑' },
       { id: 'rename', label: '重命名' },
       { id: 'export', label: '导出' },

@@ -77,12 +77,9 @@ function openHit(h: StChatSearchHit) {
   }
 }
 
-/* ---- 新建会话：有目标角色才可用（当前会话角色，或联系人面板选中的角色） ---- */
-const canNew = computed(() => !!chat.currentCharacter)
-
+/* ---- 新建会话：统一先弹角色选择（ChatsMain 渲染弹窗），再进会话配置 ---- */
 function startNew() {
-  if (!canNew.value) return
-  chat.newChatOpen = true // 弹窗挂在中栏/主栏共用的 store 开关上（ChatsMain 渲染）
+  chat.rolePickerOpen = true
   layout.showDetail() // 窄屏单栏：跳到聊天内容页看弹窗
 }
 
@@ -176,12 +173,7 @@ onMounted(async () => {
   <MidPane title="会话" :subtitle="`${chat.sessions.length} 个会话`">
     <template #head>
       <input v-model="q" class="search" type="text" placeholder="搜索会话" />
-      <button
-        class="add"
-        :disabled="!canNew"
-        :title="canNew ? `给 ${chat.currentCharacter?.name} 新建会话` : '先打开一个会话或在联系人里选择角色'"
-        @click="startNew"
-      >
+      <button class="add" title="选择角色并新建会话" @click="startNew">
         ＋ 新建会话
       </button>
     </template>

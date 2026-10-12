@@ -132,10 +132,11 @@ async function save() {
   }
 }
 
+/** 「新建会话」：跳过角色选择，直接进会话配置弹窗（由会话页渲染，跨页标志传递） */
 async function startChat() {
   const c = char.value
   if (!c) return
-  await chat.openWithCharacter(c)
+  chat.pendingNewChatAvatar = c.avatar
   await router.push('/chats')
 }
 
@@ -230,7 +231,7 @@ const meta = computed(() => {
         <div class="acts">
           <template v-if="!editing">
             <button v-if="intro" class="btn" @click="introOpen = true">详细介绍</button>
-            <button class="btn btn-primary" @click="startChat">发消息</button>
+            <button class="btn btn-primary" @click="startChat">新建会话</button>
           </template>
           <template v-else>
             <button class="btn" :disabled="chars.saving" @click="cancel">取消</button>

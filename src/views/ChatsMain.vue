@@ -1,20 +1,24 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useChatStore } from '@/stores/chat'
+import { useCharacterStore } from '@/stores/character'
 import { useSettingsStore } from '@/stores/settings'
 import Avatar from '@/components/Avatar.vue'
 import MessageBubble from '@/components/MessageBubble.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import NewChatDialog from '@/components/NewChatDialog.vue'
+import CharacterPickerDialog from '@/components/CharacterPickerDialog.vue'
 import ChatPanel from '@/components/ChatPanel.vue'
 import { dayLabel } from '@/utils/time'
 import { estimateTokens, fmtCost, fmtTok, priceOf } from '@/services/usage'
 import { loadStTextColors, stTextColorsToVars, type StTextColors } from '@/services/st/theme'
 import { useThemeStore } from '@/stores/theme'
+import type { StCharacter } from '@/services/st/types'
 import type { DisplayMessage } from '@/services/st/chatdoc'
 import type { NewChatOptions } from '@/stores/chat'
 
 const chat = useChatStore()
+const chars = useCharacterStore()
 const gen = useSettingsStore()
 const theme = useThemeStore()
 
@@ -97,10 +101,42 @@ const inSession = computed(() => !!chat.currentFile)
 /* ---- 会话配置面板（顶栏 ··· 唤起，推挤式） ---- */
 const panelOpen = ref(false)
 
-/* ---- 新建会话：先配置、后开始（弹窗开关在 chat store，中栏按钮共用） ---- */
+/* ---- 新建会话：第一步选角色（角色选择弹窗），第二步配置（NewChatDialog） ---- */
+/** 角色选择弹窗选中的角色（配置弹窗的目标；不依赖会话页此前是否有选中角色） */
+const pickedChar = ref<StCharacter | null>(null)
+/** 配置弹窗实际使用的角色：优先选择器选中的，回落此前的当前角色 */
+const dialogChar = computed(() => pickedChar.value ?? char.value)
+
+function openRolePicker(): void {
+  if (!chars.loaded) void chars.load()
+  chat.rolePickerOpen = true
+}
+
+function onPickChar(c: StCharacter): void {
+  chat.rolePickerOpen = false
+  pickedChar.value = c
+  chat.newChatOpen = true
+}
+
+/** 跨页待处理请求（角色卡页「新建会话」）：跳过角色选择直接进配置弹窗 */
+watch(
+  () => chat.pendingNewChatAvatar,
+  async (avatar) => {
+    if (!avatar) return
+    chat.pendingNewChatAvatar = ''
+    if (!chars.loaded) await chars.load()
+    const c = chars.list.find((x) => x.avatar === avatar)
+    if (!c) return
+    pickedChar.value = c
+    chat.newChatOpen = true
+  },
+  { immediate: true },
+)
+
 function onStartNewChat(opts: NewChatOptions): void {
   chat.newChatOpen = false
-  if (char.value) void chat.newChatWithConfig(char.value, opts)
+  const target = dialogChar.value
+  if (target) void chat.newChatWithConfig(target, opts)
 }
 
 /* ---- 消息多选（批量删除） ---- */
@@ -327,7 +363,7 @@ watch(
           </svg>
         </div>
         <p>未选择会话</p>
-        <button v-if="char" class="btn btn-primary" @click="chat.newChatOpen = true">
+        <button class="btn btn-primary" @click="openRolePicker">
           新建会话
         </button>
       </div>
@@ -349,7 +385,7 @@ watch(
           </svg>
         </div>
         <p>{{ char?.name }} 还没有会话记录</p>
-        <button class="btn btn-primary" @click="chat.newChatOpen = true">开始新对话</button>
+        <button class="btn btn-primary" @click="openRolePicker">开始新对话</button>
       </div>
 
       <template v-else>
@@ -397,9 +433,17 @@ watch(
     <!-- 新建会话配置弹窗：先配置（名称/开场白/人设/参数），再开始 -->
     <NewChatDialog
       :open="chat.newChatOpen"
-      :character="char"
+      :character="dialogChar"
       @cancel="chat.newChatOpen = false"
       @start="onStartNewChat"
+    />
+
+    <!-- 新建会话第一步：选择角色 -->
+    <CharacterPickerDialog
+      :open="chat.rolePickerOpen"
+      :characters="chars.list"
+      @cancel="chat.rolePickerOpen = false"
+      @pick="onPickChar"
     />
 
     <!-- 多选操作条 -->

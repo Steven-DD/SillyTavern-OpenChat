@@ -10,7 +10,6 @@ import {
   deleteChat,
   getChat,
   getSettings,
-  listCharacterChats,
   recentChats,
   renameChat,
   saveChat,
@@ -284,6 +283,10 @@ export const useChatStore = defineStore('chat', {
 
     /** 新建会话配置弹窗开关（中栏「＋ 新建会话」与聊天区空态共用） */
     newChatOpen: false,
+    /** 角色选择弹窗（新建会话第一步：会话页/中栏共用开关，ChatsMain 渲染） */
+    rolePickerOpen: false,
+    /** 跨页待处理的新建会话请求（角色卡页「新建会话」设置 → ChatsMain 消费后清空） */
+    pendingNewChatAvatar: '',
 
     /** 消息翻译结果（键 = 消息下标；显示/隐藏由气泡端切换，不删除缓存） */
     translations: {} as Record<number, string>,
@@ -820,25 +823,6 @@ export const useChatStore = defineStore('chat', {
       this.syncSessMeta()
       await this.loadSessions()
       return true
-    },
-
-    /**
-     * 打开与角色的最近会话；没有则新建。
-     * 供「联系人 → 发消息」使用。
-     */
-    async openWithCharacter(character: StCharacter) {
-      try {
-        const list = await listCharacterChats(character.avatar, { metadata: false })
-        if (list.length) {
-          // 取 mtime 最新的一个
-          const newest = [...list].sort((a, b) => (b.last_mes ?? 0) - (a.last_mes ?? 0))[0]
-          await this.openSession(character.avatar, newest.file_id)
-          return
-        }
-      } catch {
-        /* 无会话目录会返回 {error:true}，按「无会话」处理 */
-      }
-      await this.newChat(character)
     },
 
     /* ---------------- 生成 ---------------- */

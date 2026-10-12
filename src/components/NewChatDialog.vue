@@ -17,7 +17,6 @@ import { useChatStore, type NewChatOptions } from '@/stores/chat'
 import { usePersonaStore } from '@/stores/persona'
 import { useSettingsStore } from '@/stores/settings'
 import Avatar from '@/components/Avatar.vue'
-import DetailedIntroModal from '@/components/DetailedIntroModal.vue'
 
 const props = defineProps<{
   open: boolean
@@ -34,13 +33,33 @@ const gen = useSettingsStore()
 const deep = ref<StCharacter | null>(null)
 const loadingDeep = ref(false)
 
-/** 风月作品介绍（data.extensions.detailed_intro，HTML+JS）→ 沙箱预览入口 */
-const introOpen = ref(false)
+/** 风月作品介绍（data.extensions.detailed_intro，HTML+JS）→ 有则先展示介绍页 */
 const introHtml = computed(() => {
   const c = deep.value ?? props.character
   const ext = c?.data?.extensions as { detailed_intro?: unknown } | undefined
   return typeof ext?.detailed_intro === 'string' ? ext.detailed_intro : ''
 })
+
+/** 弹窗步骤：intro = 作品介绍页（有详细介绍时先展示），config = 会话配置表单 */
+const step = ref<'intro' | 'config'>('config')
+/** 用户已离开介绍页（此后切回配置不再自动跳转，可手动点入口回看） */
+const introSeen = ref(false)
+
+/** 介绍自动展示检查：弹窗打开时与 deep 卡就绪时各调一次。
+ *  ⚠ 不能用 watch(introHtml)：列表项可能自带 extensions（pickedChar 设置瞬间
+ *  introHtml 即有值），open watcher 的随后重置会把它改回 config（时序竞态）。 */
+function maybeShowIntro(): void {
+  if (props.open && introHtml.value && !introSeen.value) step.value = 'intro'
+}
+
+/** 手动入口（配置页「查看作品介绍」）：回看介绍页 */
+function showIntro(): void {
+  step.value = 'intro'
+}
+function toConfig(): void {
+  introSeen.value = true
+  step.value = 'config'
+}
 
 const name = ref('')
 const greetingIdx = ref(0)
@@ -90,10 +109,18 @@ watch(
     temperature.value = gen.temperature
     topP.value = gen.topP
     maxTokens.value = gen.maxTokens
+    // 步骤复位后做介绍检查：列表项带 detailed_intro 时立即可见，
+    // deep 就绪后（异步）再补一次检查
+    step.value = 'config'
+    introSeen.value = false
+    maybeShowIntro()
     deep.value = null
     loadingDeep.value = true
     getCharacter(props.character.avatar)
-      .then((c) => (deep.value = c))
+      .then((c) => {
+        deep.value = c
+        maybeShowIntro()
+      })
       .catch(() => undefined) // 拉不到就退化用列表数据（无备选问候）
       .finally(() => (loadingDeep.value = false))
   },
@@ -137,7 +164,17 @@ function start() {
             </div>
           </header>
 
-          <div class="body">
+          <!-- 步骤一：作品介绍页（风月卡带 detailed_intro 时先展示；ST 卡直接到配置） -->
+          <div v-if="step === 'intro'" class="body intro-step">
+            <iframe class="intro-frame" sandbox="allow-scripts" :srcdoc="introHtml" />
+            <footer class="btns">
+              <button class="btn" type="button" @click="toConfig">跳过介绍</button>
+              <button class="btn btn-primary" type="button" @click="toConfig">进入会话配置</button>
+            </footer>
+          </div>
+
+          <!-- 步骤二：会话配置表单 -->
+          <div v-else class="body">
             <!-- 1. 会话名称 -->
             <section>
               <label class="lb">会话名称</label>
@@ -148,7 +185,7 @@ function start() {
             <!-- 1.5 作品介绍（风月卡带 detailed_intro 时显示；ST 卡自然隐藏） -->
             <section v-if="introHtml">
               <label class="lb">作品介绍</label>
-              <button class="intro-btn" type="button" @click="introOpen = true">
+              <button class="intro-btn" type="button" @click="showIntro">
                 📖 查看作品介绍（HTML 预览）
               </button>
             </section>
@@ -221,21 +258,13 @@ function start() {
             </section>
           </div>
 
-          <footer class="btns">
+          <footer v-if="step === 'config'" class="btns">
             <button class="btn" @click="emit('cancel')">取消</button>
             <button class="btn btn-primary" :disabled="!canStart" @click="start">开始会话</button>
           </footer>
         </div>
       </div>
     </Transition>
-
-    <!-- 作品介绍沙箱预览（Teleport 直挂，Transition 外——Transition 仅允许单子节点） -->
-    <DetailedIntroModal
-      v-if="introOpen"
-      :html="introHtml"
-      :title="`${props.character?.name ?? ''} · 作品介绍`"
-      @close="introOpen = false"
-    />
   </Teleport>
 </template>
 
@@ -315,6 +344,26 @@ header {
 .intro-btn:hover {
   border-style: solid;
   color: var(--p-600, var(--c-text));
+}
+/* 介绍步骤视图 */
+.intro-step {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+.intro-frame {
+  flex: 1;
+  min-height: 320px;
+  width: 100%;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-md);
+  background: #fff;
+}
+.intro-step .btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 .hint {
   font-size: 10px;
