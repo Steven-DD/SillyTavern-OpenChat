@@ -7,6 +7,8 @@ import Avatar from '@/components/Avatar.vue'
 import { bubbleTime } from '@/utils/time'
 import { useThemeStore } from '@/stores/theme'
 import { applyDisplayRegex, REGEX_PLACEMENT } from '@/services/st/regex'
+import { extractEmbedHtml } from '@/services/st/embed'
+import HtmlEmbedFrame from '@/components/HtmlEmbedFrame.vue'
 import { detectFenceLanguages } from '@/utils/codeDetect'
 import { substituteMacros } from '@/services/st/prompt'
 import type { DisplayMessage } from '@/services/st/chatdoc'
@@ -134,6 +136,11 @@ const displayContent = computed(() => {
   // 无语言标记的代码围栏先探测语言回写围栏头，交给下游 shiki 高亮
   return props.m.role === 'assistant' ? detectFenceLanguages(subbed) : subbed
 })
+
+/** 前端界面（酒馆助手语义：正则替换出的完整 HTML 应用）→ iframe 沙箱渲染 */
+const embedHtml = computed(() =>
+  props.m.role === 'assistant' && !props.m.pending ? extractEmbedHtml(displayContent.value) : '',
+)
 const displayReasoning = computed(() =>
   substituteMacros(
     applyDisplayRegex(props.m.reasoning ?? '', REGEX_PLACEMENT.REASONING),
@@ -206,8 +213,10 @@ const isDark = computed(() => theme.mode === 'dark' || theme.mode === 'dusk')
       >
         <div v-if="showTrans && translation" class="txt trans-txt">{{ translation }}</div>
         <template v-else>
+          <!-- 前端界面（酒馆助手语义：完整 HTML 文档 + 脚本）→ iframe 沙箱渲染 -->
+          <HtmlEmbedFrame v-if="m.role === 'assistant' && embedHtml" :html="embedHtml" />
           <MarkdownRender
-            v-if="m.role === 'assistant'"
+            v-else-if="m.role === 'assistant'"
             id="customized-answer-content-markdown"
             class="txt md"
             :content="displayContent"

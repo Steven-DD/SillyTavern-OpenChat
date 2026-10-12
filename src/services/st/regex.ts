@@ -70,6 +70,28 @@ export async function loadRegexScripts(force = false): Promise<RegexScript[]> {
   return cache
 }
 
+/* ---------------- 角色卡内嵌正则（Scoped Regex） ----------------
+ * ST 1.12+ 角色卡 data.extensions.regex_scripts：随卡分发、作用域限该角色
+ * （酒馆助手/风月卡的前端界面替换脚本多走这里）。会话打开时由 chat store
+ * 注入；生效脚本 = 全局 + 当前会话角色。 */
+
+const scopedCache = new Map<string, RegexScript[]>()
+let scopedAvatar = ''
+
+/** 设置某角色卡的内嵌正则（会话打开时调用；空数组 = 清除） */
+export function setScopedRegexScripts(avatar: string, scripts: unknown): void {
+  const arr = Array.isArray(scripts)
+    ? (scripts as RegexScript[]).filter((x) => x && typeof x === 'object')
+    : []
+  if (arr.length) scopedCache.set(avatar, arr)
+  else scopedCache.delete(avatar)
+}
+
+/** 当前会话角色（activeRegexScripts 合并其卡级脚本） */
+export function setActiveScopedAvatar(avatar: string): void {
+  scopedAvatar = avatar
+}
+
 /** 写回 settings.json（读全量 → 合并 → 写全量，先比对一致不写） */
 export async function saveRegexScripts(scripts: RegexScript[]): Promise<void> {
   const settings = await getSettings()
@@ -160,9 +182,10 @@ export function runRegex(
   return out
 }
 
-/** 便捷：取生效脚本（缓存未加载时返回空数组，供显示通路同步使用） */
+/** 便捷：取生效脚本（全局 + 当前会话角色的卡级内嵌；缓存未加载时为空） */
 export function activeRegexScripts(): RegexScript[] {
-  return cache ?? []
+  const scoped = scopedAvatar ? (scopedCache.get(scopedAvatar) ?? []) : []
+  return [...(cache ?? []), ...scoped]
 }
 
 /** 显示通路便捷函数（MessageBubble 同步调用，脚本需先 loadRegexScripts） */
@@ -170,7 +193,8 @@ export function applyDisplayRegex(
   content: string,
   placement: number,
 ): string {
-  const scripts = cache
-  if (!scripts?.length) return content
+  // 全局 + 当前会话角色卡内嵌（Scoped Regex）
+  const scripts = activeRegexScripts()
+  if (!scripts.length) return content
   return runRegex(content, scripts, { placement, isPrompt: false })
 }

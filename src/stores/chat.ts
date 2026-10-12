@@ -8,6 +8,7 @@ import { defineStore, acceptHMRUpdate } from 'pinia'
 import { generate, probeSt } from '@/services/st/api'
 import {
   deleteChat,
+  getCharacter,
   getChat,
   getSettings,
   recentChats,
@@ -109,7 +110,14 @@ function persistTranslation(key: string, content: string, text: string): void {
   localStorage.setItem(TRANSLATIONS_KEY, JSON.stringify(all))
 }
 import { generateText, messagesToPrompt } from '@/services/st/textgen'
-import { runRegex, activeRegexScripts, loadRegexScripts, REGEX_PLACEMENT } from '@/services/st/regex'
+import {
+  runRegex,
+  activeRegexScripts,
+  loadRegexScripts,
+  setScopedRegexScripts,
+  setActiveScopedAvatar,
+  REGEX_PLACEMENT,
+} from '@/services/st/regex'
 import { loadQuickReplies } from '@/services/st/extensions'
 import { loadTranslateSettings, translateText } from '@/services/st/translate'
 import { speakText, stopSpeech } from '@/services/st/speech'
@@ -713,6 +721,17 @@ export const useChatStore = defineStore('chat', {
         const charName = chars.list.find((c) => c.avatar === avatar)?.name ?? avatar.replace(/\.png$/i, '')
         this.currentAvatar = avatar
         this.currentFile = fileId
+        // 角色卡内嵌正则（Scoped Regex）：必须在 messages 赋值前注入——
+        // 显示通路 computed 读模块级缓存（非响应式），首帧渲染后不再重算；
+        // 拉不到卡详情时清空作用域（残留上一张卡的正则会串场）。
+        try {
+          const detail = await getCharacter(avatar)
+          const ext = detail?.data?.extensions as { regex_scripts?: unknown } | undefined
+          setScopedRegexScripts(avatar, ext?.regex_scripts)
+        } catch {
+          setScopedRegexScripts(avatar, [])
+        }
+        setActiveScopedAvatar(avatar)
         this.messages = toDisplayMessages(raw, { userFallback: this.userName, charFallback: charName })
         // 翻译持久化回填：按正文哈希匹配（换会话/重开不丢）
         {
@@ -2670,6 +2689,23 @@ export const useChatStore = defineStore('chat', {
     },
 
     /* ---------------- 持久化 ---------------- */
+
+    /**
+     * 前端界面桥（TavernHelper replaceVariables）：整体替换会话变量。
+     * 保留 store 响应性：先清空再并入，走既有防抖落盘。
+     */
+    replaceChatVariables(value: Record<string, unknown>): void {
+      const vars = this.chatVariables
+      for (const k of Object.keys(vars)) delete vars[k]
+      Object.assign(vars, value)
+      this.scheduleChatVarFlush()
+    },
+
+    /** 前端界面桥（TavernHelper insertVariables）：浅合并进会话变量 */
+    insertChatVariables(value: Record<string, unknown>): void {
+      Object.assign(this.chatVariables, value)
+      this.scheduleChatVarFlush()
+    },
 
     /**
      * 宏变量存储。
