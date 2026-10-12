@@ -9,6 +9,10 @@ interface Entry {
   path: string
   label: string
   icon: string
+  /** 面性图标（fill 填充，如 iconfont 素材）：fill=currentColor、关闭 stroke */
+  fill?: boolean
+  /** 自定义视口（面性素材常见 1024）；缺省 24 */
+  viewBox?: string
 }
 
 // 左栏入口 · 全局固定（会话/角色卡/插件/设置）
@@ -33,7 +37,10 @@ const entries: Entry[] = [
   {
     path: '/plugins',
     label: '插件',
-    icon: 'M10 21V8a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1H3',
+    // 面性拼图插件图标（老板指定的 plugin.svg，iconfont 素材）
+    fill: true,
+    viewBox: '0 0 1024 1024',
+    icon: 'M640 932H256c-90.44 0-164-73.56-164-164v-96a36 36 0 0 1 36-36h32c33.08 0 60-26.92 60-60s-26.92-60-60-60h-32a36 36 0 0 1-36-36V384c0-90.44 73.56-164 164-164h60.04c2.12-70.96 60.48-128 131.96-128s129.8 57.04 131.96 128H640c90.44 0 164 73.56 164 164v60.08c70.96 2.12 128 60.48 128 131.92s-57.04 129.84-128 131.92V768c0 90.44-73.56 164-164 164zM164 707.92V768c0 50.72 41.28 92 92 92h384c50.72 0 92-41.28 92-92v-96a36 36 0 0 1 36-36h32c33.08 0 60-26.92 60-60s-26.92-60-60-60h-32a36 36 0 0 1-36-36V384c0-50.72-41.28-92-92-92h-96a36 36 0 0 1-36-36v-32c0-33.08-26.92-60-60-60s-60 26.92-60 60v32a36 36 0 0 1-36 36H256c-50.72 0-92 41.28-92 92v60.08c70.96 2.12 128 60.48 128 131.92s-57.04 129.84-128 131.92z',
   },
   {
     path: '/settings',
@@ -116,7 +123,14 @@ onMounted(() => {
       :title="e.label"
       @click="go()"
     >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <svg
+        :viewBox="e.viewBox ?? '0 0 24 24'"
+        :fill="e.fill ? 'currentColor' : 'none'"
+        :stroke="e.fill ? 'none' : 'currentColor'"
+        stroke-width="1.8"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
         <path :d="e.icon" />
       </svg>
       <span class="text-10px leading-tight lg:hidden">{{ e.label }}</span>
