@@ -150,12 +150,6 @@ function onBranchMsg(i: number): void {
 function onBookmarkMsg(i: number): void {
   void chat.bookmarkMessage(i)
 }
-function onSwipeMsg(i: number, dir: -1 | 1): void {
-  void chat.switchSwipe(i, dir)
-}
-function onSwipeTo(i: number, target: number): void {
-  void chat.switchSwipeTo(i, target)
-}
 function onRegenerate(): void {
   if (chat.group) void chat.regenerateGroup()
   else void chat.regenerate()
@@ -390,8 +384,6 @@ watch(
             @regenerate="onRegenerate"
             @branch="onBranchMsg"
             @bookmark="onBookmarkMsg"
-            @swipe="onSwipeMsg"
-            @swipe-to="onSwipeTo"
             @hide="(i: number) => chat.toggleHideMessage(i)"
             @translate="chat.translateMessage(r.i)"
             @speak="chat.speakMessage(r.i)"

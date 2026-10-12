@@ -15,7 +15,7 @@ import type { DisplayMessage } from '@/services/st/chatdoc'
  * 单条消息气泡：markstream-vue 流式 Markdown 渲染（AI 消息，shiki 代码高亮，
  * htmlPolicy=trusted 放行卡内 HTML/<style>，仅拦 script 与事件属性）
  * + 显示通路正则脚本 + 推理折叠块 + <thinking> 思维链折叠（自定义标签映射）
- * + 操作工具条（编辑/重发/分支/书签/删除/翻译/朗读）+ Swipe 切换/picker（末条 AI）。
+ * + 操作工具条（编辑/重发/分支/书签/删除/翻译/朗读）。
  */
 
 /** 自定义 HTML 类标签：解析器收拢完整 <thinking>…</thinking> 为节点，映射到折叠组件 */
@@ -55,8 +55,6 @@ const emit = defineEmits<{
   continue: [index: number]
   branch: [index: number]
   bookmark: [index: number]
-  swipe: [index: number, dir: -1 | 1]
-  swipeTo: [index: number, target: number]
   translate: [index: number]
   speak: [index: number]
   hide: [index: number]
@@ -122,20 +120,6 @@ function onTranslateClick(): void {
   showTrans.value = !showTrans.value
 }
 
-/** 末条 AI 回复恒显 swipe 条：无 swipes 字段时按 1 条虚拟备选（右滑即生成）；
- *  首条消息（开场白）带多条备选时也显示（风月/ST 的开场白切换，无 overswipe 生成语义） */
-const swipeCount = computed(() => props.m.swipes?.length || 1)
-const swipeAt = computed(() => props.m.swipeId ?? 0)
-const isGreeting = computed(() => props.index === 0 && (props.m.swipes?.length ?? 0) > 1)
-const showSwipes = computed(
-  () =>
-    !props.groupChat &&
-    props.m.role === 'assistant' &&
-    !props.m.pending &&
-    !props.m.error &&
-    (props.isLast || isGreeting.value),
-)
-
 /* ---- 显示通路正则（正则脚本由 chat store 预加载到模块缓存） ---- */
 const displayContent = computed(() => {
   const raw = applyDisplayRegex(
@@ -165,24 +149,6 @@ const darkTheme = computed(() =>
 )
 const mdThemes = computed<[string, string]>(() => [darkTheme.value, 'github-light'])
 const isDark = computed(() => theme.mode === 'dark' || theme.mode === 'dusk')
-
-/* ---- Swipe picker：点 n/N 弹出备选预览列表 ---- */
-const pickerOpen = ref(false)
-
-function swipePreview(s: string): string {
-  const t = s.replace(/\s+/g, ' ').trim()
-  return t.length > 64 ? `${t.slice(0, 64)}…` : t || '（空）'
-}
-
-function pickSwipe(i: number): void {
-  pickerOpen.value = false
-  if (i !== swipeAt.value) emit('swipeTo', props.index, i)
-}
-
-const nextTitle = computed(() => {
-  if (isGreeting.value) return '下一备选开场白'
-  return swipeAt.value >= swipeCount.value - 1 ? '生成新备选（overswipe）' : '下一备选'
-})
 </script>
 
 <template>
@@ -283,53 +249,6 @@ const nextTitle = computed(() => {
 
       <!-- 群聊：发言者名 -->
       <div v-if="groupChat && speaker && !editing" class="speaker">{{ speaker }}</div>
-
-      <!-- Swipe 切换 + picker（末条 AI 恒显；开场白有备选时首条消息显示，群聊不适用） -->
-      <div v-if="showSwipes && !editing" class="swipe-bar">
-        <button
-          class="sw"
-          type="button"
-          :disabled="streaming || swipeAt <= 0"
-          title="上一备选"
-          @click="emit('swipe', index, -1)"
-        >
-          ‹
-        </button>
-        <div class="sw-mid">
-          <button
-            class="sw sw-num"
-            type="button"
-            :disabled="streaming"
-            :title="`备选列表（共 ${swipeCount} 条）`"
-            @click="pickerOpen = !pickerOpen"
-          >
-            {{ swipeAt + 1 }}/{{ swipeCount }}
-          </button>
-          <!-- 备选预览列表 -->
-          <div v-if="pickerOpen" class="sw-picker">
-            <button
-              v-for="(s, i) in m.swipes ?? [m.content]"
-              :key="i"
-              class="sw-item"
-              :class="{ on: i === swipeAt }"
-              type="button"
-              @click="pickSwipe(i)"
-            >
-              <span class="sw-i">{{ i + 1 }}</span>
-              <span class="sw-pv">{{ swipePreview(s) }}</span>
-            </button>
-          </div>
-        </div>
-        <button
-          class="sw"
-          type="button"
-          :disabled="streaming || (isGreeting && swipeAt >= swipeCount - 1)"
-          :title="nextTitle"
-          @click="emit('swipe', index, 1)"
-        >
-          ›
-        </button>
-      </div>
 
       <!-- 操作工具条：气泡下方，悬停显示（参考 ST 消息操作布局） -->
       <div
@@ -645,95 +564,6 @@ const nextTitle = computed(() => {
   background: var(--p-500);
   border-color: var(--p-500);
   color: #fff;
-}
-
-/* Swipe */
-.swipe-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 4px;
-}
-.sw {
-  width: 22px;
-  height: 20px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--c-border);
-  color: var(--c-text-2);
-  font-size: 13px;
-  line-height: 1;
-}
-.sw:hover:not(:disabled) {
-  border-color: var(--p-400);
-  color: var(--c-text);
-}
-.sw:disabled {
-  opacity: 0.35;
-}
-.sw-num {
-  width: auto;
-  min-width: 34px;
-  padding: 0 6px;
-  font-size: 10px;
-  color: var(--c-text-3);
-}
-.sw-mid {
-  position: relative;
-}
-/* 备选预览列表（swipe picker） */
-.sw-picker {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 20;
-  min-width: 220px;
-  max-width: 320px;
-  max-height: 220px;
-  overflow-y: auto;
-  padding: 4px;
-  border: 1px solid var(--c-border);
-  border-radius: var(--radius-md);
-  background: var(--c-bg);
-  box-shadow: 0 6px 24px rgb(0 0 0 / 18%);
-}
-.sw-item {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  width: 100%;
-  padding: 6px 8px;
-  text-align: left;
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-}
-.sw-item:hover {
-  background: var(--c-panel);
-}
-.sw-item.on {
-  background: var(--p-50);
-}
-.sw-item.on .sw-i {
-  color: var(--p-600);
-}
-.sw-i {
-  flex: none;
-  min-width: 16px;
-  font-size: 10px;
-  color: var(--c-text-3);
-}
-.sw-pv {
-  flex: 1;
-  min-width: 0;
-  color: var(--c-text-2);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.sw-item.on .sw-pv {
-  color: var(--c-text);
 }
 
 /* 操作工具条 */

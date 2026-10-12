@@ -17,6 +17,7 @@ import { useChatStore, type NewChatOptions } from '@/stores/chat'
 import { usePersonaStore } from '@/stores/persona'
 import { useSettingsStore } from '@/stores/settings'
 import Avatar from '@/components/Avatar.vue'
+import DetailedIntroModal from '@/components/DetailedIntroModal.vue'
 
 const props = defineProps<{
   open: boolean
@@ -32,6 +33,14 @@ const gen = useSettingsStore()
 /** 深层角色卡（含 data.alternate_greetings 与绑定世界书） */
 const deep = ref<StCharacter | null>(null)
 const loadingDeep = ref(false)
+
+/** 风月作品介绍（data.extensions.detailed_intro，HTML+JS）→ 沙箱预览入口 */
+const introOpen = ref(false)
+const introHtml = computed(() => {
+  const c = deep.value ?? props.character
+  const ext = c?.data?.extensions as { detailed_intro?: unknown } | undefined
+  return typeof ext?.detailed_intro === 'string' ? ext.detailed_intro : ''
+})
 
 const name = ref('')
 const greetingIdx = ref(0)
@@ -103,11 +112,6 @@ function start() {
   }
   const g = greetings.value[greetingIdx.value]
   if (g && g.text.trim()) opts.greetingText = g.text
-  // 备选全集写入首条消息 swipes（ST 语义：会话内可 swipe 切换开场白）
-  if (greetings.value.length > 1) {
-    opts.greetingSwipes = greetings.value.map((x) => x.text)
-    opts.greetingIdx = greetingIdx.value
-  }
   if (personaId.value) opts.personaId = personaId.value
   if (useGen.value) {
     opts.genOverride = {
@@ -139,6 +143,14 @@ function start() {
               <label class="lb">会话名称</label>
               <input v-model="name" class="inp" placeholder="角色名 - 时间戳" spellcheck="false" />
               <p v-if="dup" class="err">已存在同名会话，请换一个名字</p>
+            </section>
+
+            <!-- 1.5 作品介绍（风月卡带 detailed_intro 时显示；ST 卡自然隐藏） -->
+            <section v-if="introHtml">
+              <label class="lb">作品介绍</label>
+              <button class="intro-btn" type="button" @click="introOpen = true">
+                📖 查看作品介绍（HTML 预览）
+              </button>
             </section>
 
             <!-- 2. 开场白 -->
@@ -216,6 +228,14 @@ function start() {
         </div>
       </div>
     </Transition>
+
+    <!-- 作品介绍沙箱预览（Teleport 直挂，Transition 外——Transition 仅允许单子节点） -->
+    <DetailedIntroModal
+      v-if="introOpen"
+      :html="introHtml"
+      :title="`${props.character?.name ?? ''} · 作品介绍`"
+      @close="introOpen = false"
+    />
   </Teleport>
 </template>
 
@@ -281,6 +301,20 @@ header {
   font-size: 12px;
   font-weight: 600;
   color: var(--c-text-2);
+}
+.intro-btn {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 12px;
+  text-align: left;
+  border: 1px dashed var(--p-400, var(--c-border));
+  border-radius: var(--radius-md);
+  color: var(--p-500, var(--c-text-2));
+  background: var(--c-panel);
+}
+.intro-btn:hover {
+  border-style: solid;
+  color: var(--p-600, var(--c-text));
 }
 .hint {
   font-size: 10px;

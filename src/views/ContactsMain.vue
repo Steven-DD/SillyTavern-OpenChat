@@ -5,6 +5,7 @@ import { useCharacterStore, type CharacterEditPatch } from '@/stores/character'
 import { useChatStore } from '@/stores/chat'
 import { useWorldsStore } from '@/stores/worlds'
 import Avatar from '@/components/Avatar.vue'
+import DetailedIntroModal from '@/components/DetailedIntroModal.vue'
 
 const router = useRouter()
 const chars = useCharacterStore()
@@ -368,21 +369,12 @@ const meta = computed(() => {
       </div>
 
       <!-- 详细介绍：iframe 沙箱渲染（风月语义：可跑 JS/完整 CSS，无同源与顶层导航权限） -->
-      <Teleport to="body">
-        <div v-if="introOpen" class="intro-mask" @click.self="introOpen = false">
-          <div class="intro-dlg" role="dialog" aria-modal="true">
-            <header class="intro-head">
-              <span class="intro-tt">{{ char.name }} · 详细介绍</span>
-              <button class="intro-x" title="关闭" @click="introOpen = false">×</button>
-            </header>
-            <iframe
-              class="intro-frame"
-              sandbox="allow-scripts"
-              :srcdoc="intro"
-            />
-          </div>
-        </div>
-      </Teleport>
+      <DetailedIntroModal
+        v-if="introOpen"
+        :html="intro"
+        :title="`${char.name} · 详细介绍`"
+        @close="introOpen = false"
+      />
     </template>
   </main>
 </template>
@@ -556,56 +548,5 @@ const meta = computed(() => {
 .v {
   color: var(--c-text);
   word-break: break-all;
-}
-/* 详细介绍沙箱遮罩 */
-.intro-mask {
-  position: fixed;
-  inset: 0;
-  z-index: 90;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background: rgb(0 0 0 / 55%);
-}
-.intro-dlg {
-  display: flex;
-  flex-direction: column;
-  width: min(860px, 100%);
-  height: min(86vh, 900px);
-  border-radius: var(--radius-lg);
-  background: var(--c-bg);
-  border: 1px solid var(--c-border);
-  overflow: hidden;
-}
-.intro-head {
-  flex: none;
-  display: flex;
-  align-items: center;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--c-border);
-}
-.intro-tt {
-  font-size: 13px;
-  font-weight: 600;
-}
-.intro-x {
-  margin-left: auto;
-  width: 24px;
-  height: 24px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--radius-sm);
-  color: var(--c-text-3);
-  font-size: 15px;
-}
-.intro-x:hover {
-  background: var(--c-panel);
-  color: var(--c-text);
-}
-.intro-frame {
-  flex: 1;
-  width: 100%;
-  border: 0;
-  background: #fff;
 }
 </style>

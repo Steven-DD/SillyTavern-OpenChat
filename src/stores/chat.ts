@@ -146,10 +146,6 @@ export interface NewChatOptions {
   fileId: string
   /** 开场白文本（空 = 用角色卡首条消息） */
   greetingText?: string
-  /** 开场白备选全集（[首条消息, ...备选]，写入首条消息 swipes 供会话内切换） */
-  greetingSwipes?: string[]
-  /** 选中的开场白序号（对应 greetingSwipes 下标） */
-  greetingIdx?: number
   /** 锁定人设 id（空 = 跟随默认人设） */
   personaId?: string
   /** 会话级生成参数覆盖（不传 = 跟随全局设置） */
@@ -793,15 +789,10 @@ export const useChatStore = defineStore('chat', {
       }
       const seed = createChatSeed(character, this.userName, character.name, character.avatar)
       // 开场白：配置选中的文本非空且种子有消息 → 替换首条角色消息
+      //（两类卡统一：开场白在建会话时一次性选择，不写 swipes 数据）
       const greeting = opts.greetingText?.trim()
       if (greeting && seed.length > 1) {
         seed[1] = { ...seed[1], mes: greeting }
-      }
-      // ST 语义：开场白备选写入首条消息 swipes（[first_mes, ...alternate_greetings]），
-      // 会话内首条消息可 swipe 切换开场白
-      if (opts.greetingSwipes && opts.greetingSwipes.length > 1 && seed.length > 1) {
-        const idx = Math.min(Math.max(0, opts.greetingIdx ?? 0), opts.greetingSwipes.length - 1)
-        seed[1] = { ...seed[1], mes: opts.greetingSwipes[idx]!, swipes: [...opts.greetingSwipes], swipe_id: idx }
       }
       // 会话元数据：人设锁定 + 生成参数覆盖（chat_metadata 自由结构）
       const override = opts.genOverride
@@ -2329,7 +2320,8 @@ export const useChatStore = defineStore('chat', {
       }
     },
 
-    /** 重新生成：末条为成功 AI 回复时追加为 swipe 备选（保留旧回复），否则截断重跑 */
+    /** 重新生成（替换语义，对齐 ST Regenerate 默认行为）：
+     *  截断末条 AI 回复后重新生成，旧版不再保留为备选（历史版本请用分支 ⑂ 存档）。 */
     async regenerate() {
       if (this.streaming) return
       // 群聊会话走群聊重生成通路（删除本轮 AI 发言后按激活策略重跑）
@@ -2337,106 +2329,11 @@ export const useChatStore = defineStore('chat', {
         await this.regenerateGroup()
         return
       }
-      const last = this.messages[this.messages.length - 1]
-      if (last && last.role === 'assistant' && !last.error && last.content.trim()) {
-        await this.regenerateAsSwipe(last)
-        return
-      }
       while (this.messages.length && this.messages[this.messages.length - 1].role === 'assistant') {
         this.messages.pop()
       }
       if (!this.messages.length) return
       await this.generateReply()
-      await this.saveCurrent()
-    },
-
-    /** swipe 追加式重生成：旧回复保留为备选，新回复成为当前显示 */
-    async regenerateAsSwipe(last: DisplayMessage) {
-      // 群聊无单聊 swipe 语义（生成路径依赖 currentCharacter，单聊专用）——
-      // UI 已隐藏入口，这里兜底防脚本/误触把用户消息误当生成结果
-      if (this.group) {
-        this.lastError = '群聊会话请使用「重新生成本轮」'
-        return
-      }
-      last.swipes ??= [last.content]
-      if (!last.swipes.includes(last.content)) last.swipes.push(last.content)
-      this.messages.pop() // 从历史视图移除，重新生成不含它
-      await this.generateReply()
-      const fresh = this.messages[this.messages.length - 1]
-      // fresh === last：生成什么都没产出（如停止生成时占位气泡已被移除），走恢复路径
-      if (fresh === last || !fresh || fresh.error || fresh.pending || !fresh.content.trim()) {
-        // 生成失败：恢复旧回复显示
-        if (fresh && fresh !== last) this.messages.splice(this.messages.length - 1, 1, last)
-        else if (!this.messages.includes(last)) this.messages.push(last)
-        if (fresh?.error) this.lastError = fresh.content
-        return
-      }
-      last.swipes.push(fresh.content)
-      last.swipeId = last.swipes.length - 1
-      last.content = fresh.content
-      last.sendDate = fresh.sendDate
-      if (fresh.reasoning) last.reasoning = fresh.reasoning
-      this.messages.splice(this.messages.length - 1, 1, last)
-
-      const opLine = last.lineIndex
-      if (opLine !== undefined && this.currentAvatar && this.currentFile) {
-        try {
-          await chatMutateLines(this.currentAvatar, this.currentFile, [
-            { op: 'replace', index: opLine, json: this.currentMessageJson(last) },
-          ])
-          this.dirty = false
-          return
-        } catch (e) {
-          this.error = e instanceof Error ? e.message : String(e)
-        }
-      }
-      await this.saveCurrent()
-    },
-
-    /** 切换末条 AI 消息的 swipe 备选（左右方向）。
-     *  末条回复即使从未生成过备选（无 swipes 字段）也按 [当前内容] 处理 ——
-     * swipe 条恒显 1/1，末尾右滑 = overswipe 生成新备选。 */
-    async switchSwipe(index: number, dir: -1 | 1) {
-      if (this.streaming) return
-      if (this.group) return // 群聊无 swipe 语义（UI 已隐藏，store 层兜底）
-      const m = this.messages[index]
-      if (!m || m.role !== 'assistant' || m.pending || m.error) return
-      const swipes = m.swipes?.length ? m.swipes : [m.content]
-      const next = (m.swipeId ?? 0) + dir
-      if (next < 0) return
-      if (next >= swipes.length) {
-        // 开场白（首条消息）：只有既定备选，无 overswipe 生成语义
-        if (index === 0) return
-        // overswipe：已是最后一条备选仍右滑 → 追加生成新备选（ST 的 OVERSWIPE 行为）
-        if (dir === 1 && m.role === 'assistant' && !m.pending && !m.error) {
-          await this.regenerateAsSwipe(m)
-        }
-        return
-      }
-      await this.switchSwipeTo(index, next)
-    },
-
-    /** 切换到指定序号的备选（swipe picker 用） */
-    async switchSwipeTo(index: number, target: number) {
-      if (this.streaming) return
-      if (this.group) return // 群聊无 swipe 语义（UI 已隐藏，store 层兜底）
-      const m = this.messages[index]
-      if (!m?.swipes?.length) return
-      const next = Math.max(0, Math.min(target, m.swipes.length - 1))
-      if (next === (m.swipeId ?? 0)) return
-      m.swipeId = next
-      m.content = m.swipes[next] ?? ''
-      const opLine = m.lineIndex
-      if (opLine !== undefined && this.currentAvatar && this.currentFile) {
-        try {
-          await chatMutateLines(this.currentAvatar, this.currentFile, [
-            { op: 'replace', index: opLine, json: this.currentMessageJson(m) },
-          ])
-          return
-        } catch (e) {
-          this.error = e instanceof Error ? e.message : String(e)
-        }
-      }
       await this.saveCurrent()
     },
 
