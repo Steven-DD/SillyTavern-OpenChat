@@ -822,6 +822,9 @@ watch(
   align-items: center;
   gap: 10px;
   padding: 0 10px 8px;
+  /* 按钮簇恒定靠右：tok 估算/错误提示（可显隐）出现时靠左占位，
+     避免代写等按钮随条件元素的出现消失左右漂移 */
+  justify-content: flex-end;
 }
 .err-tip {
   flex: 1;
@@ -833,7 +836,6 @@ watch(
   white-space: nowrap;
 }
 .btn-send {
-  margin-left: auto;
   background: var(--p-500);
   color: var(--c-on-primary);
   border-radius: var(--radius-md);
