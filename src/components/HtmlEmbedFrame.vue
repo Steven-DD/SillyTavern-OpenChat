@@ -20,10 +20,43 @@ const props = defineProps<{
 
 const frame = ref<HTMLIFrameElement | null>(null)
 const height = ref(160)
+/** 卡内脚本错误（上报展示，最多留 3 条） */
+const errors = ref<string[]>([])
 
 /** 桥接引导脚本：挂 TavernHelper shim + 高度上报（运行在 iframe 内） */
 const BOOTSTRAP = `
 (function () {
+  function reportErr(kind, msg, where) {
+    try { parent.postMessage({ source: 'tavern-embed', type: 'th-error', msg: String(msg), where: String(where ?? '') }, '*') } catch (e) { /* ignore */ }
+  }
+  // 沙箱无 allow-same-origin → localStorage/sessionStorage 访问必抛 SecurityError，
+  // 大量卡脚本（日志/配置存取）会因此中断。垫内存版兜底（不跨帧持久，同酒馆助手语义）。
+  function makeStorage() {
+    var store = {}
+    return {
+      getItem: function (k) { return Object.prototype.hasOwnProperty.call(store, String(k)) ? store[String(k)] : null },
+      setItem: function (k, v) { store[String(k)] = String(v) },
+      removeItem: function (k) { delete store[String(k)] },
+      clear: function () { store = {} },
+      key: function (i) { return Object.keys(store)[i] ?? null },
+      get length() { return Object.keys(store).length },
+    }
+  }
+  try {
+    window.localStorage.getItem('__probe__')
+  } catch (e) {
+    try {
+      Object.defineProperty(window, 'localStorage', { value: makeStorage(), configurable: true })
+      Object.defineProperty(window, 'sessionStorage', { value: makeStorage(), configurable: true })
+    } catch (e2) { /* 极老内核忽略 */ }
+  }
+  window.addEventListener('error', function (e) {
+    reportErr('error', e.message, (e.filename || '') + ':' + (e.lineno ?? ''))
+  })
+  window.addEventListener('unhandledrejection', function (e) {
+    var r = e.reason
+    reportErr('promise', r && r.message ? r.message : String(r), '')
+  })
   var seq = 0
   var pending = {}
   function call(api, args) {
@@ -75,6 +108,13 @@ function onMessage(ev: MessageEvent): void {
     if (typeof h === 'number' && h > 0) height.value = Math.min(Math.max(h, 60), 4000)
     return
   }
+  if (d.type === 'th-error') {
+    const { msg, where } = ev.data as { msg?: string; where?: string }
+    const line = `[前端界面] ${msg ?? '未知错误'}${where ? `（${where}）` : ''}`
+    console.warn(line)
+    errors.value = [...errors.value.slice(-2), line]
+    return
+  }
   if (d.type === 'th-call') {
     const { id, api, args } = ev.data as { id: number; api: string; args: unknown }
     handleEmbedCall(api, args)
@@ -95,21 +135,40 @@ onBeforeUnmount(() => window.removeEventListener('message', onMessage))
 </script>
 
 <template>
-  <iframe
-    ref="frame"
-    class="embed-frame"
-    sandbox="allow-scripts allow-popups allow-forms"
-    :srcdoc="srcdoc"
-    :style="{ height: height + 'px' }"
-  />
+  <div class="embed-wrap">
+    <div v-if="errors.length" class="embed-errs">
+      <span v-for="e in errors" :key="e" class="embed-err">{{ e }}</span>
+    </div>
+    <iframe
+      ref="frame"
+      class="embed-frame"
+      sandbox="allow-scripts allow-popups allow-forms"
+      :srcdoc="srcdoc"
+      :style="{ height: height + 'px' }"
+    />
+  </div>
 </template>
 
 <style scoped>
+.embed-wrap {
+  min-width: 0;
+}
 .embed-frame {
   display: block;
   width: 100%;
   border: 0;
   border-radius: var(--radius-md);
   background: transparent;
+}
+.embed-errs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 4px;
+}
+.embed-err {
+  font-size: 11px;
+  color: var(--s-error, #c0392b);
+  word-break: break-all;
 }
 </style>
