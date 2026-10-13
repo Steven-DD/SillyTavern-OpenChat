@@ -143,6 +143,8 @@ export interface GenerateOptions {
    * 缺省读 localStorage `app.gen.stream`（'0' = 非流式）。
    */
   stream?: boolean
+  /** 结束原因回调（finish_reason：length = max_tokens 耗尽被截断；stop = 正常结束） */
+  onFinish?: (reason: string) => void
 }
 
 /**
@@ -592,7 +594,7 @@ export async function generate(
             },
             onReasoning,
             opts.onUsage,
-            { signal: opts.signal },
+            { signal: opts.signal, onFinish: opts.onFinish },
           )
         } else {
           // 非流式（风月"整块输出"）：一次性 JSON，onDelta 单次全量回调
@@ -605,7 +607,7 @@ export async function generate(
             },
             onReasoning,
             opts.onUsage,
-            { signal: opts.signal },
+            { signal: opts.signal, onFinish: opts.onFinish },
           )
         }
         return model

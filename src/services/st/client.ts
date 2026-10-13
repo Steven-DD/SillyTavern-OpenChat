@@ -169,7 +169,7 @@ export async function stGenerateBlocking(
   onDelta: (text: string) => void,
   onReasoning?: (text: string) => void,
   onUsage?: (usage: { prompt: number; completion: number }) => void,
-  opts?: { signal?: AbortSignal },
+  opts?: { signal?: AbortSignal; onFinish?: (reason: string) => void },
 ): Promise<void> {
   const res = await stPost(path, body, { signal: opts?.signal })
   if (!res.ok) {
@@ -184,8 +184,8 @@ export async function stGenerateBlocking(
     throw new Error(`生成请求失败（${detail}）`)
   }
   const data = (await res.json()) as {
-    choices?: { message?: { content?: string; reasoning_content?: string } }[]
-    candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] } }[]
+    choices?: { message?: { content?: string; reasoning_content?: string }; finish_reason?: string }[]
+    candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] }; finishReason?: string }[]
     usage?: { prompt_tokens?: number; completion_tokens?: number }
     usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number }
     error?: { message?: string; status?: string }
@@ -202,6 +202,9 @@ export async function stGenerateBlocking(
   if (thought && onReasoning) onReasoning(thought)
   const reasoning = data.choices?.[0]?.message?.reasoning_content ?? ''
   if (reasoning && onReasoning) onReasoning(reasoning)
+  // 结束原因（length = max_tokens 耗尽被截断）
+  const fr = data.choices?.[0]?.finish_reason ?? data.candidates?.[0]?.finishReason
+  if (fr) opts?.onFinish?.(fr)
   const text =
     data.choices?.[0]?.message?.content ??
     parts.filter((p) => !p.thought).map((p) => p.text ?? '').join('')
@@ -232,7 +235,7 @@ export async function stStream(
   onDelta: (text: string) => void,
   onReasoning?: (text: string) => void,
   onUsage?: (usage: { prompt: number; completion: number }) => void,
-  opts?: { signal?: AbortSignal },
+  opts?: { signal?: AbortSignal; onFinish?: (reason: string) => void },
 ): Promise<void> {
   const res = await stPost(path, body, { signal: opts?.signal })
   if (!res.ok) {
@@ -251,6 +254,7 @@ export async function stStream(
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buf = ''
+  let finishReason = ''
 
   try {
     for (;;) {
@@ -273,6 +277,7 @@ export async function stStream(
               // OpenAI 兼容格式（reasoning_content：DeepSeek 等，reasoning：OpenRouter）
               choices?: {
                 delta?: { content?: string; reasoning_content?: string; reasoning?: string }
+                finish_reason?: string
                 text?: string
               }[]
               // Google 原生格式（thought === true 的 part 是思考内容）
@@ -327,6 +332,10 @@ export async function stStream(
               }
             }
 
+            // 结束原因（length = max_tokens 耗尽被截断）：任一帧携带即记录，最后一次为准
+            const fr = chunk.choices?.[0]?.finish_reason
+            if (fr) finishReason = fr
+
             if (delta) onDelta(delta)
           } catch (e) {
             if (e instanceof SyntaxError) continue // 非 JSON 心跳行，忽略
@@ -335,6 +344,7 @@ export async function stStream(
         }
       }
     }
+    if (finishReason) opts?.onFinish?.(finishReason)
   } finally {
     // 异常路径（chunk.error / 上游中断）也释放底层连接，此前会悬挂到 GC
     reader.cancel().catch(() => {})

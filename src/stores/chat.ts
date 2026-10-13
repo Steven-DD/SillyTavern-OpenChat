@@ -1201,6 +1201,8 @@ export const useChatStore = defineStore('chat', {
 
         // 接口实测用量（SSE 尾帧，部分通道不回传 → 回落本地估算）
         let measured: { prompt: number; completion: number } | null = null
+        // 结束原因（finish_reason）：length = max_tokens 耗尽，回复被截断
+        let finishReason = ''
         const used =
           s.genType === 'text'
             ? // Text Completion：Instruct 启用时按 Instruct 模板拼接，否则默认级别
@@ -1260,6 +1262,9 @@ export const useChatStore = defineStore('chat', {
               measured = u
             },
             signal: ctl.signal,
+            onFinish: (reason: string) => {
+              finishReason = reason
+            },
           },
           (delta) => {
             live.content += delta
@@ -1313,6 +1318,13 @@ export const useChatStore = defineStore('chat', {
               : ''
           live.content = `（模型返回空内容）${hint}`
           this.lastError = `模型返回空内容${hint}`
+        } else if (finishReason === 'length') {
+          // max_tokens 耗尽：回复有内容但被硬截断（半句话/标签未闭合）。
+          // 尾部追加轻量标记（落盘可见，切页后依然能看出被截断）
+          const note =
+            '\n\n（回复因达到最大 Token 上限被截断——写卡助手/长输出卡建议把「最大回复 Token」调到 4096 以上）'
+          live.content += note
+          this.lastError = '回复因达到最大 Token 上限被截断'
         }
 
         // 生成后置：向量索引 + 自动摘要（静默执行，失败不打断聊天）
