@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useSettingsStore } from '@/stores/settings'
 import { useChatStore } from '@/stores/chat'
+import { log } from '@/services/log'
 import { usePersonaStore } from '@/stores/persona'
 import { useThemeStore, type ThemeMode } from '@/stores/theme'
 import { useAppearanceStore, type FontScale, type Lang } from '@/stores/appearance'
@@ -144,6 +145,7 @@ async function finalizeMaidUi(): Promise<void> {
       : []
     await deleteMaidFiles(maid.value.token, allHashes)
     await finalizeMaid(maid.value.token)
+    log.op('maid.finalize', '巡检全量清理完成', { count: allHashes.length })
     maid.value.msg = `已清理 ${allHashes.length} 个文件`
     maid.value.report = null
     maid.value.token = ''

@@ -145,6 +145,10 @@ export interface GenerateOptions {
   stream?: boolean
   /** 结束原因回调（finish_reason：length = max_tokens 耗尽被截断；stop = 正常结束） */
   onFinish?: (reason: string) => void
+  /** 思考力度（reasoning_effort：CUSTOM/OPENAI 源 ST 原生透传；空 = 不传） */
+  reasoningEffort?: string
+  /** 额外请求体参数（YAML 文本，经 custom_include_body 合并——chat_template_kwargs 等私有参数） */
+  extraBodyYaml?: string
 }
 
 /**
@@ -469,7 +473,11 @@ function buildBody(
     body.custom_url =
       conn.customUrl ?? 'https://generativelanguage.googleapis.com/v1beta/openai/'
     body.custom_include_headers = true
-    body.custom_include_body = true
+    // custom_include_body：YAML 字符串，ST 侧 mergeObjectWithYaml 合并进请求体
+    // （思考模式私有参数通道：chat_template_kwargs.enable_thinking / reasoning_budget 等）
+    if (opts.extraBodyYaml?.trim()) body.custom_include_body = opts.extraBodyYaml.trim()
+    // 思考力度：CUSTOM/OPENAI 源 ST 原生透传（chat-completions.js reasoning_effort 分支）
+    if (opts.reasoningEffort) body.reasoning_effort = opts.reasoningEffort
     // ⚠ 不传 custom_api_key：ST 的 generate/status 对 custom 源**只从服务端 secret 读密钥**
     //   （chat-completions.js: readSecret(dirs, SECRET_KEYS.CUSTOM)），前端传了也是无效参数。
   }

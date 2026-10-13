@@ -1,10 +1,12 @@
 import { createApp } from 'vue'
+
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
 import { useThemeStore } from '@/stores/theme'
 import { useAppearanceStore } from '@/stores/appearance'
 import { initDesktopBridge } from '@/services/tauri/bridge'
+import { installGlobalErrorHook, log } from '@/services/log'
 // 原子类（UnoCSS presetUno**不含** reset —— 不要引 @unocss/reset/tailwind.css：
 // 它会给 html 设 line-height:1.5，把我们的紧凑排版整体撑高）
 import 'virtual:uno.css'
@@ -14,6 +16,9 @@ import './styles/base.css'
 const app = createApp(App)
 app.use(createPinia())
 app.use(router)
+
+// 全局错误捕获（Vue errorHandler + window error/unhandledrejection → 日志）
+installGlobalErrorHook(app)
 
 // 主题在挂载前应用，避免闪烁
 useThemeStore().apply()
@@ -25,3 +30,4 @@ useAppearanceStore().init()
 await initDesktopBridge()
 
 app.mount('#app')
+log.op('app.start', '应用启动', { href: location.hash || '/' })

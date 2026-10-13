@@ -1126,6 +1126,13 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(
+            // 日志：console + 滚动文件（appLogDir），Webview/Stdout/文件三路输出
+            tauri_plugin_log::Builder::new()
+                .max_file_size(2_000_000)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
+                .build(),
+        )
         .invoke_handler(tauri::generate_handler![
             st_relay_base,
             st_status,

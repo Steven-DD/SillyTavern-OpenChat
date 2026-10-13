@@ -37,6 +37,8 @@ getrandom = "0.2"
 # 应用内自动更新 + 重启（发布线）
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+# 日志（操作审计 + 调试：console + 滚动文件，前端 @tauri-apps/plugin-log 配套）
+tauri-plugin-log = "2"
 
 [profile.release]
 strip = true

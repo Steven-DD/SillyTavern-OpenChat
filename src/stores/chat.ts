@@ -6,6 +6,7 @@
  */
 import { defineStore, acceptHMRUpdate } from 'pinia'
 import { generate, probeSt } from '@/services/st/api'
+import { log } from '@/services/log'
 import {
   deleteChat,
   getCharacter,
@@ -702,6 +703,7 @@ export const useChatStore = defineStore('chat', {
 
     async openSession(avatar: string, fileId: string) {
       if (this.streaming) return
+      log.op('chat.open', '打开会话', { avatar, fileId })
       // 切会话前把 400ms 防抖窗口内的变量变更落盘（否则旧会话丢改动）
       await this.flushChatVariables()
       this.loadingChat = true
@@ -1135,6 +1137,13 @@ export const useChatStore = defineStore('chat', {
           jailbreak: pm.jailbreak,
         },
       })
+
+      // 思考前置指令（Qwen3 /no_think、强制 <think> 等软开关）：追加到系统提示末尾
+      if (s.thinkingPrefix.trim()) {
+        const sys = built.messages.find((m) => m.role === 'system')
+        if (sys) sys.content = `${sys.content}\n${s.thinkingPrefix.trim()}`
+      }
+
       return { built, wiActivated }
     },
 
@@ -1249,6 +1258,9 @@ export const useChatStore = defineStore('chat', {
             // 会话级覆盖优先（chat_metadata.app_gen），无覆盖跟随全局设置
             temperature: this.genOverride?.temperature ?? s.temperature,
             maxTokens: this.genOverride?.maxTokens ?? s.maxTokens,
+            // 思考模式控制（CUSTOM/OPENAI 源生效）；额外参数对齐上游发送前做宏替换
+            reasoningEffort: s.reasoningEffort || undefined,
+            extraBodyYaml: s.extraBodyYaml ? runMacros(s.extraBodyYaml, this.macroCtxFor()) : undefined,
             sampler: {
               topP: this.genOverride?.topP ?? s.topP,
               topK: s.topK,
@@ -2313,12 +2325,18 @@ export const useChatStore = defineStore('chat', {
       // 先落盘用户行：
       // 生成期间崩溃/断电不丢整轮输入。失败回落全量保存（saveCurrent 现已保全 header）。
       await this.persistUserLine()
+      log.op('chat.send', '发送消息', { file: this.currentFile, len: t.length })
       await this.generateReply()
       // M-19 auto-continue：回复过短时自动续写（generateReply 的 streaming 状态已复位）
       if (this.autoContinueEnabled && !this.lastGenAborted) {
         await this.autoContinueReply(this.autoContinueTarget)
       }
       await this.saveCurrent()
+      log.op('chat.send.done', '本轮完成', {
+        file: this.currentFile,
+        err: this.lastError || undefined,
+        aborted: this.lastGenAborted || undefined,
+      })
     },
 
     /**
@@ -2920,6 +2938,7 @@ export const useChatStore = defineStore('chat', {
     /** 删除一个会话文件（成功返回 true，正在流式生成时拒绝删除） */
     async deleteSession(avatar: string, fileId: string): Promise<boolean> {
       if (this.streaming) return false
+      log.op('chat.delete', '删除会话', { avatar, fileId })
       try {
         await deleteChat(avatar, `${fileId}.jsonl`)
         delete this.sessMeta[sessionKey(avatar, fileId)]

@@ -53,6 +53,12 @@ export interface GenSettings {
   presencePenalty: number
   /** 重复惩罚 */
   repetitionPenalty: number
+  /** 思考力度（reasoning_effort：ST 值集 auto/low/medium/high/min/max，custom 源恒发；对齐 ST 网页端默认 auto） */
+  reasoningEffort: string
+  /** 额外请求体参数（YAML，经 custom_include_body 合并——chat_template_kwargs/reasoning_budget 等私有参数通道） */
+  extraBodyYaml: string
+  /** 思考前置指令（追加到系统提示末尾，如 Qwen3 的 /no_think、强制 <think> 等软开关） */
+  thinkingPrefix: string
 }
 
 const KEY = 'app.gen'
@@ -90,6 +96,9 @@ export const DEFAULTS: GenSettings = {
   frequencyPenalty: 0,
   presencePenalty: 0,
   repetitionPenalty: 1,
+  reasoningEffort: 'auto',
+  extraBodyYaml: '',
+  thinkingPrefix: '',
 }
 
 /** 旧版本的瞎编默认值（曾被打进用户 localStorage），加载时清除，避免下拉里凭空出现 */
@@ -104,6 +113,8 @@ function load(): GenSettings {
     // 清掉旧版持久化的瞎编模型默认值（模型必须来自实拉列表）
     if (LEGACY_MODEL_DEFAULTS.includes(merged.model)) merged.model = ''
     if (LEGACY_MODEL_DEFAULTS.includes(merged.fallbackModel)) merged.fallbackModel = ''
+    // 旧版空值（"不传"）迁移为 auto——对齐 ST 网页端 custom 源恒发 reasoning_effort 的行为
+    if (!merged.reasoningEffort) merged.reasoningEffort = 'auto'
     return merged
   } catch {
     return { ...DEFAULTS }
@@ -165,6 +176,9 @@ export const useSettingsStore = defineStore('settings', {
         frequencyPenalty: this.frequencyPenalty,
         presencePenalty: this.presencePenalty,
         repetitionPenalty: this.repetitionPenalty,
+        reasoningEffort: this.reasoningEffort,
+        extraBodyYaml: this.extraBodyYaml,
+        thinkingPrefix: this.thinkingPrefix,
       }
       localStorage.setItem(KEY, JSON.stringify(s))
       // 参数改了 → 延迟同步到 ST（用户零感知）
