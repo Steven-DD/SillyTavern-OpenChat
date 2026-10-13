@@ -7,7 +7,7 @@ import Avatar from '@/components/Avatar.vue'
 import { bubbleTime } from '@/utils/time'
 import { useThemeStore } from '@/stores/theme'
 import { applyDisplayRegex, REGEX_PLACEMENT } from '@/services/st/regex'
-import { extractEmbedHtml } from '@/services/st/embed'
+import { adaptCardMarkup, extractEmbedHtml } from '@/services/st/embed'
 import HtmlEmbedFrame from '@/components/HtmlEmbedFrame.vue'
 import { detectFenceLanguages } from '@/utils/codeDetect'
 import { substituteMacros } from '@/services/st/prompt'
@@ -133,8 +133,10 @@ const displayContent = computed(() => {
   const charForSub =
     props.m.role === 'user' ? props.charName ?? '' : props.m.name || props.charName || ''
   const subbed = substituteMacros(raw, charForSub, props.userName ?? '')
-  // 无语言标记的代码围栏先探测语言回写围栏头，交给下游 shiki 高亮
-  return props.m.role === 'assistant' ? detectFenceLanguages(subbed) : subbed
+  // 卡片标记适配（<maintext>/<Status_block>/围栏尾巴）→ 围栏语言探测
+  return props.m.role === 'assistant'
+    ? detectFenceLanguages(adaptCardMarkup(subbed))
+    : subbed
 })
 
 /** 前端界面（酒馆助手语义：正则替换出的完整 HTML 应用）→ iframe 沙箱渲染 */

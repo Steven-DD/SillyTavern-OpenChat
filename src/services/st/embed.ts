@@ -28,6 +28,39 @@ export function extractEmbedHtml(content: string): string {
   return ''
 }
 
+/** 围栏 opener 带提示尾巴（如 "```yaml {必须输出```"）——info 串含反引号，
+ *  CommonMark 下该 opener 无效，围栏奇偶错乱导致后续内容被吞进代码块 */
+const TAINTED_FENCE = /```(\w+)[ \t]*\{[^`]*?```/g
+
+/**
+ * 卡片输出标记适配（显示通路，写卡/风月系模型通用）：
+ *
+ * 1. 围栏尾巴：把 "```lang {…}```" 按出现顺序交替规范化为 opener/closer
+ *    （模型把"必须输出```"提示文字混进围栏标记，且常漏闭合——交替配对
+ *    恰好还原其本意：思维链块开/闭）；
+ * 2. <Status_block>…</Status_block>：ST 网页端靠用户自装"美化状态栏"
+ *    正则替换成 HTML 界面，App 无此正则 → 转为折叠块（内部管道表格
+ *    经空行中断按 markdown 渲染）；
+ * 3. <maintext> 剥壳：正文本身是 markdown，去标签后正常渲染；
+ * 4. 奇数围栏兜底：文末补闭合，避免吞掉尾部内容。
+ */
+export function adaptCardMarkup(s: string): string {
+  if (!/```(\w+)[ \t]*\{[^`]*?```|<maintext>|<Status_block>/i.test(s)) return s
+  let n = 0
+  let out = s.replace(TAINTED_FENCE, (_m, lang: string | undefined) =>
+    n++ % 2 === 0 ? '```' + (lang ?? '') : '```',
+  )
+  out = out.replace(
+    /<Status_block>([\s\S]*?)<\/Status_block>/gi,
+    (_m, inner: string) =>
+      `\n<details>\n<summary>📊 状态栏</summary>\n\n${inner.trim()}\n\n</details>\n`,
+  )
+  out = out.replace(/<\/?maintext>/gi, '')
+  const fenceCount = (out.match(/^[ \t]*`{3,}/gm) ?? []).length
+  if (fenceCount % 2 === 1) out += '\n```'
+  return out
+}
+
 /**
  * 跨块顶层 const/let 重复声明修复。
  * 卡常见缺陷：两个内联 <script> 顶层用 const 声明同名标识符 → 全局词法环境
