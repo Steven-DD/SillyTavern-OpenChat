@@ -77,6 +77,9 @@ const maid = ref<{
   /** 勾选的 hash（选择性清理） */
   checked: Record<string, boolean>
   openGroup: string
+  /** 全量清理的二次确认（输入「清理」才能执行——曾发生误清在用数据事故） */
+  confirmOpen: boolean
+  confirmText: string
 }>({
   report: null,
   token: '',
@@ -85,7 +88,17 @@ const maid = ref<{
   total: 0,
   checked: {},
   openGroup: '',
+  confirmOpen: false,
+  confirmText: '',
 })
+
+/** 高危组（清掉 = 聊天记录/备份永久丢失） */
+const MAID_DANGER_GROUPS: Record<string, string> = {
+  chats: '孤儿会话（含聊天记录）',
+  groupChats: '孤儿群聊（含聊天记录）',
+  chatBackups: '聊天备份',
+  settingsBackups: '设置备份',
+}
 
 function maidCheckedHashes(): string[] {
   return Object.entries(maid.value.checked)
@@ -112,7 +125,13 @@ async function runMaidReportUi(): Promise<void> {
   }
 }
 
+function openFinalizeConfirm(): void {
+  maid.value.confirmOpen = true
+  maid.value.confirmText = ''
+}
+
 async function finalizeMaidUi(): Promise<void> {
+  if (maid.value.confirmText !== '清理') return
   maid.value.busy = true
   try {
     // 对齐上游语义：实际删除走 /delete 批量接口（全部条目 hash 一次提交）；
@@ -134,6 +153,8 @@ async function finalizeMaidUi(): Promise<void> {
     maid.value.msg = `清理失败：${e instanceof Error ? e.message : String(e)}`
   } finally {
     maid.value.busy = false
+    maid.value.confirmOpen = false
+    maid.value.confirmText = ''
   }
 }
 
@@ -831,6 +852,43 @@ onMounted(() => {
             />
             <span>注入角色对话示例（few-shot）</span>
           </label>
+
+          <!-- 思考模式控制（仅自定义/OpenAI 兼容源生效） -->
+          <div class="sep-line" />
+          <label class="fld">
+            <span class="lb">思考力度（reasoning_effort）</span>
+            <select v-model="gen.reasoningEffort" class="field" @change="gen.persist()">
+              <option value="auto">auto（跟随模型默认）</option>
+              <option value="min">minimum</option>
+              <option value="low">low</option>
+              <option value="medium">medium</option>
+              <option value="high">high</option>
+              <option value="max">maximum</option>
+            </select>
+          </label>
+          <label class="fld">
+            <span class="lb">额外请求体参数（YAML）</span>
+            <textarea
+              v-model="gen.extraBodyYaml"
+              class="in"
+              rows="3"
+              spellcheck="false"
+              placeholder="chat_template_kwargs:&#10;  enable_thinking: false&#10;# 或 reasoning_budget: 0"
+              @change="gen.persist()"
+            ></textarea>
+          </label>
+          <label class="fld">
+            <span class="lb">思考前置指令（追加到系统提示末尾）</span>
+            <input
+              v-model="gen.thinkingPrefix"
+              class="field"
+              type="text"
+              spellcheck="false"
+              placeholder="例：/no_think（Qwen3 软开关）"
+              @change="gen.persist()"
+            />
+          </label>
+          <p class="hint">思考模式控制：力度经 ST 原生透传；额外参数走 custom_include_body（YAML 合并进请求体，适配 llama.cpp 的 enable_thinking / reasoning_budget 等私有参数）；前置指令拼在系统提示末尾。仅「自定义（OpenAI 兼容）」与 OpenAI 源生效。</p>
         </section>
 
         <!-- 生成行为 -->
@@ -1039,10 +1097,38 @@ onMounted(() => {
               v-if="maid.report"
               class="btn btn-primary"
               :disabled="maid.busy"
-              @click="finalizeMaidUi"
+              @click="openFinalizeConfirm"
             >
               确认清理全部（{{ maid.total }} 项）
             </button>
+          </div>
+
+          <!-- 全量清理二次确认（高危：输入「清理」才能执行） -->
+          <div v-if="maid.confirmOpen" class="confirm-box">
+            <p class="warn">
+              将<b>永久删除</b>全部 {{ maid.total }} 个文件，不可恢复。请确认以下高危项：
+            </p>
+            <ul class="warn-list">
+              <li v-for="(label, g) in MAID_DANGER_GROUPS" :key="g">
+                <template v-if="(maid.report?.[g]?.length ?? 0) > 0">
+                  {{ label }}：{{ maid.report?.[g]?.length }} 项
+                </template>
+              </li>
+            </ul>
+            <label class="fld">
+              <span class="lb">输入「清理」以确认执行</span>
+              <input v-model="maid.confirmText" class="field" type="text" placeholder="清理" />
+            </label>
+            <div class="btns">
+              <button class="btn" :disabled="maid.busy" @click="maid.confirmOpen = false">取消</button>
+              <button
+                class="btn btn-primary"
+                :disabled="maid.busy || maid.confirmText !== '清理'"
+                @click="finalizeMaidUi"
+              >
+                {{ maid.busy ? '清理中…' : '确认，永久删除' }}
+              </button>
+            </div>
           </div>
           <table v-if="maid.report" class="kv">
             <tbody>
@@ -1209,6 +1295,36 @@ onMounted(() => {
 /* .hint 外观走全局 shortcut；只保留本页的布局性底距 */
 .hint {
   margin-bottom: 8px;
+}
+/* 数据巡检全量清理确认框 */
+.confirm-box {
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid var(--s-error, #c0392b);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--s-error, #c0392b) 6%, transparent);
+}
+.confirm-box .warn {
+  font-size: 12px;
+  color: var(--s-error, #c0392b);
+  margin-bottom: 6px;
+}
+.confirm-box .warn b {
+  font-weight: 700;
+}
+.confirm-box .warn-list {
+  margin: 0 0 8px 18px;
+  font-size: 12px;
+  color: var(--c-text-2);
+}
+.confirm-box .warn-list li:empty {
+  display: none;
+}
+.confirm-box .btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
 }
 /* 聊天背景选择 */
 .bgs {
