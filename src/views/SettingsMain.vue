@@ -115,8 +115,17 @@ async function runMaidReportUi(): Promise<void> {
 async function finalizeMaidUi(): Promise<void> {
   maid.value.busy = true
   try {
+    // 对齐上游语义：实际删除走 /delete 批量接口（全部条目 hash 一次提交）；
+    // /finalize 仅作废 token 结束巡检流程（上游设计即如此，不删文件）
+    const allHashes = maid.value.report
+      ? Object.values(maid.value.report)
+          .flat()
+          .map((r) => r.hash)
+          .filter(Boolean)
+      : []
+    await deleteMaidFiles(maid.value.token, allHashes)
     await finalizeMaid(maid.value.token)
-    maid.value.msg = `已清理 ${maid.value.total} 个文件`
+    maid.value.msg = `已清理 ${allHashes.length} 个文件`
     maid.value.report = null
     maid.value.token = ''
     maid.value.total = 0
