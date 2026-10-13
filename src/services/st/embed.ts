@@ -29,12 +29,32 @@ export function extractEmbedHtml(content: string): string {
 }
 
 /**
+ * 跨块顶层 const/let 重复声明修复。
+ * 卡常见缺陷：两个内联 <script> 顶层用 const 声明同名标识符 → 全局词法环境
+ * 冲突，后声明块整块 SyntaxError 不执行（任何宿主如此，含 ST 网页端）。
+ * 宿主侧自动修复：重复声明的块整体包 IIFE——同名声明变块内局部，
+ * 对先前块全局绑定的读取不受影响；顶层判定取行首列 0（卡源码函数体均有缩进）。
+ */
+export function fixCrossBlockDeclCollision(html: string): string {
+  const seen = new Set<string>()
+  return html.replace(/<script>([\s\S]*?)<\/script>/gi, (m, body: string) => {
+    const names = new Set<string>()
+    for (const x of body.matchAll(/^(?:const|let)\s+([A-Za-z_$][\w$]*)/gm)) names.add(x[1]!)
+    const dup = [...names].some((n) => seen.has(n))
+    names.forEach((n) => seen.add(n))
+    if (!dup || !body.trim()) return m
+    return `<script>(() => {\n${body}\n})()</script>`
+  })
+}
+
+/**
  * 组装 iframe srcdoc：在卡 HTML 的 <head>（或 <html>、文档最前）注入
  * 桥接引导脚本——必须先于卡内脚本执行，才能把 API 挂成全局函数。
  */
 export function buildEmbedSrcdoc(html: string, bootstrap: string): string {
   const injected = `<script>${bootstrap}</script>`
-  if (/<head[^>]*>/i.test(html)) return html.replace(/<head[^>]*>/i, (m) => `${m}${injected}`)
-  if (/<html[^>]*>/i.test(html)) return html.replace(/<html[^>]*>/i, (m) => `${m}${injected}`)
-  return injected + html
+  const fixed = fixCrossBlockDeclCollision(html)
+  if (/<head[^>]*>/i.test(fixed)) return fixed.replace(/<head[^>]*>/i, (m) => `${m}${injected}`)
+  if (/<html[^>]*>/i.test(fixed)) return fixed.replace(/<html[^>]*>/i, (m) => `${m}${injected}`)
+  return injected + fixed
 }
