@@ -1303,8 +1303,13 @@ export const useChatStore = defineStore('chat', {
 
         if (!reply.content.trim()) {
           reply.error = true
-          reply.content = '（模型返回空内容）'
-          this.lastError = '模型返回空内容'
+          // 思考模型常见坑：reasoning 有大量内容而正文为空 = max_tokens 被思考耗尽
+          const hint =
+            (reply.reasoning ?? '').trim().length > 0
+              ? '（本次思考内容较长，单次回复上限可能被思考耗尽——可在「设置 → 通用」调大最大回复 Token）'
+              : ''
+          reply.content = `（模型返回空内容）${hint}`
+          this.lastError = `模型返回空内容${hint}`
         }
 
         // 生成后置：向量索引 + 自动摘要（静默执行，失败不打断聊天）
