@@ -28,37 +28,131 @@ export function extractEmbedHtml(content: string): string {
   return ''
 }
 
-/** 围栏 opener 带提示尾巴（如 "```yaml {必须输出```"）——info 串含反引号，
- *  CommonMark 下该 opener 无效，围栏奇偶错乱导致后续内容被吞进代码块 */
-const TAINTED_FENCE = /```(\w+)[ \t]*\{[^`]*?```/g
+/** 围栏行形态分类（写卡系模型输出实测）：
+ *  OPEN_TAINT  "```lang {必须输出```"      —— 开（带提示尾巴）
+ *  CLOSE_TAINT "``` {必须输出```}"         —— 开/闭（无语言，同款尾巴；按状态判定）
+ *  CLOSE_HEAD  "```## 结语…```"            —— 闭 + 结语标题
+ *  OPEN/CLOSE_PLAIN                        —— 普通 ``` 围栏 */
+const RE_OPEN_TAINT = /^```([a-z]+)[ \t]*\{[^`]*```[ \t]*\}?[ \t]*$/i
+const RE_CLOSE_TAINT = /^```[ \t]*\{[^`]*```[ \t]*\}?[ \t]*$/i
+const RE_CLOSE_HEAD = /^```##([^`]*)```[ \t]*$/i
+
+/** [start]<tag>…</tag>[end] 结构块的折叠标签映射 */
+const STRUCT_LABELS: Record<string, string> = {
+  world_view: '🌍 世界观设定',
+  rule_setting_complex: '📜 复杂规则',
+  rule_setting_simple: '📜 简单规则',
+  rule_setting: '📜 规则',
+  character_sheet: '👤 角色卡',
+}
 
 /**
  * 卡片输出标记适配（显示通路，写卡/风月系模型通用）：
  *
- * 1. 围栏尾巴：把 "```lang {…}```" 按出现顺序交替规范化为 opener/closer
- *    （模型把"必须输出```"提示文字混进围栏标记，且常漏闭合——交替配对
- *    恰好还原其本意：思维链块开/闭）；
- * 2. <Status_block>…</Status_block>：ST 网页端靠用户自装"美化状态栏"
- *    正则替换成 HTML 界面，App 无此正则 → 转为折叠块（内部管道表格
- *    经空行中断按 markdown 渲染）；
- * 3. <maintext> 剥壳：正文本身是 markdown，去标签后正常渲染；
- * 4. 奇数围栏兜底：文末补闭合，避免吞掉尾部内容。
+ * 1. [start]<tag>…</tag>[end] 结构块（world_view/rule_setting_complex 等
+ *    卡数据，ST 网页端靠用户自装美化正则渲染）→ 折叠卡片 + 内部 yaml 代码块；
+ * 2. <Status_block> 表格 → 📊 状态栏折叠块；
+ * 3. <maintext> 剥壳（正文本身是 markdown）；
+ * 4. 围栏状态机：行级扫描，按形态与 in/out 状态把被污染的围栏行
+ *    （"```yaml {必须输出```" / "``` {必须输出```}" / "```## …```"）
+ *    还原为正常 opener/closer——修复思维链 yaml 裸奔与内容被吞；
+ * 5. <user> 标签 → 「用户」；"# …生成器…" 工作流泄漏段折叠。
  */
 export function adaptCardMarkup(s: string): string {
-  if (!/```(\w+)[ \t]*\{[^`]*?```|<maintext>|<Status_block>/i.test(s)) return s
-  let n = 0
-  let out = s.replace(TAINTED_FENCE, (_m, lang: string | undefined) =>
-    n++ % 2 === 0 ? '```' + (lang ?? '') : '```',
+  if (!/```|<maintext>|<Status_block>|<world_view>|<rule_setting/i.test(s)) return s
+
+  // [start]…[end] 结构块 → 折叠卡片
+  s = s.replace(
+    /\[start\][^\n]*\n<([\w-]+)>([\s\S]*?)<\/\1>\n\[end\][^\n]*/g,
+    (_m, tag: string, inner: string) => {
+      const label = STRUCT_LABELS[tag] ?? '📦 数据块'
+      return `\n<details>\n<summary>${label}</summary>\n\n\`\`\`yaml\n${inner.trim()}\n\`\`\`\n\n</details>\n`
+    },
   )
-  out = out.replace(
+
+  // 状态栏 → 折叠块（maintext 剥壳必须在围栏状态机之后：
+  // 状态机靠 <maintext> 判定"open 紧跟正文"的 closer 场景）
+  s = s.replace(
     /<Status_block>([\s\S]*?)<\/Status_block>/gi,
     (_m, inner: string) =>
       `\n<details>\n<summary>📊 状态栏</summary>\n\n${inner.trim()}\n\n</details>\n`,
   )
-  out = out.replace(/<\/?maintext>/gi, '')
-  const fenceCount = (out.match(/^[ \t]*`{3,}/gm) ?? []).length
-  if (fenceCount % 2 === 1) out += '\n```'
-  return out
+
+  // 围栏状态机（行级）：inFence 跟踪开合，污染行按状态还原
+  const lines = s.split('\n')
+  const out: string[] = []
+  let inFence = false
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!
+    if (!inFence) {
+      if (/^```[a-z]+/i.test(line)) {
+        // open：紧随 <maintext> 的 open 实为上一块的 closer（模型漏闭合）
+        let j = i + 1
+        while (j < lines.length && !lines[j]!.trim()) j++
+        if (lines[j]?.trim() === '<maintext>') {
+          out.push('```')
+          inFence = false
+          continue
+        }
+        out.push(line.replace(RE_OPEN_TAINT, '```$1'))
+        inFence = true
+      } else if (RE_CLOSE_HEAD.test(line)) {
+        // fence 外的闭合+结语 → 提取结语标题
+        out.push('```', '', `##${line.replace(RE_CLOSE_HEAD, '$1')}`, '')
+      } else if (RE_CLOSE_TAINT.test(line)) {
+        // fence 外的冗余闭合行 → 删除
+      } else {
+        if (/^```/.test(line)) inFence = true
+        out.push(line)
+      }
+    } else {
+      // fence 内的 OPEN_TAINT：模型在未闭合块里又开了新块（漏闭合）
+      // → 闭合当前块；若下一非空行是 <maintext> 则只闭合，否则拆为新块
+      const ot = RE_OPEN_TAINT.exec(line)
+      if (ot) {
+        let j = i + 1
+        while (j < lines.length && !lines[j]!.trim()) j++
+        const nextIsMaintext = lines[j]?.trim() === '<maintext>'
+        out.push('```')
+        inFence = false
+        if (!nextIsMaintext) {
+          out.push(`\`\`\`${ot[1] ?? ''}`)
+          inFence = true
+        }
+        continue
+      }
+      if (
+        RE_CLOSE_TAINT.test(line) ||
+        /^```[ \t]*$/.test(line) ||
+        RE_CLOSE_HEAD.test(line)
+      ) {
+        if (RE_CLOSE_HEAD.test(line)) {
+          out.push('```', '', `##${line.replace(RE_CLOSE_HEAD, '$1')}`, '')
+        } else {
+          out.push('```')
+        }
+        inFence = false
+      } else {
+        out.push(line) // 内容行原样
+      }
+    }
+  }
+  if (inFence) out.push('```')
+  s = out.join('\n')
+
+  // maintext 剥壳（状态机之后：正文交 markdown 渲染）
+  s = s.replace(/<\/?maintext>/gi, '')
+
+  // 模型泄漏的工作流/格式说明段（"# …生成器…" 至下一结构前）→ 折叠
+  s = s.replace(
+    /(^|\n)(#[^\n]*生成器[^\n]*\n(?:(?!<details>)[\s\S])*?)(?=\n<details>|\n## |$)/g,
+    (_m, pre: string, bodyText: string) =>
+      `${pre}<details>\n<summary>📋 生成器工作流说明（模型泄漏的格式模板，仅供参考）</summary>\n\n\`\`\`\`\n${bodyText.trimEnd()}\n\`\`\`\`\n\n</details>\n`,
+  )
+
+  // <user> 标签 → 「用户」
+  s = s.replace(/<\/?user>/gi, '用户')
+  return s
 }
 
 /**
