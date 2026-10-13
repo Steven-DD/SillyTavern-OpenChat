@@ -1185,6 +1185,9 @@ export const useChatStore = defineStore('chat', {
         pending: true,
       }
       this.messages.push(reply)
+      // ⚠ 必须取回响应式 proxy：流式增量写 reply.content 若落在 raw 对象上
+      //    不经过 proxy set trap，气泡 computed 不会重算（流式期间界面静止）
+      const live = this.messages[this.messages.length - 1] as DisplayMessage
       this.streaming = true
       this.lastError = ''
       this.lastGenAborted = false
@@ -1224,10 +1227,10 @@ export const useChatStore = defineStore('chat', {
                     signal: ctl.signal,
                   },
                   (delta) => {
-                    reply.content += delta
+                    live.content += delta
                   },
                   (r) => {
-                    reply.reasoning = (reply.reasoning ?? '') + r
+                    live.reasoning = (live.reasoning ?? '') + r
                   },
                 )
                 return s.model
@@ -1259,11 +1262,11 @@ export const useChatStore = defineStore('chat', {
             signal: ctl.signal,
           },
           (delta) => {
-            reply.content += delta
+            live.content += delta
           },
           (r) => {
             // 推理内容增量（extra.reasoning 镜像字段）
-            reply.reasoning = (reply.reasoning ?? '') + r
+            live.reasoning = (live.reasoning ?? '') + r
           },
                 )
 
@@ -1284,8 +1287,8 @@ export const useChatStore = defineStore('chat', {
         const output =
           m && m.completion > 0
             ? m.completion
-            : (await countTokensRemote(reply.content + (reply.reasoning ?? ''), used)) ??
-              estimateTokens(reply.content + (reply.reasoning ?? ''))
+            : (await countTokensRemote(live.content + (live.reasoning ?? ''), used)) ??
+              estimateTokens(live.content + (live.reasoning ?? ''))
         const costUsd = calcCost(used, { input, output })
         this.lastUsage = {
           input,
@@ -1299,16 +1302,16 @@ export const useChatStore = defineStore('chat', {
           addSessionUsage(uKey, { input, output }, costUsd)
           this.sessionUsage = getSessionUsage(uKey)
         }
-        reply.pending = false
+        live.pending = false
 
-        if (!reply.content.trim()) {
-          reply.error = true
+        if (!live.content.trim()) {
+          live.error = true
           // 思考模型常见坑：reasoning 有大量内容而正文为空 = max_tokens 被思考耗尽
           const hint =
-            (reply.reasoning ?? '').trim().length > 0
+            (live.reasoning ?? '').trim().length > 0
               ? '（本次思考内容较长，单次回复上限可能被思考耗尽——可在「设置 → 通用」调大最大回复 Token）'
               : ''
-          reply.content = `（模型返回空内容）${hint}`
+          live.content = `（模型返回空内容）${hint}`
           this.lastError = `模型返回空内容${hint}`
         }
 
@@ -1323,13 +1326,13 @@ export const useChatStore = defineStore('chat', {
           /* 后置任务失败不提示气泡错误 */
         }
       } catch (e) {
-        reply.pending = false
+        live.pending = false
         if (ctl.signal.aborted) {
           // 主动停止：不算错误。已有内容 → 保留为正常消息；
           // 空内容 → 移除占位气泡
           this.lastGenAborted = true
           this.lastError = ''
-          if (!reply.content.trim() && !(reply.reasoning ?? '').trim()) {
+          if (!live.content.trim() && !(live.reasoning ?? '').trim()) {
             const i = this.messages.indexOf(reply)
             if (i >= 0) this.messages.splice(i, 1)
           }
@@ -1339,9 +1342,9 @@ export const useChatStore = defineStore('chat', {
           // 错误信息放 lastError（UI 有展示）；气泡仅在完全没有产出时才标记为错误。
           this.lastError = e instanceof Error ? e.message : String(e)
           this.conn = 'unknown'
-          if (!reply.content.trim() && !(reply.reasoning ?? '').trim()) {
-            reply.error = true
-            reply.content = this.lastError
+          if (!live.content.trim() && !(live.reasoning ?? '').trim()) {
+            live.error = true
+            live.content = this.lastError
           }
         }
       } finally {
@@ -2019,6 +2022,8 @@ export const useChatStore = defineStore('chat', {
             pending: true,
           }
           this.messages.push(reply)
+          // ⚠ 同 send()：取回响应式 proxy，流式增量写入才能触发气泡重渲染
+          const live = this.messages[this.messages.length - 1] as DisplayMessage
           try {
             const messages = this.buildGroupMessages(char, member.name)
             if (s.genType === 'text') {
@@ -2035,7 +2040,7 @@ export const useChatStore = defineStore('chat', {
                   signal: ctl.signal,
                 },
                 (d) => {
-                  reply.content += d
+                  live.content += d
                 },
               )
             } else {
@@ -2054,43 +2059,43 @@ export const useChatStore = defineStore('chat', {
                   signal: ctl.signal,
                 },
                 (d) => {
-                  reply.content += d
+                  live.content += d
                 },
                 (r) => {
-                  reply.reasoning = (reply.reasoning ?? '') + r
+                  live.reasoning = (live.reasoning ?? '') + r
                 },
               )
             }
-            reply.pending = false
-            if (!reply.content.trim()) {
-              reply.error = true
-              reply.content = '（模型返回空内容）'
+            live.pending = false
+            if (!live.content.trim()) {
+              live.error = true
+              live.content = '（模型返回空内容）'
             }
             this.lastSpeaker = sp.avatar
-            if (!reply.error) {
+            if (!live.error) {
               this.groupLines.push({
                 name: member.name,
                 is_user: false,
                 is_system: false,
                 send_date: stTimestamp(),
-                mes: reply.content,
+                mes: live.content,
               })
-              reply.lineIndex = this.groupLines.length - 1
+              live.lineIndex = this.groupLines.length - 1
               await this.saveGroupLines()
             }
           } catch (e) {
-            reply.pending = false
+            live.pending = false
             if (ctl.signal.aborted) {
               // 主动停止：有内容保留并落盘，无内容移除占位；中断即结束本轮
-              if (reply.content.trim()) {
+              if (live.content.trim()) {
                 this.groupLines.push({
                   name: member.name,
                   is_user: false,
                   is_system: false,
                   send_date: stTimestamp(),
-                  mes: reply.content,
+                  mes: live.content,
                 })
-                reply.lineIndex = this.groupLines.length - 1
+                live.lineIndex = this.groupLines.length - 1
                 await this.saveGroupLines()
               } else {
                 const i = this.messages.indexOf(reply)
@@ -2099,9 +2104,9 @@ export const useChatStore = defineStore('chat', {
             } else {
               // 非 abort 错误：保留已生成部分，仅无产出时才标记错误气泡
               this.lastError = e instanceof Error ? e.message : String(e)
-              if (!reply.content.trim() && !(reply.reasoning ?? '').trim()) {
-                reply.error = true
-                reply.content = this.lastError
+              if (!live.content.trim() && !(live.reasoning ?? '').trim()) {
+                live.error = true
+                live.content = this.lastError
               }
             }
             break
