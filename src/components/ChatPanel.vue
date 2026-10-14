@@ -551,7 +551,7 @@ function goWorlds(): void {
           </label>
           <label class="fld">
             <span class="lbl">最大回复 tokens</span>
-            <input v-model.number="maxTokens" class="in" type="number" min="16" max="8192" step="16" :disabled="chat.streaming" @change="pushGen" />
+            <input v-model.number="maxTokens" class="in" type="number" min="16" max="65536" step="16" :disabled="chat.streaming" @change="pushGen" />
           </label>
           <p class="hint">{{ genDirty ? '修改即写盘并即时生效' : '与当前会话已存参数一致' }}</p>
         </template>

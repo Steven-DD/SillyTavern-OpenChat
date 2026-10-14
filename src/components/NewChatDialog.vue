@@ -240,7 +240,7 @@ function start() {
                 </div>
                 <div class="p">
                   <span class="p-lb">最大回复</span>
-                  <input v-model.number="maxTokens" class="inp num" type="number" min="16" max="8192" step="16" />
+                  <input v-model.number="maxTokens" class="inp num" type="number" min="16" max="65536" step="16" />
                 </div>
               </div>
             </section>
