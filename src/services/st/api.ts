@@ -419,6 +419,37 @@ function wantStream(opts: GenerateOptions): boolean {
   }
 }
 
+/**
+ * system 消息规范化（严格聊天模板适配）：
+ * Qwen3.5 等 llama.cpp Jinja 模板要求 system 只能出现在消息数组开头
+ * （"System message must be at the beginning"），而我们的组装产物会在
+ * 中后段注入 system（jailbreak 尾部/记忆/向量/continue nudge 等）。
+ * 规则：开头连续 system 合并为一条；其余位置的 system 转为 user
+ * （保留注入位置语义，内容不变）。对应 ST 网页端的 "Squash system
+ * messages" 能力，这里自动启用（宽松后端下亦无副作用）。
+ */
+function normalizeSystemMessages(
+  messages: GenerateOptions['messages'],
+): GenerateOptions['messages'] {
+  const out: GenerateOptions['messages'] = []
+  let pastHead = false
+  for (const m of messages) {
+    if (m.role === 'system') {
+      if (!pastHead) {
+        const prev = out[out.length - 1]
+        if (prev && prev.role === 'system') prev.content = `${prev.content}\n${m.content}`
+        else out.push({ ...m })
+        continue
+      }
+      out.push({ ...m, role: 'user' })
+      continue
+    }
+    pastHead = true
+    out.push(m)
+  }
+  return out
+}
+
 function buildBody(
   model: string,
   source: ChatCompletionSource,
@@ -426,7 +457,7 @@ function buildBody(
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {
     // ⚠ 不要给消息加 name 字段：ST 的 convertGooglePrompt 会把 name 拼成 `name: ` 前缀塞进正文
-    messages: opts.messages,
+    messages: normalizeSystemMessages(opts.messages),
     model,
     temperature: opts.temperature ?? 0.9,
     max_tokens: opts.maxTokens ?? 2048,
