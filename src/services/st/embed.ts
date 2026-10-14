@@ -44,6 +44,23 @@ const STRUCT_LABELS: Record<string, string> = {
   rule_setting_simple: '📜 简单规则',
   rule_setting: '📜 规则',
   character_sheet: '👤 角色卡',
+  character_design_complex: '🎨 角色设计',
+  character_design: '🎨 角色设计',
+}
+
+/**
+ * [start]<tag>…</tag>[end] 结构块 → 折叠卡片。
+ * 模型输出两种形态：裸块、或整块包在 ``` 围栏里（时 A 时 B 不稳定）——
+ * 前后围栏行一并吃掉（可选组），统一转为 details 卡片。
+ */
+function foldStructBlocks(s: string): string {
+  return s.replace(
+    /(?:^|\n)(```[^\n]*\n)?\[start\][^\n]*\n<([\w-]+)>([\s\S]*?)<\/\2>\n\[end\][^\n]*\n?(```[ \t]*\n)?/g,
+    (_m, _pre: string | undefined, tag: string, inner: string, _post: string | undefined) => {
+      const label = STRUCT_LABELS[tag] ?? `📦 ${tag.replace(/_/g, ' ')}`
+      return `\n<details>\n<summary>${label}</summary>\n\n\`\`\`yaml\n${inner.trim()}\n\`\`\`\n\n</details>\n`
+    },
+  )
 }
 
 /**
@@ -61,14 +78,8 @@ const STRUCT_LABELS: Record<string, string> = {
 export function adaptCardMarkup(s: string): string {
   if (!/```|<maintext>|<Status_block>|<world_view>|<rule_setting/i.test(s)) return s
 
-  // [start]…[end] 结构块 → 折叠卡片
-  s = s.replace(
-    /\[start\][^\n]*\n<([\w-]+)>([\s\S]*?)<\/\1>\n\[end\][^\n]*/g,
-    (_m, tag: string, inner: string) => {
-      const label = STRUCT_LABELS[tag] ?? '📦 数据块'
-      return `\n<details>\n<summary>${label}</summary>\n\n\`\`\`yaml\n${inner.trim()}\n\`\`\`\n\n</details>\n`
-    },
-  )
+  // [start]…[end] 结构块（裸块或围栏包裹两种形态）→ 折叠卡片
+  s = foldStructBlocks(s)
 
   // 状态栏 → 折叠块（maintext 剥壳必须在围栏状态机之后：
   // 状态机靠 <maintext> 判定"open 紧跟正文"的 closer 场景）
