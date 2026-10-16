@@ -12,6 +12,7 @@
 //! 设计约束：「路径解析」只发生在插件宿主里，sidecar 只消费结果 —— 单一事实来源。
 
 pub mod app_settings;
+pub mod backend;
 pub mod downloader;
 pub mod installer;
 pub mod pathguard;

@@ -25,7 +25,7 @@ axum = "0.7"
 # 只走 127.0.0.1 明文 http，不需要 TLS；stream 用于 SSE 透传。
 # ⚠ rustls-tls 是给 **组件下载器**（S4）用的 —— 它要下 HTTPS 资源；
 #   中继本身仍用明文环回，不受影响。
-reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls", "json"] }
 futures-util = "0.3"
 # 插件清单里的版本号提取用（tauri-utils 已在依赖树中，不增加编译成本）
 regex = "1"
