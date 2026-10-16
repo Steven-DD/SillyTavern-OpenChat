@@ -5,7 +5,8 @@
  *   ST 原生 QR 套装是独立文件 + Slash 命令体系）
  */
 import { stGet, stPost, stPostVoid } from './client'
-import { getSettings, saveSettingsFull } from './data'
+import { getSettings } from './data'
+import { mutateSettings } from './settings-writequeue'
 
 export interface DiscoveredExtension {
   type: string
@@ -43,14 +44,13 @@ export async function loadQuickReplies(force = false): Promise<QuickReply[]> {
 }
 
 export async function saveQuickReplies(list: QuickReply[]): Promise<void> {
-  const settings = await getSettings()
-  const ext = (settings.extension_settings as Record<string, unknown> | undefined) ?? {}
-  if (JSON.stringify(ext.stchat_quick_replies) === JSON.stringify(list)) {
-    qrCache = list
-    return
-  }
-  settings.extension_settings = { ...ext, stchat_quick_replies: list }
-  await saveSettingsFull(settings)
+  await mutateSettings((settings) => {
+    const ext = (settings.extension_settings as Record<string, unknown> | undefined) ?? {}
+    if (JSON.stringify(ext.stchat_quick_replies) === JSON.stringify(list)) {
+      return { next: settings, skip: true }
+    }
+    return { next: { ...settings, extension_settings: { ...ext, stchat_quick_replies: list } } }
+  })
   qrCache = list
 }
 
@@ -145,6 +145,16 @@ async function postExt<T>(path: string, body: unknown): Promise<T> {
   }
 }
 
+/**
+ * 管理端点（update/version/delete/branches/switch/move）期望**裸目录名**：
+ * ST 端 path.join(directories.extensions, name) 后直接 fs 操作，而 discover
+ * 返回的第三方扩展名带 `third-party/` 前缀（静态路由映射用）——不剥前缀会
+ * join 出不存在的 extensions\third-party\<name> 报 "Directory does not exist"。
+ */
+function stripThirdParty(name: string): string {
+  return name.startsWith('third-party/') ? name.slice('third-party/'.length) : name
+}
+
 export async function installExtension(
   url: string,
   global = false,
@@ -166,7 +176,10 @@ export interface ExtUpdateResult {
 
 /** 检查并更新扩展（git pull） */
 export async function updateExtension(name: string, global = false): Promise<ExtUpdateResult> {
-  return postExt<ExtUpdateResult>('/api/extensions/update', { extensionName: name, global })
+  return postExt<ExtUpdateResult>('/api/extensions/update', {
+    extensionName: stripThirdParty(name),
+    global,
+  })
 }
 
 /** /version 响应：分支名 + HEAD + 是否落后 + 远端地址 */
@@ -179,12 +192,15 @@ export interface ExtVersionInfo {
 
 /** 查询扩展版本状态（git 信息） */
 export async function getExtensionVersion(name: string, global = false): Promise<ExtVersionInfo> {
-  return postExt<ExtVersionInfo>('/api/extensions/version', { extensionName: name, global })
+  return postExt<ExtVersionInfo>('/api/extensions/version', {
+    extensionName: stripThirdParty(name),
+    global,
+  })
 }
 
 /** 删除扩展（不可恢复） */
 export async function deleteExtension(name: string, global = false): Promise<void> {
-  await stPostVoid('/api/extensions/delete', { extensionName: name, global })
+  await stPostVoid('/api/extensions/delete', { extensionName: stripThirdParty(name), global })
 }
 
 export interface ExtBranch {
@@ -196,7 +212,10 @@ export interface ExtBranch {
 
 /** 分支列表（远程仓库全部分支 + 本地） */
 export async function getExtensionBranches(name: string, global = false): Promise<ExtBranch[]> {
-  return postExt<ExtBranch[]>('/api/extensions/branches', { extensionName: name, global })
+  return postExt<ExtBranch[]>('/api/extensions/branches', {
+    extensionName: stripThirdParty(name),
+    global,
+  })
 }
 
 export async function switchExtensionBranch(
@@ -204,12 +223,16 @@ export async function switchExtensionBranch(
   global: boolean,
   branch: string,
 ): Promise<void> {
-  await postExt('/api/extensions/switch', { extensionName: name, global, branch })
+  await postExt('/api/extensions/switch', {
+    extensionName: stripThirdParty(name),
+    global,
+    branch,
+  })
 }
 
 /** 在用户目录 ↔ 全局目录间移动（global = 目标侧） */
 export async function moveExtension(name: string, global: boolean): Promise<void> {
-  await postExt('/api/extensions/move', { extensionName: name, global })
+  await postExt('/api/extensions/move', { extensionName: stripThirdParty(name), global })
 }
 
 /** 拉取扩展 manifest.json（静态路径，name 已含 third-party/ 前缀） */
@@ -241,20 +264,24 @@ export async function getDisabledExtensions(): Promise<string[]> {
 }
 
 export async function setExtensionDisabled(name: string, disabled: boolean): Promise<string[]> {
-  const settings = await getSettings()
-  const ext = (settings.extension_settings as Record<string, unknown> | undefined) ?? {}
-  const current = Array.isArray(ext.disabledExtensions)
-    ? (ext.disabledExtensions as unknown[]).filter((x): x is string => typeof x === 'string')
-    : []
-  const next = disabled
-    ? current.includes(name)
-      ? current
-      : [...current, name]
-    : current.filter((x) => x !== name)
-  if (JSON.stringify(next) === JSON.stringify(current)) return next
-  settings.extension_settings = { ...ext, disabledExtensions: next }
-  await saveSettingsFull(settings)
-  return next
+  return mutateSettings<string[]>((settings) => {
+    const ext = (settings.extension_settings as Record<string, unknown> | undefined) ?? {}
+    const current = Array.isArray(ext.disabledExtensions)
+      ? (ext.disabledExtensions as unknown[]).filter((x): x is string => typeof x === 'string')
+      : []
+    const next = disabled
+      ? current.includes(name)
+        ? current
+        : [...current, name]
+      : current.filter((x) => x !== name)
+    if (JSON.stringify(next) === JSON.stringify(current)) {
+      return { next: settings, skip: true, result: next }
+    }
+    return {
+      next: { ...settings, extension_settings: { ...ext, disabledExtensions: next } },
+      result: next,
+    }
+  })
 }
 
 /** 内置扩展说明：ST 原生用途 + 本 App 的集成状态 */
