@@ -6,6 +6,7 @@
  * 沙箱无 allow-same-origin，卡脚本无法绕过桥直连 ST 后端。
  */
 import { useChatStore } from '@/stores/chat'
+import { broadcastHostEvent } from './eventBus'
 
 /** 酒馆助手 getChatMessages 返回的楼层子集 */
 interface ThChatMessage {
@@ -72,6 +73,24 @@ function getVariables(): Record<string, unknown> {
   return { ...useChatStore().chatVariables }
 }
 
+/** setChatMessages：按楼层改写消息（含落盘），供脚本更新状态栏/正文 */
+function setChatMessages(args: unknown): true {
+  const { message_id, message } = (args ?? {}) as { message_id?: unknown; message?: unknown }
+  if (typeof message_id !== 'number' || typeof message !== 'string') {
+    throw new Error('setChatMessages 需要 { message_id: number, message: string }')
+  }
+  void useChatStore().editMessage(message_id, message)
+  return true
+}
+
+/** eventEmit：脚本间通信（广播回所有订阅帧） */
+function eventEmit(args: unknown): true {
+  const { name, payload } = (args ?? {}) as { name?: unknown; payload?: unknown }
+  if (typeof name !== 'string') throw new Error('eventEmit 需要 name')
+  broadcastHostEvent(name, payload)
+  return true
+}
+
 /** replaceVariables：整体替换会话变量 */
 function replaceVariables(value: unknown): true {
   const chat = useChatStore()
@@ -113,12 +132,14 @@ async function triggerSlash(cmds: unknown): Promise<void> {
 /** 桥 API 分发表（白名单：不在表内的调用一律拒绝） */
 const API_TABLE: Record<string, (args: unknown) => unknown> = {
   getChatMessages: (args) => getChatMessages((args as { range?: unknown })?.range),
+  setChatMessages: (args) => setChatMessages(args),
   getVariables: () => getVariables(),
   replaceVariables: (args) =>
     replaceVariables((args as { value?: unknown })?.value ?? (args as unknown)),
   insertVariables: (args) =>
     insertVariables((args as { value?: unknown })?.value ?? (args as unknown)),
   triggerSlash: (args) => triggerSlash((args as { cmds?: unknown })?.cmds ?? (args as unknown)),
+  eventEmit: (args) => eventEmit(args),
 }
 
 /** iframe → 宿主的调用分发（embedBridge 宿主半边入口） */

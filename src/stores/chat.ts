@@ -8,6 +8,12 @@ import { defineStore, acceptHMRUpdate } from 'pinia'
 import { generate, probeSt } from '@/services/st/api'
 import { log } from '@/services/log'
 import {
+  emitScriptHostEvent,
+  extractCardScripts,
+  startScriptRuntime,
+  stopScriptRuntime,
+} from '@/services/st/scriptHost'
+import {
   deleteChat,
   getCharacter,
   getChat,
@@ -730,8 +736,11 @@ export const useChatStore = defineStore('chat', {
           const detail = await getCharacter(avatar)
           const ext = detail?.data?.extensions as { regex_scripts?: unknown } | undefined
           setScopedRegexScripts(avatar, ext?.regex_scripts)
+          // 脚本库运行时（酒馆助手 TavernHelper_scripts/tavern_helper.scripts）
+          startScriptRuntime(avatar, extractCardScripts(detail?.data?.extensions))
         } catch {
           setScopedRegexScripts(avatar, [])
+          stopScriptRuntime()
         }
         setActiveScopedAvatar(avatar)
         this.messages = toDisplayMessages(raw, { userFallback: this.userName, charFallback: charName })
@@ -765,6 +774,7 @@ export const useChatStore = defineStore('chat', {
         this.syncSessMeta()
         // 同步联系人面板的选中态（内含详情加载）
         chars.select(avatar)
+        emitScriptHostEvent('chat_changed', { avatar, file: fileId })
       } catch (e) {
         this.error = e instanceof Error ? e.message : String(e)
       } finally {
@@ -2326,12 +2336,18 @@ export const useChatStore = defineStore('chat', {
       // 生成期间崩溃/断电不丢整轮输入。失败回落全量保存（saveCurrent 现已保全 header）。
       await this.persistUserLine()
       log.op('chat.send', '发送消息', { file: this.currentFile, len: t.length })
+      emitScriptHostEvent('message_sent', { file: this.currentFile, message: t })
       await this.generateReply()
       // M-19 auto-continue：回复过短时自动续写（generateReply 的 streaming 状态已复位）
       if (this.autoContinueEnabled && !this.lastGenAborted) {
         await this.autoContinueReply(this.autoContinueTarget)
       }
       await this.saveCurrent()
+      emitScriptHostEvent('message_received', {
+        file: this.currentFile,
+        message: this.messages[this.messages.length - 1]?.content ?? '',
+      })
+      emitScriptHostEvent('generation_ended', { file: this.currentFile })
       log.op('chat.send.done', '本轮完成', {
         file: this.currentFile,
         err: this.lastError || undefined,
@@ -2659,6 +2675,7 @@ export const useChatStore = defineStore('chat', {
       if (this.streaming) return
       const m = this.messages[index]
       if (!m || m.pending || m.content === content) return
+      emitScriptHostEvent('message_edited', { message_id: index, message: content })
       if (this.group) {
         const li = this.groupLineIndexOf(m)
         if (li >= 0) {

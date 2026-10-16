@@ -10,7 +10,7 @@
  * - 高度自适应：帧内 ResizeObserver 上报 scrollHeight，宿主随之调高
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { buildEmbedSrcdoc } from '@/services/st/embed'
+import { buildEmbedSrcdoc, SANDBOX_BOOTSTRAP } from '@/services/st/embed'
 import { handleEmbedCall } from '@/services/st/embedBridge'
 
 const props = defineProps<{
@@ -23,82 +23,10 @@ const height = ref(160)
 /** 卡内脚本错误（上报展示，最多留 3 条） */
 const errors = ref<string[]>([])
 
-/** 桥接引导脚本：挂 TavernHelper shim + 高度上报（运行在 iframe 内） */
-const BOOTSTRAP = `
-(function () {
-  function reportErr(kind, msg, where) {
-    try { parent.postMessage({ source: 'tavern-embed', type: 'th-error', msg: String(msg), where: String(where ?? '') }, '*') } catch (e) { /* ignore */ }
-  }
-  // 沙箱无 allow-same-origin → localStorage/sessionStorage 访问必抛 SecurityError，
-  // 大量卡脚本（日志/配置存取）会因此中断。垫内存版兜底（不跨帧持久，同酒馆助手语义）。
-  function makeStorage() {
-    var store = {}
-    return {
-      getItem: function (k) { return Object.prototype.hasOwnProperty.call(store, String(k)) ? store[String(k)] : null },
-      setItem: function (k, v) { store[String(k)] = String(v) },
-      removeItem: function (k) { delete store[String(k)] },
-      clear: function () { store = {} },
-      key: function (i) { return Object.keys(store)[i] ?? null },
-      get length() { return Object.keys(store).length },
-    }
-  }
-  try {
-    window.localStorage.getItem('__probe__')
-  } catch (e) {
-    try {
-      Object.defineProperty(window, 'localStorage', { value: makeStorage(), configurable: true })
-      Object.defineProperty(window, 'sessionStorage', { value: makeStorage(), configurable: true })
-    } catch (e2) { /* 极老内核忽略 */ }
-  }
-  window.addEventListener('error', function (e) {
-    reportErr('error', e.message, (e.filename || '') + ':' + (e.lineno ?? ''))
-  })
-  window.addEventListener('unhandledrejection', function (e) {
-    var r = e.reason
-    reportErr('promise', r && r.message ? r.message : String(r), '')
-  })
-  var seq = 0
-  var pending = {}
-  function call(api, args) {
-    return new Promise(function (resolve, reject) {
-      var id = ++seq
-      pending[id] = { resolve: resolve, reject: reject }
-      parent.postMessage({ source: 'tavern-embed', type: 'th-call', id: id, api: api, args: args }, '*')
-      window.setTimeout(function () {
-        if (pending[id]) { delete pending[id]; reject(new Error('调用超时：' + api)) }
-      }, 120000)
-    })
-  }
-  window.addEventListener('message', function (ev) {
-    var d = ev.data
-    if (!d || d.source !== 'tavern-host' || d.type !== 'th-result') return
-    var p = pending[d.id]
-    if (!p) return
-    delete pending[d.id]
-    if (d.error) p.reject(new Error(d.error))
-    else p.resolve(d.result)
-  })
-  var api = {
-    getChatMessages: function (range) { return call('getChatMessages', { range: range }) },
-    getVariables: function () { return call('getVariables', {}) },
-    replaceVariables: function (value) { return call('replaceVariables', { value: value }) },
-    insertVariables: function (value) { return call('insertVariables', { value: value }) },
-    triggerSlash: function (cmds) { return call('triggerSlash', { cmds: cmds }) },
-  }
-  window.TavernHelper = api
-  Object.keys(api).forEach(function (k) { window[k] = api[k] })
-  function postHeight() {
-    parent.postMessage({ source: 'tavern-embed', type: 'th-resize', height: document.documentElement.scrollHeight }, '*')
-  }
-  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.documentElement)
-  window.addEventListener('load', postHeight)
-  document.addEventListener('DOMContentLoaded', postHeight)
-})()
-`
 
 // ⚠ 必须 computed：组件随气泡列表复用（key=索引），props.html 变化时
 //    srcdoc 若是 setup 常量不会更新——表现为"切换会话后界面还是旧的那份"
-const srcdoc = computed(() => buildEmbedSrcdoc(props.html, BOOTSTRAP))
+const srcdoc = computed(() => buildEmbedSrcdoc(props.html, SANDBOX_BOOTSTRAP))
 
 function onMessage(ev: MessageEvent): void {
   const w = frame.value?.contentWindow
