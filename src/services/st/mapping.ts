@@ -16,7 +16,8 @@
  * 映射的真正价值是「不让两边的数字撕裂」，以及为将来可能放开 ST 界面留一致性。
  * 细节见 `mapping-core.ts` 的映射表注释。
  */
-import { getSettings, saveSettings } from './data'
+import { getSettings, saveSettings, invalidateSettingsCache } from './data'
+import { mutateSettings } from './settings-writequeue'
 import {
   diffMapping,
   mergeInto,
@@ -52,29 +53,35 @@ export async function inspectMapping(cfg: AppConfigForMapping): Promise<MappingD
 /**
  * 把本 App 的配置写进 ST 的 settings.json。
  *
- * 四步一步都不能少：读全量 → 内存合并 → 写全量 → **读回校验**。
- * 少了第一步会抹掉用户其它设置；少了最后一步就无法发现「写了但没生效」。
+ * 经 settings 写队列（T5）：整个「读全量 → 内存合并 → 写全量 → 读回校验」
+ * 在一个队列事务内完成 —— 合并基于锁内新鲜读，不会抹掉排队中其它模块刚写的键。
  */
 export async function applyMapping(cfg: AppConfigForMapping): Promise<MappingReport> {
-  const before = await getSettings()
-  const merged: Dict = mergeInto(before, cfg)
+  return mutateSettings(async (before) => {
+    const merged: Dict = mergeInto(before, cfg)
 
-  await saveSettings(merged as StSettingsLite)
+    await saveSettings(merged as StSettingsLite)
 
-  // 读回校验：不信任「写成功」，只信任「读到的值对」
-  const after = await getSettings()
-  const entries = diffMapping(after, cfg)
-  const applied = entries.filter((e) => e.inSync).length
-  const total = entries.length
+    // 读回校验：不信任「写成功」，只信任「读到的值对」
+    invalidateSettingsCache()
+    const after = await getSettings()
+    const entries = diffMapping(after, cfg)
+    const applied = entries.filter((e) => e.inSync).length
+    const total = entries.length
 
-  return {
-    ok: applied === total,
-    entries,
-    applied,
-    total,
-    message:
-      applied === total
-        ? `已同步 ${applied} 项到 SillyTavern`
-        : `同步完成，但 ${total - applied} 项读回不一致`,
-  }
+    return {
+      next: merged as StSettingsLite,
+      skip: true, // 落盘已由上方 saveSettings 完成，这里只透传报告
+      result: {
+        ok: applied === total,
+        entries,
+        applied,
+        total,
+        message:
+          applied === total
+            ? `已同步 ${applied} 项到 SillyTavern`
+            : `同步完成，但 ${total - applied} 项读回不一致`,
+      } satisfies MappingReport,
+    }
+  })
 }

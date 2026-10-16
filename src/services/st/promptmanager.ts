@@ -10,7 +10,8 @@
  * 其余标识映射到 App 的注入能力（世界书/人设/卡字段/示例），不支持的跳过。
  * 保存遵循 settings 三铁律：读全量 → 合并 → 写全量 → 比对一致不写。
  */
-import { getSettings, saveSettingsFull } from './data'
+import { getSettings } from './data'
+import { mutateSettings } from './settings-writequeue'
 
 export interface PmEntry {
   identifier: string
@@ -113,52 +114,48 @@ export async function loadPm(force = false): Promise<PmData> {
 
 const s = (v: unknown): string => (typeof v === 'string' ? v : '')
 
-/** 三槽 + 顺序写回 settings.json（铁律：读全量 → 合并 → 比对 → 写全量） */
+/** 三槽 + 顺序写回 settings.json（经 settings 写队列：锁内新鲜读 → 合并 → 比对 → 写全量） */
 export async function savePm(
   slots: { main?: string; nsfw?: string; jailbreak?: string },
   order: { identifier: string; enabled: boolean }[],
 ): Promise<void> {
-  const settings = await getSettings()
-  const prompts = (Array.isArray(settings.prompts) ? settings.prompts : []) as PmEntry[]
-  const merged = [...prompts]
-  const upsert = (identifier: string, content: string): void => {
-    const i = merged.findIndex((p) => p.identifier === identifier)
-    if (i >= 0) merged[i] = { ...merged[i]!, content }
-    else
-      merged.push({
-        identifier,
-        name: identifier,
-        system_prompt: true,
-        role: 'system',
-        content,
-      })
-  }
-  if (slots.main !== undefined) upsert('main', slots.main)
-  if (slots.nsfw !== undefined) upsert('nsfw', slots.nsfw)
-  if (slots.jailbreak !== undefined) upsert('jailbreak', slots.jailbreak)
-
-  const orderList = (Array.isArray(settings.prompt_order)
-    ? (settings.prompt_order as PmOrderItem[])
-    : []
-  ).filter((o) => o.character_id !== DUMMY_ID)
-  orderList.push({ character_id: DUMMY_ID, order: order.map((x) => ({ ...x })) })
-
-  // 比对一致就不写（避免无谓 autosave 备份）
-  const before = JSON.stringify({ p: settings.prompts, o: settings.prompt_order })
-  const after = JSON.stringify({ p: merged, o: orderList })
-  if (before === after) {
-    cache = {
-      main: slots.main ?? cache?.main ?? '',
-      nsfw: slots.nsfw ?? cache?.nsfw ?? '',
-      jailbreak: slots.jailbreak ?? cache?.jailbreak ?? '',
-      order,
-      rawPrompts: merged,
-      loaded: true,
+  await mutateSettings((settings) => {
+    const prompts = (Array.isArray(settings.prompts) ? settings.prompts : []) as PmEntry[]
+    const merged = [...prompts]
+    const upsert = (identifier: string, content: string): void => {
+      const i = merged.findIndex((p) => p.identifier === identifier)
+      if (i >= 0) merged[i] = { ...merged[i]!, content }
+      else
+        merged.push({
+          identifier,
+          name: identifier,
+          system_prompt: true,
+          role: 'system',
+          content,
+        })
     }
-    return
-  }
-  settings.prompts = merged
-  settings.prompt_order = orderList
-  await saveSettingsFull(settings)
+    if (slots.main !== undefined) upsert('main', slots.main)
+    if (slots.nsfw !== undefined) upsert('nsfw', slots.nsfw)
+    if (slots.jailbreak !== undefined) upsert('jailbreak', slots.jailbreak)
+
+    const orderList = (Array.isArray(settings.prompt_order)
+      ? (settings.prompt_order as PmOrderItem[])
+      : []
+    ).filter((o) => o.character_id !== DUMMY_ID)
+    orderList.push({ character_id: DUMMY_ID, order: order.map((x) => ({ ...x })) })
+
+    // 比对一致就不写（避免无谓 autosave 备份）
+    const before = JSON.stringify({ p: settings.prompts, o: settings.prompt_order })
+    const after = JSON.stringify({ p: merged, o: orderList })
+    if (before === after) {
+      return {
+        next: settings,
+        skip: true,
+      }
+    }
+    return {
+      next: { ...settings, prompts: merged, prompt_order: orderList },
+    }
+  })
   invalidatePmCache()
 }

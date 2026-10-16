@@ -4,11 +4,12 @@
  * - system：Web Speech API（纯前端，零配置）
  * - edge：ST 服务端 /api/edge-tts/generate（无需密钥）
  * - openai：ST 服务端 /api/openai/generate-voice（用服务端托管的 OpenAI 密钥）
- * - elevenlabs：浏览器直连 api.elevenlabs.io（密钥经 /api/secrets 托管读取）
+ * - elevenlabs：ST 服务端 /api/speech/elevenlabs/synthesize 代理（密钥不出服务端）
  * 设置持久化：settings.json extension_settings.stchat_tts / stchat_speech（App 自有键）
  */
 import { stGet, stPost } from './client'
-import { getSettings, saveSettingsFull } from './data'
+import { getSettings } from './data'
+import { mutateSettings } from './settings-writequeue'
 
 export interface SpeechSettings {
   model: string
@@ -26,7 +27,7 @@ export const TTS_PROVIDERS: { id: TtsProvider; label: string }[] = [
   { id: 'system', label: '系统语音（Web Speech API）' },
   { id: 'edge', label: 'Edge（服务端，无需密钥）' },
   { id: 'openai', label: 'OpenAI（服务端，用已配密钥）' },
-  { id: 'elevenlabs', label: 'ElevenLabs（直连，密钥经服务端托管）' },
+  { id: 'elevenlabs', label: 'ElevenLabs（服务端代理，用已配密钥）' },
 ]
 
 export interface TtsProviderSettings {
@@ -56,14 +57,13 @@ export async function loadSpeechSettings(force = false): Promise<SpeechSettings>
 
 export async function saveSpeechSettings(patch: Partial<SpeechSettings>): Promise<SpeechSettings> {
   const next = { ...(cache ?? SPEECH_DEFAULTS), ...patch }
-  const settings = await getSettings()
-  const ext = (settings.extension_settings as Record<string, unknown> | undefined) ?? {}
-  if (JSON.stringify(ext.stchat_speech) === JSON.stringify(next)) {
-    cache = next
-    return next
-  }
-  settings.extension_settings = { ...ext, stchat_speech: next }
-  await saveSettingsFull(settings)
+  await mutateSettings((settings) => {
+    const ext = (settings.extension_settings as Record<string, unknown> | undefined) ?? {}
+    if (JSON.stringify(ext.stchat_speech) === JSON.stringify(next)) {
+      return { next: settings, skip: true }
+    }
+    return { next: { ...settings, extension_settings: { ...ext, stchat_speech: next } } }
+  })
   cache = next
   return next
 }
@@ -93,14 +93,13 @@ export async function saveTtsSettings(patch: Partial<TtsProviderSettings>): Prom
     openai: { ...(ttsCache ?? TTS_DEFAULTS).openai, ...(patch.openai ?? {}) },
     elevenlabs: { ...(ttsCache ?? TTS_DEFAULTS).elevenlabs, ...(patch.elevenlabs ?? {}) },
   }
-  const settings = await getSettings()
-  const ext = (settings.extension_settings as Record<string, unknown> | undefined) ?? {}
-  if (JSON.stringify(ext.stchat_tts) === JSON.stringify(next)) {
-    ttsCache = next
-    return next
-  }
-  settings.extension_settings = { ...ext, stchat_tts: next }
-  await saveSettingsFull(settings)
+  await mutateSettings((settings) => {
+    const ext = (settings.extension_settings as Record<string, unknown> | undefined) ?? {}
+    if (JSON.stringify(ext.stchat_tts) === JSON.stringify(next)) {
+      return { next: settings, skip: true }
+    }
+    return { next: { ...settings, extension_settings: { ...ext, stchat_tts: next } } }
+  })
   ttsCache = next
   return next
 }
@@ -140,21 +139,19 @@ async function synthesize(text: string, tts: TtsProviderSettings): Promise<Blob>
       return res.blob()
     }
     case 'elevenlabs': {
-      const secrets = await stGet<Record<string, string>>('/api/secrets/view')
-      const key = secrets.api_key_elevenlabs
-      if (!key) throw new Error('ElevenLabs 未配置密钥：请到 ST 网页端「API 连接」填入')
-      const r = await fetch(
-        `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(
-          tts.elevenlabs.voiceId || TTS_DEFAULTS.elevenlabs.voiceId,
-        )}`,
-        {
-          method: 'POST',
-          headers: { 'xi-api-key': key, 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
-          body: JSON.stringify({ text, model_id: tts.elevenlabs.modelId || TTS_DEFAULTS.elevenlabs.modelId }),
+      // 密钥不出服务端：走 ST /api/speech/elevenlabs/synthesize（服务端 readSecret 后带 xi-api-key）。
+      // 此前"前端读 /api/secrets/view 拉全量密钥再浏览器直连"路径已在 2026 评审中判定为安全隐患并移除
+      // （该端点默认 403，见 ST secrets.js allowKeysExposure；新后端也不会提供读回全量密钥的端点）。
+      // 契约对齐 ST speech.js:234-258：body = { voiceId, request: { text, model_id } }。
+      const res = await stPost('/api/speech/elevenlabs/synthesize', {
+        voiceId: tts.elevenlabs.voiceId || TTS_DEFAULTS.elevenlabs.voiceId,
+        request: {
+          text,
+          model_id: tts.elevenlabs.modelId || TTS_DEFAULTS.elevenlabs.modelId,
         },
-      )
-      if (!r.ok) throw new Error(`ElevenLabs 合成失败（HTTP ${r.status}）`)
-      return r.blob()
+      })
+      if (!res.ok) throw new Error(`ElevenLabs 合成失败（HTTP ${res.status}）`)
+      return res.blob()
     }
     default: {
       const settings = await loadSpeechSettings()

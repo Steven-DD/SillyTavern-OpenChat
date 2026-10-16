@@ -19,7 +19,8 @@
  * （描述关联世界书 / 人设绑定角色 / 会话锁定），数据结构先留好，UI 暂不开放。
  */
 import { stBase, stPostForm, stPostJson } from './client'
-import { getChat, getSettings, saveChat, saveSettings } from './data'
+import { getChat, getSettings, saveChat } from './data'
+import { mutateSettings } from './settings-writequeue'
 import { enqueueChatWrite } from './writequeue'
 import type { StSettingsLite } from './types'
 
@@ -121,8 +122,8 @@ export async function listPersonas(): Promise<PersonaSnapshot> {
 }
 
 /**
- * 写回人设数据。
- * `patch` 只描述要改的部分，本函数负责「读全量 → 合并 → 写全量」。
+ * 写回人设数据（经 settings 写队列：锁内新鲜读 → 合并 → 写全量）。
+ * `patch` 只描述要改的部分，队列任务内完成「读全量 → 合并 → 写全量」。
  */
 export async function savePersonas(patch: {
   personas?: Persona[]
@@ -131,35 +132,37 @@ export async function savePersonas(patch: {
   depth?: number
   role?: number
 }): Promise<void> {
-  const settings = (await getSettings()) as unknown as Dict
-  const pu = asDict(settings.power_user)
-  const merged: Dict = { ...pu }
+  await mutateSettings((settingsRaw) => {
+    const settings = settingsRaw as unknown as Dict
+    const pu = asDict(settings.power_user)
+    const merged: Dict = { ...pu }
 
-  if (patch.personas) {
-    const names: Dict = {}
-    const descs: Dict = {}
-    for (const p of patch.personas) {
-      names[p.id] = p.name
-      const entry: Dict = { description: p.description, position: p.position }
-      // 第二版字段：有值才写，避免空数组污染 ST 侧
-      if (p.lorebook) entry.lorebook = p.lorebook
-      descs[p.id] = entry
+    if (patch.personas) {
+      const names: Dict = {}
+      const descs: Dict = {}
+      for (const p of patch.personas) {
+        names[p.id] = p.name
+        const entry: Dict = { description: p.description, position: p.position }
+        // 第二版字段：有值才写，避免空数组污染 ST 侧
+        if (p.lorebook) entry.lorebook = p.lorebook
+        descs[p.id] = entry
+      }
+      merged.personas = names
+      merged.persona_descriptions = descs
     }
-    merged.personas = names
-    merged.persona_descriptions = descs
-  }
-  if (patch.defaultId !== undefined) merged.default_persona = patch.defaultId
-  if (patch.userName !== undefined) {
-    merged.username = patch.userName
-    // 顶层 username 与 power_user.username 是同一语义（{{user}} 宏从顶层读）
-    settings.username = patch.userName
-  }
-  if (patch.depth !== undefined) merged.persona_description_depth = patch.depth
-  if (patch.role !== undefined) merged.persona_description_role = patch.role
+    if (patch.defaultId !== undefined) merged.default_persona = patch.defaultId
+    if (patch.userName !== undefined) {
+      merged.username = patch.userName
+      // 顶层 username 与 power_user.username 是同一语义（{{user}} 宏从顶层读）
+      settings.username = patch.userName
+    }
+    if (patch.depth !== undefined) merged.persona_description_depth = patch.depth
+    if (patch.role !== undefined) merged.persona_description_role = patch.role
 
-  settings.power_user = merged
-  // settings 是「读到的全量」，整体写回（部分字段会把其余键抹掉）
-  await saveSettings(settings as unknown as StSettingsLite)
+    settings.power_user = merged
+    // settings 是「读到的全量」，整体写回（部分字段会把其余键抹掉）
+    return { next: settings as unknown as StSettingsLite }
+  })
 }
 
 /** 上传头像（multipart）——返回落盘的文件名 */

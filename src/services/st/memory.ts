@@ -5,7 +5,8 @@
  *   + App 开关 extension_settings.stchat_memory.enabled
  * - 摘要生成本身由 chat store 用主生成通道执行（generateSummaryPrompt 提供提示词）
  */
-import { getSettings, saveSettingsFull } from './data'
+import { getSettings } from './data'
+import { mutateSettings } from './settings-writequeue'
 import { substituteMacros } from './prompt'
 
 /** ST memory 扩展默认提示词（promptWords 替换 {{words}}） */
@@ -65,14 +66,13 @@ export async function loadMemorySettings(force = false): Promise<MemorySettings>
 
 export async function saveMemorySettings(patch: Partial<MemorySettings>): Promise<MemorySettings> {
   const next = { ...(cache ?? MEMORY_DEFAULTS), ...patch }
-  const settings = await getSettings()
-  const ext = (settings.extension_settings as Record<string, unknown> | undefined) ?? {}
-  if (JSON.stringify(ext.memory) === JSON.stringify(next)) {
-    cache = next
-    return next
-  }
-  settings.extension_settings = { ...ext, memory: next }
-  await saveSettingsFull(settings)
+  await mutateSettings((settings) => {
+    const ext = (settings.extension_settings as Record<string, unknown> | undefined) ?? {}
+    if (JSON.stringify(ext.memory) === JSON.stringify(next)) {
+      return { next: settings, skip: true }
+    }
+    return { next: { ...settings, extension_settings: { ...ext, memory: next } } }
+  })
   cache = next
   return next
 }
@@ -86,10 +86,15 @@ export async function loadMemoryAppEnabled(): Promise<boolean> {
 }
 
 export async function saveMemoryAppEnabled(enabled: boolean): Promise<void> {
-  const settings = await getSettings()
-  const ext = (settings.extension_settings as Record<string, unknown> | undefined) ?? {}
-  settings.extension_settings = { ...ext, stchat_memory: { ...(ext.stchat_memory as object | undefined), enabled } }
-  await saveSettingsFull(settings)
+  await mutateSettings((settings) => {
+    const ext = (settings.extension_settings as Record<string, unknown> | undefined) ?? {}
+    return {
+      next: {
+        ...settings,
+        extension_settings: { ...ext, stchat_memory: { ...(ext.stchat_memory as object | undefined), enabled } },
+      },
+    }
+  })
 }
 
 /** 生成摘要的提示词 */

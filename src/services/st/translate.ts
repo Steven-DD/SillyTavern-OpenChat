@@ -3,7 +3,8 @@
  * 设置持久化：settings.json extension_settings.stchat_translate（App 自有键）
  */
 import { stPostJson } from './client'
-import { getSettings, saveSettingsFull } from './data'
+import { getSettings } from './data'
+import { mutateSettings } from './settings-writequeue'
 
 export const TRANSLATE_PROVIDERS = [
   { id: 'google', label: 'Google（免密钥）' },
@@ -44,15 +45,16 @@ export async function loadTranslateSettings(force = false): Promise<TranslateSet
 
 export async function saveTranslateSettings(patch: Partial<TranslateSettings>): Promise<TranslateSettings> {
   const next = { ...getTranslateSettingsCached(), ...patch }
-  const settings = await getSettings()
-  const ext = (settings.extension_settings as Record<string, unknown> | undefined) ?? {}
-  const before = JSON.stringify(ext.stchat_translate)
-  if (JSON.stringify(next) === before) {
-    cache = next
-    return next
-  }
-  settings.extension_settings = { ...ext, stchat_translate: next }
-  await saveSettingsFull(settings)
+  await mutateSettings<TranslateSettings>((settings) => {
+    const ext = (settings.extension_settings as Record<string, unknown> | undefined) ?? {}
+    if (JSON.stringify(ext.stchat_translate) === JSON.stringify(next)) {
+      return { next: settings, skip: true, result: next }
+    }
+    return {
+      next: { ...settings, extension_settings: { ...ext, stchat_translate: next } },
+      result: next,
+    }
+  })
   cache = next
   return next
 }

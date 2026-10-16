@@ -6,7 +6,8 @@
  *   + App 开关 extension_settings.stchat_vectors.enabled
  */
 import { stPostJson } from './client'
-import { getSettings, saveSettingsFull } from './data'
+import { getSettings } from './data'
+import { mutateSettings } from './settings-writequeue'
 
 export interface VectorSettings {
   enabled: boolean
@@ -51,14 +52,13 @@ export async function loadVectorSettings(force = false): Promise<VectorSettings>
 
 export async function saveVectorSettings(patch: Partial<VectorSettings>): Promise<VectorSettings> {
   const next = { ...(cache ?? VECTOR_DEFAULTS), ...patch }
-  const settings = await getSettings()
-  const ext = (settings.extension_settings as Record<string, unknown> | undefined) ?? {}
-  if (JSON.stringify(ext.vectors) === JSON.stringify(next)) {
-    cache = next
-    return next
-  }
-  settings.extension_settings = { ...ext, vectors: next }
-  await saveSettingsFull(settings)
+  await mutateSettings((settings) => {
+    const ext = (settings.extension_settings as Record<string, unknown> | undefined) ?? {}
+    if (JSON.stringify(ext.vectors) === JSON.stringify(next)) {
+      return { next: settings, skip: true }
+    }
+    return { next: { ...settings, extension_settings: { ...ext, vectors: next } } }
+  })
   cache = next
   return next
 }
@@ -72,10 +72,15 @@ export async function loadVectorsAppEnabled(): Promise<boolean> {
 }
 
 export async function saveVectorsAppEnabled(enabled: boolean): Promise<void> {
-  const settings = await getSettings()
-  const ext = (settings.extension_settings as Record<string, unknown> | undefined) ?? {}
-  settings.extension_settings = { ...ext, stchat_vectors: { ...(ext.stchat_vectors as object | undefined), enabled } }
-  await saveSettingsFull(settings)
+  await mutateSettings((settings) => {
+    const ext = (settings.extension_settings as Record<string, unknown> | undefined) ?? {}
+    return {
+      next: {
+        ...settings,
+        extension_settings: { ...ext, stchat_vectors: { ...(ext.stchat_vectors as object | undefined), enabled } },
+      },
+    }
+  })
 }
 
 /** 会话集合 ID（sanitize 成安全字符） */

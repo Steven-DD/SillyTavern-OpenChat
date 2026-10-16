@@ -519,8 +519,9 @@ export async function getSettings(): Promise<StSettingsLite> {
 
 /**
  * 保存完整 settings.json（body 即 settings 本体，不包 {settings:...} —— 三条铁律之一）。
- * 供 extension_settings 类扩展数据写入（regex/翻译/快捷回复等）；调用方自行保证
- * 「读全量 → 合并 → 写全量」。
+ * ⚠ 裸写：绕过写队列。仅限 settings-writequeue.ts（队列内部落盘）与 mapping.ts 的
+ * applyMapping（自身已在 settings 写队列任务内执行）使用；
+ * 业务模块写 settings 一律走 settings-writequeue.ts 的 mutateSettings。
  */
 export async function saveSettingsFull(settings: unknown): Promise<void> {
   invalidateSettingsCache()
@@ -545,20 +546,25 @@ export async function loadAutoContinue(): Promise<AutoContinueSettings> {
   }
 }
 
-/** 写回 ST 的 auto_continue 设置（读改写 power_user，其余字段原样透传） */
+/** 写回 ST 的 auto_continue 设置（经 settings 写队列：读改写 power_user，其余字段原样透传） */
 export async function saveAutoContinue(v: AutoContinueSettings): Promise<void> {
-  const s = (await getSettings()) as Record<string, unknown>
-  const pu = (s.power_user as Record<string, unknown> | undefined) ?? {}
-  s.power_user = {
-    ...pu,
-    auto_continue: {
-      ...(pu.auto_continue as Record<string, unknown> | undefined),
-      enabled: v.enabled,
-      target_length: Math.max(0, Math.floor(v.targetLength)),
-      allow_chat_completions: true,
-    },
-  }
-  await saveSettingsFull(s)
+  // 动态导入避免 data.ts ↔ settings-writequeue.ts 的模块求值期循环
+  // （队列内部用到本文件的 saveSettingsFull/getSettings）
+  const { mutateSettings } = await import('./settings-writequeue')
+  await mutateSettings((s) => {
+    const cur = s as Record<string, unknown>
+    const pu = (cur.power_user as Record<string, unknown> | undefined) ?? {}
+    cur.power_user = {
+      ...pu,
+      auto_continue: {
+        ...(pu.auto_continue as Record<string, unknown> | undefined),
+        enabled: v.enabled,
+        target_length: Math.max(0, Math.floor(v.targetLength)),
+        allow_chat_completions: true,
+      },
+    }
+    return { next: cur as StSettingsLite }
+  })
 }
 
 /**

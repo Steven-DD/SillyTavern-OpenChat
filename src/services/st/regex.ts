@@ -9,7 +9,8 @@
  * - minDepth/maxDepth：距末尾消息深度过滤（prompt 通路）
  * - substituteRegex：findRegex 是否先做宏替换（0 不 / 1 替换 / 2 替换并转义）
  */
-import { getSettings, saveSettingsFull } from './data'
+import { getSettings } from './data'
+import { mutateSettings } from './settings-writequeue'
 import { runMacros, type MacroContext } from './macros'
 
 export const REGEX_PLACEMENT = {
@@ -92,20 +93,15 @@ export function setActiveScopedAvatar(avatar: string): void {
   scopedAvatar = avatar
 }
 
-/** 写回 settings.json（读全量 → 合并 → 写全量，先比对一致不写） */
+/** 写回 settings.json（经 settings 写队列：锁内新鲜读 → 合并 → 写全量，先比对一致不写） */
 export async function saveRegexScripts(scripts: RegexScript[]): Promise<void> {
-  const settings = await getSettings()
-  const before = JSON.stringify((settings.extension_settings as Record<string, unknown>)?.regex ?? [])
-  const after = JSON.stringify(scripts)
-  if (before === after) {
-    cache = scripts
-    return
-  }
-  settings.extension_settings = {
-    ...((settings.extension_settings as Record<string, unknown>) ?? {}),
-    regex: scripts,
-  }
-  await saveSettingsFull(settings)
+  await mutateSettings((settings) => {
+    const ext = (settings.extension_settings as Record<string, unknown> | undefined) ?? {}
+    if (JSON.stringify(ext.regex ?? []) === JSON.stringify(scripts)) {
+      return { next: settings, skip: true }
+    }
+    return { next: { ...settings, extension_settings: { ...ext, regex: scripts } } }
+  })
   cache = scripts
 }
 
