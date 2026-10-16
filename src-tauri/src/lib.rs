@@ -14,6 +14,7 @@
 pub mod app_settings;
 pub mod downloader;
 pub mod installer;
+pub mod pathguard;
 pub mod plugin;
 pub mod relay;
 pub mod st_data;
@@ -737,44 +738,27 @@ enum ChatLineOp {
 }
 
 /// 解析会话 jsonl 路径：<data_root>/default-user/chats/<avatar>/<file>.jsonl
+/// （T8：组件校验收敛到 pathguard 共享库；含保留名/尾点剥离/穿越拒绝）
 fn chat_jsonl_path(host: &plugin::PluginHost, avatar: &str, file: &str) -> Result<PathBuf, String> {
-    let safe = |s: &str| {
-        !s.is_empty()
-            && !s.contains(['/', '\\', ':', '*', '?', '"', '<', '>', '|', '\0'])
-            && s != "."
-            && s != ".."
-    };
-    if !safe(avatar) || !safe(file) {
-        return Err("非法的会话路径参数".into());
-    }
     let r = host.resolve().map_err(|e| format!("组件未就绪：{e}"))?;
     let (root, _) = host.data_paths(&r.st_dir);
+    let base = root.join("default-user").join("chats");
     let name = if file.ends_with(".jsonl") {
         file.to_string()
     } else {
         format!("{file}.jsonl")
     };
-    Ok(root
-        .join("default-user")
-        .join("chats")
-        .join(avatar)
-        .join(name))
+    let p = pathguard::join_under(&base, &[avatar, &name]).map_err(|e| e.to_string())?;
+    Ok(p)
 }
 
 /// 解析角色卡文件路径：<data_root>/default-user/characters/<avatar>（导出 PNG 用）
 fn character_png_path(host: &plugin::PluginHost, avatar: &str) -> Result<PathBuf, String> {
-    let safe = |s: &str| {
-        !s.is_empty()
-            && !s.contains(['/', '\\', ':', '*', '?', '"', '<', '>', '|', '\0'])
-            && s != "."
-            && s != ".."
-    };
-    if !safe(avatar) {
-        return Err("非法的角色卡路径参数".into());
-    }
     let r = host.resolve().map_err(|e| format!("组件未就绪：{e}"))?;
     let (root, _) = host.data_paths(&r.st_dir);
-    Ok(root.join("default-user").join("characters").join(avatar))
+    let base = root.join("default-user").join("characters");
+    let p = pathguard::join_under(&base, &[avatar]).map_err(|e| e.to_string())?;
+    Ok(p)
 }
 
 /// 导出角色卡原文件（PNG/JSON/CHARX，保存对话框选位置）；字节级复制，不做任何转换
