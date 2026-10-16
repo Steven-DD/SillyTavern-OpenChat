@@ -9,7 +9,7 @@
  *   相对路径请求也不可用，数据只能走桥
  * - 高度自适应：帧内 ResizeObserver 上报 scrollHeight，宿主随之调高
  */
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { buildEmbedSrcdoc } from '@/services/st/embed'
 import { handleEmbedCall } from '@/services/st/embedBridge'
 
@@ -96,7 +96,9 @@ const BOOTSTRAP = `
 })()
 `
 
-const srcdoc = buildEmbedSrcdoc(props.html, BOOTSTRAP)
+// ⚠ 必须 computed：组件随气泡列表复用（key=索引），props.html 变化时
+//    srcdoc 若是 setup 常量不会更新——表现为"切换会话后界面还是旧的那份"
+const srcdoc = computed(() => buildEmbedSrcdoc(props.html, BOOTSTRAP))
 
 function onMessage(ev: MessageEvent): void {
   const w = frame.value?.contentWindow

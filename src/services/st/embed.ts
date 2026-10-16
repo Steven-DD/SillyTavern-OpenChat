@@ -19,6 +19,7 @@ const HAS_SCRIPT = /<script[\s>]/i
 /**
  * 提取消息中的前端界面 HTML。命中返回文档字符串，否则空串。
  * 优先取被围栏包裹的文档（可与正文共存），否则整段必须是完整文档。
+ * （新代码请用 splitEmbedSegments——支持 embed 与正文共存）
  */
 export function extractEmbedHtml(content: string): string {
   if (!HAS_SCRIPT.test(content)) return ''
@@ -26,6 +27,40 @@ export function extractEmbedHtml(content: string): string {
   if (fenced) return fenced[1]!
   if (BARE_DOC.test(content)) return content.trim()
   return ''
+}
+
+/** 显示分段：embed（iframe 渲染）与文本（markdown 渲染）交替 */
+export interface EmbedSegment {
+  type: 'embed' | 'text'
+  content: string
+}
+
+/** 围栏包裹形态 */
+const FENCED_DOC_G = /```[^\n]*\n(<!DOCTYPE\s+html[\s\S]*?<\/html>)[\s]*?```/gi
+
+/**
+ * 把消息拆成 embed/文本分段（保持原始顺序）：
+ * 卡片的替换正则只替换消息中的标记段（如 <SceneInfo>…</SceneInfo> →
+ * HTML 界面），文档之外的正文必须继续按 markdown 渲染——
+ * 此前整条消息被 iframe 独占，界面外的文字全部丢失（bug：文字消失）。
+ */
+export function splitEmbedSegments(content: string): EmbedSegment[] {
+  if (!HAS_SCRIPT.test(content)) return [{ type: 'text', content }]
+  // 整条消息就是一份裸文档 → 单 embed 段
+  if (BARE_DOC.test(content)) return [{ type: 'embed', content: content.trim() }]
+
+  const segs: EmbedSegment[] = []
+  let last = 0
+  for (const m of content.matchAll(FENCED_DOC_G)) {
+    const idx = m.index ?? 0
+    const before = content.slice(last, idx)
+    if (before.trim()) segs.push({ type: 'text', content: before })
+    segs.push({ type: 'embed', content: m[1] ?? '' })
+    last = idx + m[0].length
+  }
+  const rest = content.slice(last)
+  if (rest.trim()) segs.push({ type: 'text', content: rest })
+  return segs.length ? segs : [{ type: 'text', content }]
 }
 
 /** 围栏行形态分类（写卡系模型输出实测）：

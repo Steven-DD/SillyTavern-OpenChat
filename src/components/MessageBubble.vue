@@ -7,7 +7,7 @@ import Avatar from '@/components/Avatar.vue'
 import { bubbleTime } from '@/utils/time'
 import { useThemeStore } from '@/stores/theme'
 import { applyDisplayRegex, REGEX_PLACEMENT } from '@/services/st/regex'
-import { adaptCardMarkup, extractEmbedHtml } from '@/services/st/embed'
+import { adaptCardMarkup, splitEmbedSegments } from '@/services/st/embed'
 import HtmlEmbedFrame from '@/components/HtmlEmbedFrame.vue'
 import { detectFenceLanguages } from '@/utils/codeDetect'
 import { substituteMacros } from '@/services/st/prompt'
@@ -139,9 +139,11 @@ const displayContent = computed(() => {
     : subbed
 })
 
-/** 前端界面（酒馆助手语义：正则替换出的完整 HTML 应用）→ iframe 沙箱渲染 */
-const embedHtml = computed(() =>
-  props.m.role === 'assistant' && !props.m.pending ? extractEmbedHtml(displayContent.value) : '',
+/** 前端界面分段：embed 段走 iframe 沙箱，文本段走 markdown（两者可在一条消息内共存） */
+const embedSegs = computed(() =>
+  props.m.role === 'assistant' && !props.m.pending
+    ? splitEmbedSegments(displayContent.value)
+    : [{ type: 'text' as const, content: displayContent.value }],
 )
 const displayReasoning = computed(() =>
   substituteMacros(
@@ -215,24 +217,27 @@ const isDark = computed(() => theme.mode === 'dark' || theme.mode === 'dusk')
       >
         <div v-if="showTrans && translation" class="txt trans-txt">{{ translation }}</div>
         <template v-else>
-          <!-- 前端界面（酒馆助手语义：完整 HTML 文档 + 脚本）→ iframe 沙箱渲染 -->
-          <HtmlEmbedFrame v-if="m.role === 'assistant' && embedHtml" :html="embedHtml" />
-          <MarkdownRender
-            v-else-if="m.role === 'assistant'"
-            id="customized-answer-content-markdown"
-            class="txt md"
-            :content="displayContent"
-            mode="chat"
-            :final="!(m.pending && streaming)"
-            :html-policy="HTML_POLICY"
-            :custom-id="MD_CUSTOM_ID"
-            :custom-html-tags="CUSTOM_HTML_TAGS"
-            :themes="mdThemes"
-            :is-dark="isDark"
-            :node-virtual="false"
-          />
-          <span v-else class="txt">{{ displayContent }}</span
-          ><span v-if="m.pending && streaming" class="caret-el">▍</span>
+          <!-- 分段渲染：embed 段（酒馆助手语义 HTML 应用）走 iframe 沙箱，
+               文本段走 markdown——两类段可在一条消息内共存 -->
+          <template v-for="(seg, si) in embedSegs" :key="si">
+            <HtmlEmbedFrame v-if="seg.type === 'embed'" :html="seg.content" />
+            <MarkdownRender
+              v-else-if="m.role === 'assistant'"
+              :id="si === 0 ? 'customized-answer-content-markdown' : undefined"
+              class="txt md"
+              :content="seg.content"
+              mode="chat"
+              :final="!(m.pending && streaming)"
+              :html-policy="HTML_POLICY"
+              :custom-id="MD_CUSTOM_ID"
+              :custom-html-tags="CUSTOM_HTML_TAGS"
+              :themes="mdThemes"
+              :is-dark="isDark"
+              :node-virtual="false"
+            />
+            <span v-else class="txt">{{ seg.content }}</span>
+          </template>
+          <span v-if="m.pending && streaming" class="caret-el">▍</span>
         </template>
       </div>
 
