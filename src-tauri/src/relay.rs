@@ -413,9 +413,9 @@ mod tests {
 fn sniff_image_mime(bytes: &[u8]) -> Option<&'static str> {
     match bytes {
         // JPEG: FF D8 FF
-        [0xFF, 0xD8, 0xFF, ..] => Some("image/jpeg"),
+        [0xFF, 0xD8, 0xFF, ..] => Some(SNIFF_JPEG),
         // PNG: 89 50 4E 47 0D 0A 1A 0A
-        [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, ..] => Some("image/png"),
+        [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, ..] => Some(SNIFF_PNG),
         // GIF87a / GIF89a
         [b'G', b'I', b'F', b'8', _, b'a', ..] => Some("image/gif"),
         // WebP: "RIFF" + 4 字节长度 + "WEBP"
@@ -423,6 +423,10 @@ fn sniff_image_mime(bytes: &[u8]) -> Option<&'static str> {
         _ => None,
     }
 }
+
+/// 魔数 → MIME 名的常量（backend/uploads.rs 与本表互验用；T9 单一来源迁移前的桥）
+pub const SNIFF_JPEG: &str = "image/jpeg";
+pub const SNIFF_PNG: &str = "image/png";
 
 fn apply_cors(
     b: axum::http::response::Builder,
