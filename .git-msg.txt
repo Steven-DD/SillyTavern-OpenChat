@@ -1,0 +1,20 @@
+批9（Phase 5）：T14 扩展 git 安装族全量 —— git2/libgit2 本地库 + https 收紧
+
+- backend/extensions.rs： /install /update /version /branches /switch /move /delete
+  七端点全量（ST extensions.js 逐行核对），ST 字面错误体 = 纯文本
+- 安全收紧（评审 P1-1）：
+  - 仅 https://（ST 允许 http —— native 拒 http/file/ssh/git/ext:: 一类向量；
+    ext:: 命令执行场景斩草），服务端校验不依赖前端
+  - git2/libgit2 本地库：不起 system git（无命令执行向量），不做全局
+    gitconfig url.*.insteadOf 改写（评审关键面）
+  - sanitize(非法名)+join_under 兜底（穿越禁杀）
+  - manifest 校验失败 → 递归清理 + 500 文本（extensions.js:148-152 语义保留）
+  - clone/fetch 失败 → 清理半写残留
+- /update 只做 fast-forward（非 ff 保守不动，比 ST 字面更安全 —— 拉取面不做
+  递归复位）；/branches 本地+远端全列出（origin/HEAD 剔除）；move 同 PS 语义
+- /discover 补 global 组（global-extensions；冲突时用户目录优先/幽灵扩展跳过）
+- provisional 测试覆盖：URL 校验语法、update/version 的 404/500、非 repo、
+  本地仓库 init+commit 后 version/switch(404/幂等/切换)/branches、move/delete
+  正反双路径 + discover 双组
+- api.rs 接线 7 端点；discovery-5001 旧 git_ops_not_migrated 移除
+- cargo 174 全绿 0 警告；selfcheck 13；TS 0

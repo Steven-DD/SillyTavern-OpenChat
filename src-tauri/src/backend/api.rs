@@ -418,7 +418,7 @@ async fn route(
                 Err(_) => bad_json(origin),
             }
         }
-        // extensions 族（Phase 1/5 · manifest #67-#68；git 安装面 501 → Phase 5 T14）
+        // extensions 族（Phase 1/5 · manifest #67-#68 + T14 git 管理族全量）
         ("GET", "/api/extensions/discover") => super::extensions::discover(&st, origin),
         ("POST", "/api/quick-replies/save") => {
             match serde_json::from_slice::<serde_json::Value>(body_bytes) {
@@ -426,11 +426,34 @@ async fn route(
                 Err(_) => bad_json(origin),
             }
         }
-        ("POST", p) if p.starts_with("/api/extensions/") => {
-            super::extensions::git_ops_not_migrated(
-                p.trim_start_matches("/api/extensions/"),
-                origin,
-            )
+        // 扩展 git 管理族（T14：git2/libgit2 本地库 + 仅 https 收紧）
+        ("POST", "/api/extensions/install") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::extensions::install(&st, &v, origin).await,
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/extensions/update") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::extensions::update(&st, &v, origin).await,
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/extensions/version") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::extensions::version(&st, &v, origin).await,
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/extensions/branches") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::extensions::branches(&st, &v, origin).await,
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/extensions/switch") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::extensions::switch_branch(&st, &v, origin).await,
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/extensions/move") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::extensions::move_ext(&st, &v, origin).await,
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/extensions/delete") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::extensions::delete(&st, &v, origin).await,
+            Err(_) => bad_json(origin),
         }
         // 静态资源前缀（manifest #31-#33；鉴权豁免路径的落盘读取）
         (m, p)
