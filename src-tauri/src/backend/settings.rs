@@ -67,15 +67,16 @@ fn generate_timestamp() -> String {
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
     let secs = now.as_secs() as i64;
     let ms = now.subsec_millis();
-    let dt = chrono_utc(secs);
+    let dt = civil_utc(secs);
     format!(
         "{:04}{:02}{:02}-{:02}{:02}{:02}-{:03}",
         dt.0, dt.1, dt.2, dt.3, dt.4, dt.5, ms
     )
 }
 
-/// 简易 UTC 时间分解（避免新增 chrono 依赖；文件名仅作排序/唯一用途）
-fn chrono_utc(secs: i64) -> (i64, u32, u32, u32, u32, u32) {
+/// 简易 UTC 时间分解（避免新增 chrono 依赖；文件名仅作排序/唯一用途）。
+/// pub 供 chats.rs 的时间戳共用（civil_from_days，Howard Hinnant 算法）。
+pub fn civil_utc(secs: i64) -> (i64, u32, u32, u32, u32, u32) {
     let days = secs.div_euclid(86400);
     let rem = secs.rem_euclid(86400);
     let (h, m, s) = ((rem / 3600) as u32, ((rem % 3600) / 60) as u32, (rem % 60) as u32);
@@ -289,6 +290,7 @@ mod tests {
             data_root: root.clone(),
             max_body_bytes: 1024,
             settings_svc: Arc::new(SettingsService::new()),
+            chats_svc: Arc::new(super::super::chats::ChatsService::new()),
         };
         let svc = SettingsService::new();
 
@@ -324,6 +326,7 @@ mod tests {
             data_root: root.clone(),
             max_body_bytes: 1024,
             settings_svc: Arc::new(SettingsService::new()),
+            chats_svc: Arc::new(super::super::chats::ChatsService::new()),
         };
         let svc = SettingsService::new();
         let body = json!({ "settings": "{\"a\":1}" });
@@ -340,6 +343,7 @@ mod tests {
             data_root: root.clone(),
             max_body_bytes: 1024,
             settings_svc: Arc::new(SettingsService::new()),
+            chats_svc: Arc::new(super::super::chats::ChatsService::new()),
         };
         let svc = SettingsService::new();
 

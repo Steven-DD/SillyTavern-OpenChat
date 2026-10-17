@@ -23,6 +23,7 @@
 mod api;
 mod auth;
 pub mod characters;
+pub mod chats;
 pub mod gate;
 pub mod settings;
 mod uploads;
@@ -48,6 +49,8 @@ pub struct BackendState {
     pub max_body_bytes: usize,
     /// settings 服务的 autosave 节流状态（Phase 1 族一）
     pub settings_svc: Arc<settings::SettingsService>,
+    /// chats 服务的备份节流状态（Phase 1 族四）
+    pub chats_svc: Arc<chats::ChatsService>,
 }
 
 use std::sync::Arc;
@@ -69,6 +72,7 @@ pub async fn start(data_root: std::path::PathBuf) -> std::io::Result<BackendHand
         data_root,
         max_body_bytes: 32 * 1024 * 1024,
         settings_svc: Arc::new(settings::SettingsService::new()),
+        chats_svc: Arc::new(chats::ChatsService::new()),
     };
 
     let app = router(state);
@@ -245,7 +249,7 @@ mod tests {
         let base = format!("http://127.0.0.1:{}", ep.port);
 
         let r = c
-            .post(format!("{base}/api/chats/save"))
+            .post(format!("{base}/api/worldinfo/list"))
             .header("x-relay-auth", &ep.token)
             .header("x-csrf-token", "t")
             .header("content-type", "application/json")

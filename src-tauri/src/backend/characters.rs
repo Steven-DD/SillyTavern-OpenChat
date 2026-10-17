@@ -865,6 +865,7 @@ mod tests {
             data_root: root,
             max_body_bytes: 1024,
             settings_svc: std::sync::Arc::new(super::super::settings::SettingsService::new()),
+            chats_svc: std::sync::Arc::new(super::super::chats::ChatsService::new()),
         }
     }
 

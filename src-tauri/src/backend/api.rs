@@ -117,6 +117,47 @@ async fn route(
             Ok(v) => super::characters::export(&st, &v, origin),
             Err(_) => bad_json(origin),
         },
+        // chats 族（Phase 1 · manifest #9-#18）
+        ("POST", "/api/chats/save") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::chats::save(&st, &st.chats_svc, &v, origin),
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/chats/get") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::chats::get(&st, &v, origin),
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/chats/rename") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::chats::rename(&st, &v, origin),
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/chats/delete") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::chats::delete(&st, &v, origin),
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/chats/search") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::chats::search(&st, &v, origin),
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/chats/recent") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::chats::recent(&st, &st.chats_svc, &v, origin),
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/chats/group/get") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::chats::group_get(&st, &v, origin),
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/chats/group/info") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::chats::group_info(&st, &v, origin),
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/chats/group/delete") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::chats::group_delete(&st, &v, origin),
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/chats/group/save") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::chats::group_save(&st, &st.chats_svc, &v, origin),
+            Err(_) => bad_json(origin),
+        },
         _ => not_implemented(origin, path_q),
     }
 }
