@@ -483,6 +483,7 @@ mod tests {
             settings_svc: Arc::new(super::super::settings::SettingsService::new()),
             chats_svc: new_chats(),
             maid_tokens: new_maid(),
+          vault: std::sync::Arc::new(super::super::vault::Vault::new_memory()),
         }
     }
 

@@ -49,6 +49,8 @@ tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
 unicode-normalization = "0.1"
 # T16 批7：openai /count 的 tiktoken 精确层（cl100k/o200k 内置词表）
 tiktoken-rs = "0.6"
+# T12：OS keychain vault（Windows CredMan / macOS Keychain / Linux secret service）
+keyring = "3"
 # 应用内自动更新 + 重启（发布线）
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"

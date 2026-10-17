@@ -1,0 +1,17 @@
+批8（Phase 3 头项）：T12 secrets vault —— 密钥类 keychain + 配置类 settings
+
+- backend/vault.rs：SECRET_KEYS 全量分类映射（密钥类→keychain；配置类四 URL +
+  vertexai_service_account_json→settings —— 大 JSON 避开 Windows CredMan 2500B
+  条目上限）；trait SecretStore（KeyringStore/MemoryStore + 探针降级）
+- 权威面：keychain（service SillyTavern-OpenChat，account STOC:{key}:{id}，
+  镜像 active 条目定 id）读优先；keyring 不可用/写入失败/超限 → 一次性降级
+  镜像权威（行为=ST 字面，显式 log）；secrets.json 镜像保留（验收：切回 st
+  模式密钥仍有效；不产生新的明文密钥文件）
+- 配置类走 settings extension_settings.stchat_native（读写小件在 settings.rs，
+  同值免写）
+- 接线：providers::read_secret 统一走 vault；secrets_write 镜像落盘后
+  store_sync；backend/start() 幂等迁移（原有密钥链/配置入 vault）；uuid_v4 收敛到 vault
+- BackendState +9 test fixture 补 vault 字段；新 6 个 vault 测试（分类/读链/
+  settings 优先/迁移幂等/分流同步/uuid 形状）
+- bin/integration-test crate 根补 linker_messages 抑制（MSVC 本地化输出噪音）
+- cargo 170 lib 全绿 0 警告 + 集成 8 项；selfcheck 13 项、TS 0

@@ -41,6 +41,7 @@ pub mod providers_textcomp;
 pub mod settings;
 pub mod tokenizers_secrets;
 pub mod translate;
+pub mod vault;
 mod uploads;
 pub mod worldinfo_groups;
 
@@ -69,6 +70,8 @@ pub struct BackendState {
     pub chats_svc: Arc<chats::ChatsService>,
     /// data-maid 内存 token 表（族八）
     pub maid_tokens: Arc<extras::MaidTokens>,
+    /// T12 secrets vault（keychain 权威 + ST 镜像；Phase 3）
+    pub vault: Arc<vault::Vault>,
 }
 
 use std::sync::Arc;
@@ -87,12 +90,16 @@ pub async fn start(data_root: std::path::PathBuf) -> std::io::Result<BackendHand
 
     let state = BackendState {
         token: Arc::new(token.clone()),
-        data_root,
+        data_root: data_root.clone(),
         max_body_bytes: 32 * 1024 * 1024,
         settings_svc: Arc::new(settings::SettingsService::new()),
         chats_svc: Arc::new(chats::ChatsService::new()),
         maid_tokens: Arc::new(extras::MaidTokens::new()),
+        vault: Arc::new(vault::Vault::new_keyring()),
     };
+
+    // T12：原有密钥迁移（幂等；镜像 secrets.json 保留作回退连续性）
+    state.vault.migrate_existing(&state);
 
     let app = router(state);
 

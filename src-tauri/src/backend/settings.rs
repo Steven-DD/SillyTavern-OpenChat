@@ -286,6 +286,52 @@ pub fn save(
 }
 
 /* ------------------------------------------------------------------ *
+ * T12 配置类 vault 的 settings 面（extension_settings.stchat_native）
+ * ------------------------------------------------------------------ */
+
+/// 读 `extension_settings.stchat_native.{key}`（None = 未配置）
+pub(crate) fn read_native_config(data_root: &std::path::Path, key: &str) -> Option<String> {
+    let p = settings_path(data_root);
+    let text = std::fs::read_to_string(p).ok()?;
+    let v: Value = serde_json::from_str(&text).ok()?;
+    v.pointer(&format!("/extension_settings/stchat_native/{key}"))
+        .and_then(|x| x.as_str())
+        .map(String::from)
+        .filter(|s| !s.is_empty())
+}
+
+/// 写 `extension_settings.stchat_native.{key}`（读-改-原子写；触发备份节流面由
+/// settings/writequeue 面管理 —— 这里只同步配置类 vault 值）
+pub(crate) fn patch_native_config(data_root: &std::path::Path, key: &str, value: &str) {
+    let p = settings_path(data_root);
+    if let Some(parent) = p.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let mut v: Value = std::fs::read_to_string(&p)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_else(|| json!({}));
+    let obj = v.as_object_mut().unwrap();
+    let ext = obj
+        .entry("extension_settings")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .unwrap();
+    let native = ext
+        .entry("stchat_native")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .unwrap();
+    if native.get(key).and_then(|x| x.as_str()) == Some(value) {
+        return; // 同值免写（与前端写队列去重同语义）
+    }
+    native.insert(key.to_string(), json!(value));
+    let pretty = serde_json::to_string_pretty(&v).unwrap_or_default();
+    let tmp = p.with_extension("json.tmp");
+    let _ = std::fs::write(&tmp, pretty.as_bytes()).and_then(|_| std::fs::rename(&tmp, &p));
+}
+
+/* ------------------------------------------------------------------ *
  * 单测
  * ------------------------------------------------------------------ */
 
@@ -317,6 +363,7 @@ mod tests {
             settings_svc: Arc::new(SettingsService::new()),
             chats_svc: new_chats(),
             maid_tokens: new_maid(),
+          vault: std::sync::Arc::new(super::super::vault::Vault::new_memory()),
         };
         let svc = SettingsService::new();
 
@@ -354,6 +401,7 @@ mod tests {
             settings_svc: Arc::new(SettingsService::new()),
             chats_svc: new_chats(),
             maid_tokens: new_maid(),
+          vault: std::sync::Arc::new(super::super::vault::Vault::new_memory()),
         };
         let svc = SettingsService::new();
         let body = json!({ "settings": "{\"a\":1}" });
@@ -372,6 +420,7 @@ mod tests {
             settings_svc: Arc::new(SettingsService::new()),
             chats_svc: new_chats(),
             maid_tokens: new_maid(),
+          vault: std::sync::Arc::new(super::super::vault::Vault::new_memory()),
         };
         let svc = SettingsService::new();
 

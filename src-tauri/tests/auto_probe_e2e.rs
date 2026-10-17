@@ -1,3 +1,5 @@
+//! 全局：MSVC linker 本地化 stdout 警告抑制
+#![allow(linker_messages)]
 //! auto 兜底探测的端到端验证
 //!
 //! 场景：用户把 ST 绑定重置为 auto（`plugins.json` 里 `source: "auto", path: null`），
@@ -70,3 +72,4 @@ fn auto_probe_finds_host_installed_st_via_install_root() {
 
     let _ = std::fs::remove_dir_all(&cfg);
 }
+

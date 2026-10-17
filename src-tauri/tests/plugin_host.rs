@@ -1,3 +1,5 @@
+//! 全局：MSVC linker 本地化 stdout 警告抑制
+#![allow(linker_messages)]
 //! 插件宿主集成测试
 //!
 //! 验证这条主线：**用户本机已装的东西能被探测到并直接绑定，不需要下载**。
@@ -233,3 +235,4 @@ fn disabling_required_plugin_is_rejected() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+

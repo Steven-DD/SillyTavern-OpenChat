@@ -51,9 +51,11 @@ pub fn encode_llama3(text: &str) -> Result<Vec<i64>, String> {
  * nerdstash_v2（SPM proto 精确词表 + 贪心分段近似）
  * ================================================================ */
 
+#[cfg_attr(not(test), allow(dead_code))]
 struct SpmModel {
-    pieces: Vec<String>,         // id → piece
-    id_of: HashMap<String, i64>, // piece → id
+    /// piece 表（id → piece；test 消费 + 调试）
+    pieces: Vec<String>,
+    id_of: HashMap<String, i64>,
     unk_id: i64,
 }
 

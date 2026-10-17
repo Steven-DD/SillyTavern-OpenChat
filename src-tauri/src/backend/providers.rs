@@ -88,18 +88,9 @@ pub(crate) fn not_migrated(source: &str, origin: Option<HeaderValue>) -> Respons
     apply_cors_resp(resp.into_response(), origin)
 }
 
-/// 服务端读密钥：取该 key 下唯一 active 条目（T12 前明文 JSON 基线）
+/// 服务端读密钥（T12 vault）：keychain/settings 权威 → 镜像回落（vault.rs）
 pub(crate) fn read_secret(st: &BackendState, key: &str) -> Option<String> {
-    let p = st.data_root.join("default-user").join("secrets.json");
-    let text = std::fs::read_to_string(&p).ok()?;
-    let secrets = serde_json::from_str::<Value>(&text).ok()?;
-    secrets
-        .get(key)?
-        .as_array()?
-        .iter()
-        .find(|s| s.get("active").and_then(|b| b.as_bool()).unwrap_or(false))
-        .and_then(|s| s.get("value").and_then(|v| v.as_str()))
-        .map(|s| s.to_string())
+    st.vault.read_active(st, key)
 }
 
 /// JSON.stringify(value, null, 4)（4 空格缩进）

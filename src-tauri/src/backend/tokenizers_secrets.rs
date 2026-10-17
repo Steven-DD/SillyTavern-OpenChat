@@ -197,22 +197,6 @@ fn secrets_path(st: &BackendState) -> std::path::PathBuf {
     st.data_root.join("default-user").join("secrets.json")
 }
 
-/// 生成 uuid v4（无 uuid crate —— getrandom 拼标准格式 8-4-4-4-12）
-fn uuid_v4() -> String {
-    let mut b = [0u8; 16];
-    getrandom::getrandom(&mut b).expect("OS CSPRNG 失败");
-    b[6] = (b[6] & 0x0F) | 0x40; // version 4
-    b[8] = (b[8] & 0x3F) | 0x80; // variant 10
-    let hex: String = b.iter().map(|x| format!("{x:02x}")).collect();
-    format!(
-        "{}-{}-{}-{}-{}",
-        &hex[0..8],
-        &hex[8..12],
-        &hex[12..16],
-        &hex[16..20],
-        &hex[20..32]
-    )
-}
 
 /// _deactivateAllSecrets（secrets.js:153-164）：把该 key 下全部置 active=false
 fn deactivate_all(arr: &mut Vec<Value>) {
@@ -262,7 +246,7 @@ pub fn secrets_write(st: &BackendState, body: &Value, origin: Option<HeaderValue
     }
     let list = arr.as_array_mut().unwrap();
     deactivate_all(list);
-    let id = uuid_v4();
+    let id = super::vault::uuid_v4();
     list.push(json!({
         "id": id,
         "value": value,
@@ -276,7 +260,11 @@ pub fn secrets_write(st: &BackendState, body: &Value, origin: Option<HeaderValue
     let pretty = serde_json::to_string_pretty(&secrets).unwrap_or_default();
     let tmp = p.with_extension("json.tmp");
     match std::fs::write(&tmp, &pretty).and_then(|_| std::fs::rename(&tmp, &p)) {
-        Ok(()) => ok_json(origin, json!({ "id": id })),
+        Ok(()) => {
+            // T12：镜像落盘后同步 vault（keychain/setttings 权威；失败降级镜像=ST 字面）
+            st.vault.store_sync(st, key, &id, value);
+            ok_json(origin, json!({ "id": id }))
+        }
         Err(e) => err_json(
             StatusCode::INTERNAL_SERVER_ERROR,
             &format!("secrets 写入失败：{e}"),
@@ -349,6 +337,7 @@ mod tests {
             settings_svc: Arc::new(super::super::settings::SettingsService::new()),
             chats_svc: new_chats(),
             maid_tokens: new_maid(),
+          vault: std::sync::Arc::new(super::super::vault::Vault::new_memory()),
         }
     }
 
@@ -465,7 +454,7 @@ mod tests {
 
     #[test]
     fn uuid_v4_format() {
-        let u = uuid_v4();
+        let u = crate::backend::vault::uuid_v4();
         assert_eq!(u.len(), 36);
         assert_eq!(&u[14..15], "4", "version 位");
         assert!(matches!(&u[19..20], "8" | "9" | "a" | "b"), "variant 位");

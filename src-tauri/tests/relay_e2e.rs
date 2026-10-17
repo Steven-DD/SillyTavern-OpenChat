@@ -1,3 +1,5 @@
+//! 全局：MSVC linker 本地化 stdout 警告抑制
+#![allow(linker_messages)]
 //! HTTP 中继集成测试（生产环境跨源方案的核心验证）
 //!
 //! 分两个测试，各自解决一个独立问题：
@@ -405,3 +407,4 @@ async fn relay_rejects_unauthenticated_requests() {
 
     println!("✅ 中继鉴权验证通过：无/错 token 403、静态 GET 豁免、CORS 白名单生效");
 }
+
