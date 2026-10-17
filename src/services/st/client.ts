@@ -26,20 +26,23 @@ export function setStBase(url: string): void {
   csrfPending = null
 }
 
-/** 中继鉴权 token（桌面壳经中继访问时由 bridge 写入，浏览器开发 / 直连为空） */
+/** 中继鉴权 token（桌面壳经中继访问时由 bridge 写入，浏览器开发 / 直连为空）。
+ * ⚠ 存 sessionStorage（S22 评审整改）：XSS 偷不走跨标签持久 token；
+ * token 本就每次启动重新生成，sessionStorage 与其生命周期一致。 */
 export function setRelayToken(t: string): void {
   const v = t.trim()
-  if (v) localStorage.setItem('st.relayToken', v)
-  else localStorage.removeItem('st.relayToken')
+  if (v) sessionStorage.setItem('st.relayToken', v)
+  else sessionStorage.removeItem('st.relayToken')
 }
 
 /**
  * 中继鉴权头：中继代持着 ST 会话 Cookie（含密钥接口），除静态资源 GET 外
  * 一律要求 `X-Relay-Auth`。未配置 token时不附加，
  * 避免给直连场景引入多余的自定义头。
+ * （读取兼容 localStorage —— 桥接旧会话残留 token 的回退；写入只走上面）
  */
 function relayAuthHeaders(): Record<string, string> {
-  const t = localStorage.getItem('st.relayToken') ?? ''
+  const t = sessionStorage.getItem('st.relayToken') ?? localStorage.getItem('st.relayToken') ?? ''
   return t ? { 'X-Relay-Auth': t } : {}
 }
 

@@ -49,6 +49,9 @@ function onMessage(ev: MessageEvent): void {
     const { id, api, args } = ev.data as { id: number; api: string; args: unknown }
     handleEmbedCall(api, args)
       .then((result) => {
+        // ⚠ targetOrigin 恒 '*'：沙箱帧（无 allow-same-origin）的 origin 是
+        // opaque null，任何具体 origin 都不匹配会静默丢消息 —— 安全面由
+        // 接收侧 ev.source === w 校验 + iframe sandbox 封住（P1-2 评审项结论）
         w.postMessage({ source: 'tavern-host', type: 'th-result', id, result }, '*')
       })
       .catch((e: unknown) => {
