@@ -70,29 +70,49 @@ pub async fn send_makersuite(
     };
 
     let mut auth_url = String::new();
-    let api_key = if is_vertex {
-        // express 模式（API key）；full 模式（服务账号）→ Phase 2 尾批实装
-        // （ST proxy/full 模式的 auth_url 分支在 express 下未用 → 不走 auth_url）
+    // full 模式（服务账号）授权产物：Bearer token + SA project_id
+    let mut vertex_full: Option<(String, String)> = None;
+    let api_key: String = if is_vertex {
+        // express（API key）/ full（服务账号 JWT→OAuth2）
         let auth_mode = body
             .get("vertexai_auth_mode")
             .and_then(|v| v.as_str())
             .unwrap_or("express");
-        if auth_mode != "express" {
-            return super::providers::json_resp(
-                StatusCode::BAD_REQUEST,
-                json!({ "error": { "message": format!("{api_name} 服务账号（full）认证模式尚未实装：请切换 express 模式（API key）") } }),
-                origin,
-            );
+        if auth_mode == "full" {
+            let sa_json = super::providers::read_secret(st, "vertexai_service_account_json")
+                .filter(|s| !s.is_empty());
+            let Some(sa_json) = sa_json else {
+                return super::providers::json_resp(
+                    StatusCode::BAD_REQUEST,
+                    json!({ "error": { "message": format!("{api_name} 服务账号 JSON 缺失（full 模式需在密钥面保存 vertexai_service_account_json）") } }),
+                    origin,
+                );
+            };
+            match super::vertexai_auth::authorize_full(&sa_json).await {
+                Ok((token, project_id, _)) => {
+                    vertex_full = Some((token, project_id));
+                    String::new() // full 走 Bearer 头，不再用 query key
+                }
+                Err(e) => {
+                    // ST auth 失败字面：400 {error:true,message}
+                    return super::providers::json_resp(
+                        StatusCode::BAD_REQUEST,
+                        json!({ "error": { "message": e } }),
+                        origin,
+                    );
+                }
+            }
+        } else {
+            let k = super::providers::read_secret(st, "api_key_vertexai").unwrap_or_default();
+            if k.is_empty() {
+                return super::providers::json_resp(
+                    StatusCode::BAD_REQUEST,
+                    json!({ "error": { "message": format!("{api_name} API key 缺失") } }),
+                    origin,
+                );
+            }
+            k
         }
-        let k = super::providers::read_secret(st, "api_key_vertexai").unwrap_or_default();
-        if k.is_empty() {
-            return super::providers::json_resp(
-                StatusCode::BAD_REQUEST,
-                json!({ "error": { "message": format!("{api_name} API key 缺失") } }),
-                origin,
-            );
-        }
-        k
     } else {
         let use_rp = body
             .get("reverse_proxy")
@@ -346,30 +366,38 @@ pub async fn send_makersuite(
     } else {
         "generateContent"
     };
+    // 请求额外头：full 模式带 Bearer token（express 仍是 query key，无头）
+    let mut extra_headers: Vec<(String, String)> = Vec::new();
     let url = if is_vertex {
-        // express 模式（key 查询串）；项目/区域分支按 ST 字面
         let region = body
             .get("vertexai_region")
             .and_then(|v| v.as_str())
             .unwrap_or("us-central1");
-        let project = body
-            .get("vertexai_express_project_id")
-            .and_then(|v| v.as_str());
-        match project {
-            Some(pid) => format!(
-                "https://aiplatform.googleapis.com/v1/projects/{pid}/locations/{region}/publishers/google/models/{model}:{response_type}?key={api_key}{}",
-                if stream { "&alt=sse" } else { "" }
-            ),
-            None => {
-                let base = if region == "global" {
-                    "https://aiplatform.googleapis.com".to_string()
-                } else {
-                    format!("https://{region}-aiplatform.googleapis.com")
-                };
-                format!(
-                    "{base}/v1/publishers/google/models/{model}:{response_type}?key={api_key}{}",
+        if let Some((token, project_id)) = &vertex_full {
+            // full 模式（ST :716-722 字面：Bearer 头 + SA project_id URL）
+            extra_headers.push(("Authorization".into(), format!("Bearer {token}")));
+            super::vertexai_auth::full_mode_url(region, project_id, model, response_type, stream)
+        } else {
+            // express 模式（key 查询串）；项目/区域分支按 ST 字面
+            let project = body
+                .get("vertexai_express_project_id")
+                .and_then(|v| v.as_str());
+            match project {
+                Some(pid) => format!(
+                    "https://aiplatform.googleapis.com/v1/projects/{pid}/locations/{region}/publishers/google/models/{model}:{response_type}?key={api_key}{}",
                     if stream { "&alt=sse" } else { "" }
-                )
+                ),
+                None => {
+                    let base = if region == "global" {
+                        "https://aiplatform.googleapis.com".to_string()
+                    } else {
+                        format!("https://{region}-aiplatform.googleapis.com")
+                    };
+                    format!(
+                        "{base}/v1/publishers/google/models/{model}:{response_type}?key={api_key}{}",
+                        if stream { "&alt=sse" } else { "" }
+                    )
+                }
             }
         }
     } else {
@@ -380,8 +408,8 @@ pub async fn send_makersuite(
         )
     };
 
-    // ST 字面：query key 鉴权（key 在 URL 上，不带头）
-    let resp_res = super::providers::upstream_post(&url, "", Vec::new(), &Value::Object(rb)).await;
+    // 请求发出（full 模式走 Bearer 头；express/Google AI 仍 query key）
+    let resp_res = super::providers::upstream_post(&url, "", extra_headers, &Value::Object(rb)).await;
     let resp = match resp_res {
         Ok(r) => r,
         Err(_) => {

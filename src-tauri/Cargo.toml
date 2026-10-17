@@ -54,6 +54,8 @@ keyring = "3"
 # T14：扩展 git 安装（libgit2 本地库实现 —— 不走 system git，消除命令执行向量；
 # git2 不读全局 gitconfig 的 url.*.insteadOf（评审 P1-1 关键面）
 git2 = { version = "0.19", default-features = false, features = ["https"] }
+# vertexai full 模式：服务账号 JWT(RS256) → OAuth2 access token 交换
+jsonwebtoken = "9"
 # 应用内自动更新 + 重启（发布线）
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"

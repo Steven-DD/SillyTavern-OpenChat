@@ -1,0 +1,13 @@
+批11：vertexai full 模式实装（Phase 2 收尾 · 服务账号 OAuth2）
+
+- backend/vertexai_auth.rs：RS256 JWT 构造（iss=client_email、scope=cloud-platform、
+  aud=token 端点、iat/exp ±1h）→ https://oauth2.googleapis.com/token 交换
+  （grant_type=jwt-bearer）；token 进程内缓存 + 提前 60s 刷新；
+  getProjectIdFromServiceAccount 同款字段面（project_id/client_email/private_key）
+- providers_google：full 模式接通 —— vault 配置类权威读 vertexai_service_account_json；
+  Authorization Bearer 头（expr essa query key 面不变）+ SA project_id URL
+  （ST :716-722 字面，比 express 的 region 前缀域名面一致——统一走 aiplatform
+  projects/locations 路径）；auth 失败 400 {error:{message}}（ST 字面）
+- Cargo + jsonwebtoken 9（RS256）；相关 3 测试（SA 字段面/URL 形状/urlencode）
+- manifest Phase 2 终态登记同步（full 补齐于批11）
+- cargo 177 全绿 0 警告；selfcheck 13；TS 0

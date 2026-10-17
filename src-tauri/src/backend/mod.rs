@@ -44,6 +44,7 @@ pub mod translate;
 pub mod vault;
 mod uploads;
 pub mod worldinfo_groups;
+pub mod vertexai_auth;
 
 pub use auth::gen_token;
 
