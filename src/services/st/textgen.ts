@@ -41,18 +41,6 @@ export const TEXTGEN_BACKENDS: TextGenBackendDef[] = [
   { id: 'huggingface', label: 'HuggingFace', fixedServer: 'https://router.huggingface.co', secretKey: 'api_key_huggingface' },
 ]
 
-/** OpenRouter Text 走 chat/completions 端点 */
-function completionPath(apiType: string): string {
-  switch (apiType) {
-    case 'dreamgen': return '/api/openai/v1/completions'
-    case 'mancer': return '/oai/v1/completions'
-    case 'llamacpp': return '/completion'
-    case 'ollama': return '/api/generate'
-    case 'openrouter': return '/v1/chat/completions'
-    default: return '/v1/completions'
-  }
-}
-
 export interface TextGenSampler {
   temperature?: number
   topP?: number
@@ -127,12 +115,12 @@ export function buildBody(o: TextGenOptions): Record<string, unknown> {
   const def = TEXTGEN_BACKENDS.find((b) => b.id === o.backend)
   const server = (o.server || def?.fixedServer || '').replace(/\/+$/, '')
   if (!server) throw new Error(`后端 ${o.backend} 需要填写 API 服务器地址`)
-  // ST 后端按 api_type 在 server 后拼接端点路径
-  const path = completionPath(o.backend)
   const body: Record<string, unknown> = {
     prompt: o.prompt,
     api_type: o.backend,
-    api_server: server + path,
+    // ST 语义：api_server = base，端点路径由服务端按 api_type 拼接
+    //（text-completions.js /generate switch；此前这里自带 path，会叠出双路径）
+    api_server: server,
     model: o.model,
     stream: o.stream ?? true,
     ...buildSampler(o.backend, o.sampler ?? {}),
@@ -228,19 +216,18 @@ export async function generateText(
   }
 }
 
-/** 拉取模型列表（{server}/v1/models，托管类服务器固定，密钥由 ST 服务端 secrets 提供） */
+/** 拉取模型列表（ST /status：服务端按 api_type 拼 models 端点；api_server 只发 base） */
 export async function fetchTextModels(backend: string, server?: string): Promise<string[]> {
   const def = TEXTGEN_BACKENDS.find((b) => b.id === backend)
   const base = (server || def?.fixedServer || '').replace(/\/+$/, '')
   if (!base) throw new Error('请先填写 API 服务器地址')
-  const path = def?.modelsPath ?? '/v1/models'
-  const data = await stPostJson<{ data?: { id?: string }[]; models?: { name?: string }[] }>(
+  const data = await stPostJson<{ data?: { id?: string }[]; models?: { name?: string }[]; result?: string }>(
     '/api/backends/text-completions/status',
-    { api_type: backend, api_server: base + path },
+    { api_type: backend, api_server: base },
   )
   const ids = (data?.data ?? data?.models ?? [])
     .map((m) => (('id' in m ? m.id : (m as { name?: string }).name) ?? '').trim())
     .filter((s): s is string => !!s)
-  if (!ids.length) throw new Error('后端未返回任何模型（请检查服务器地址/密钥）')
+  if (!ids.length && !data?.result?.length) throw new Error('后端未返回任何模型（请检查服务器地址/密钥）')
   return ids
 }

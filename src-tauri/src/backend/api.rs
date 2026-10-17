@@ -260,13 +260,22 @@ async fn route(
             Ok(v) => super::extras::vector_delete(&st, &v, origin),
             Err(_) => bad_json(origin),
         },
-        // providers 族切片（Phase 1 · manifest #41/#42：openai/custom；其余源 501）
+        // providers 族（Phase 2 · manifest #41/#42：26 源全量）
         ("POST", "/api/backends/chat-completions/status") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
             Ok(v) => super::providers::status(&st, &v, origin).await,
             Err(_) => bad_json(origin),
         },
         ("POST", "/api/backends/chat-completions/generate") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
             Ok(v) => super::providers::generate(&st, &v, origin).await,
+            Err(_) => bad_json(origin),
+        },
+        // text completion 通道（Phase 2 批3 · manifest #48/#49：15 后端）
+        ("POST", "/api/backends/text-completions/status") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::providers_textcomp::status(&st, &v, origin).await,
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/backends/text-completions/generate") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::providers_textcomp::generate(&st, &v, origin).await,
             Err(_) => bad_json(origin),
         },
         // extensions 族（Phase 1/5 · manifest #67-#68；git 安装面 501 → Phase 5 T14）

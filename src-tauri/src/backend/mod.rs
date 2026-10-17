@@ -33,6 +33,7 @@ pub mod providers_claude;
 pub mod providers_convert;
 pub mod providers_google;
 pub mod providers_misc;
+pub mod providers_textcomp;
 mod providers_text;
 pub mod settings;
 pub mod tokenizers_secrets;

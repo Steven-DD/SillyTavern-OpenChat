@@ -1,7 +1,17 @@
-批2：providers 全量接线（26 源专属 body/URL/headers 分流 + 独立 sender + Anthropic/Cohere 输出面转换 + makersuite 模型分页）
+批3：text-completions 通道全量（15 后端 · manifest #48/#49）
 
-providers_claude.rs：Claude messages API 全量（模型档位 regex 门/thinking 无已指/adaptive 与 output_config.effort/noPrefill 回填性质工具/stop_sequences）+ 流式 Anthropic SSE → OpenAI chunk（App 单解析约束，登记偏差）
-providers_misc.rs：mistralai/ai21/deepseek/xai/aimlapi/electronhub/chutes/minimax/azure_openai 全量 + cohere（v2 原生请求面保留，输出转 OpenAI 形）错误语义 ST 字面（缺key 400/上游 500+tryParse）
-providers_google.rs：makersuite/vertexai-express body 组装（generationConfig/thinkingConfig/noSampling/安全设置/ октools）+ Google 原生 passthrough + /status 分页模型发现（bypass:true）+ vertexai status ST 字面 400
-providers_text.rs：OPENAI_REASONING_EFFORT 名单/映射/NANOGPT 映射/VERBOSITY 判别
-S12 custom_url 保留 + key 只服务端读；cargo 150 全绿 0 警告
+- providers_textcomp.rs：ST text-completions.js 逐行移植
+  /generate：15 后端 URL 拼接 + requestBody 裁剪（togetherai/infermaticai/
+  featherless/openrouter(provider reshape+quantizations)/vllm/generic(stop 截4)
+  pick 白名单、ollama 重排 raw+options(OLLAMA_KEYS)、其余全透传）
+  + ollama 裸 NDJSON 流 → SSE {choices:[{text,thinking}]} 包装 + [DONE]
+  + infermaticai 响应 choices 映射；错误语义 ST 字面（上游非 ok → 200
+  {error:true,status,response}；连接失败 → {status:'UNKNOWN'}）
+  /status：15 后端模型端点 + ooba /v1/internal/model/info（x-supports-tokenization）
+  + tabby /v1/model（失败 → 'None'）+ togetherai/ollama 数组重包 + huggingface 空
+  + typed_headers 双头注入（mancer/aphrodite X-API-KEY、tabby x-api-key、
+  openrouter/featherless Referer/X-Title、其余 Bearer）
+- App textgen.ts 同批修正（对齐 ST base-only api_server 语义，原先 server+path
+  会被服务端叠成双路径）—— buildBody 只发 base；fetchTextModels 只发 base
+- api.rs 接线 #48/#49；providers 对 26 源口径注释同步
+- cargo 155 全绿 0 警告；TS 0
