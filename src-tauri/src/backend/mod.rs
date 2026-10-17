@@ -40,6 +40,7 @@ mod providers_text;
 pub mod providers_textcomp;
 pub mod settings;
 pub mod tokenizers_secrets;
+pub mod translate;
 mod uploads;
 pub mod worldinfo_groups;
 

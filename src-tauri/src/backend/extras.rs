@@ -448,6 +448,62 @@ pub fn translate_not_migrated(provider: &str, origin: Option<HeaderValue>) -> Re
 
 /* ====================== speech（manifest #56-#58）====================== */
 
+/// POST /api/openai/generate-voice（manifest #58 · Phase 2 批6 出站）
+/// ST openai.js:273-318 字面：body 采子集 {input, response_format:'mp3',
+/// voice ?? 'alloy', speed ?? 1, model ?? 'tts-1'} + 可选 instructions
+/// → api.openai.com/v1/audio/speech（Bearer api_key_openai）。
+/// 成功 → audio/mpeg 二进制；上游失败 → 500 + 上游文本；缺 key → 400。
+pub async fn speech_openai(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
+    let Some(key) = super::providers::read_secret(st, "api_key_openai") else {
+        return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
+    };
+    let text = body.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string();
+    if text.is_empty() {
+        return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
+    }
+    let mut payload = json!({
+        "input": text,
+        "response_format": "mp3",
+        "voice": body.get("voice").and_then(|v| v.as_str()).unwrap_or("alloy"),
+        "speed": body.get("speed").and_then(|v| v.as_f64()).unwrap_or(1.0),
+        "model": body.get("model").and_then(|v| v.as_str()).unwrap_or("tts-1"),
+    });
+    if let Some(instr) = body.get("instructions") {
+        payload.as_object_mut().unwrap().insert("instructions".into(), instr.clone());
+    }
+    let client = reqwest::Client::builder().no_proxy().build().unwrap_or_default();
+    let resp = client
+        .post("https://api.openai.com/v1/audio/speech")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {key}"))
+        .header("accept-encoding", "identity")
+        .timeout(std::time::Duration::from_secs(120))
+        .json(&payload)
+        .send()
+        .await;
+    let Ok(resp) = resp else {
+        return apply_cors_resp(
+            (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error").into_response(),
+            origin,
+        );
+    };
+    if !resp.status().is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        return apply_cors_resp(
+            (StatusCode::INTERNAL_SERVER_ERROR, text).into_response(),
+            origin,
+        );
+    }
+    let bytes = resp.bytes().await.unwrap_or_default();
+    apply_cors_resp(
+        (
+            [(axum::http::header::CONTENT_TYPE, HeaderValue::from_static("audio/mpeg"))],
+            bytes,
+        ).into_response(),
+        origin,
+    )
+}
+
 /// POST /api/speech/synthesize（本地 ML）—— S20 降级
 pub fn speech_local_unavailable(origin: Option<HeaderValue>) -> Response {
     apply_cors_resp(

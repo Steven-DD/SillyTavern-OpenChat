@@ -309,13 +309,24 @@ async fn route(
             let q = path_q.split_once('?').map(|(_, q)| q).unwrap_or("");
             super::extras::maid_view(&st, &st.maid_tokens, q, origin)
         }
-        ("POST", "/api/translate/onering") => {
-            super::extras::translate_not_migrated("onering", origin)
-        }
+        // 翻译族（Phase 2 批6 · manifest #54/#55：八家全量出站）
+        ("POST", "/api/translate/onering") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::translate::onering(&st, &v, origin).await,
+            Err(_) => bad_json(origin),
+        },
         ("POST", p) if p.starts_with("/api/translate/") => {
-            super::extras::translate_not_migrated(p.trim_start_matches("/api/translate/"), origin)
+            let provider = p.trim_start_matches("/api/translate/").to_string();
+            match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+                Ok(v) => super::translate::dispatch(&st, &provider, &v, origin).await,
+                Err(_) => bad_json(origin),
+            }
         }
         ("POST", "/api/speech/synthesize") => super::extras::speech_local_unavailable(origin),
+        // OpenAI TTS 出站（Phase 2 批6 · manifest #58）
+        ("POST", "/api/openai/generate-voice") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::extras::speech_openai(&st, &v, origin).await,
+            Err(_) => bad_json(origin),
+        },
         ("POST", "/api/vector/list") => {
             match serde_json::from_slice::<serde_json::Value>(body_bytes) {
                 Ok(v) => super::extras::vector_list(&st, &v, origin),

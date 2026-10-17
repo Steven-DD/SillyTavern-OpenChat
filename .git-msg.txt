@@ -1,13 +1,10 @@
-批5：NovelAI #43 + tokenizers encode（T16 批5）| App nai/encode 全链可用
-'
-@'
-- backend/nai_tokens.rs：llama3 精确（HF tokenizers crate 内嵌 loader 读 llama3.json）；
-  nerdstash_v2 SPM proto 解析（wire 0/2/5，trainer_spec.model_type=BPE 核对）→
-  词表精确 + NFKC/dummy-prefix + 贪心最长 piece 分段近似（登记精度容差）
-- 词表二进制内嵌：src-tauri/assets/tokenizers/{llama3.json,nerdstash_v2.model}
-- tokenizers_secrets：encode_with_body（llama3/nerdstash_v2 → 200 {ids,length}；
-  其余家族 501 NOT_MIGRATED）
-- backend/novelai.rs：ST novelai.js /generate 全量（缺 key 裸 400、模型默认禁词/
-  logit bias/白名单、theme prefix eos、kayra/erato text 端点分流、streaming 透传、
-  非 ok → 500 {error:{message}}）
-- api.rs 接线 #43 + #52/#53；cargo 162 全绿 0 警告；3 个 NAI 侧 assert
+批6：translate 八家出站（#54/#55）+ OpenAI TTS 出站（#58）
+
+- backend/translate.rs：libre/google(gtx 等价)/yandex(App chunks 兼容+ucid)/
+  lingva/deepl(formality default/pro 分流)/onering(App 期望 {data:{result}}，
+  登记偏离 ST 裸串面)/deeplx/bing(edge auth JWT → cognitive translator)
+  输出面统一 JSON 字符串（ST 裸 text/plain 面 App 无法 json()，同源偏差修正）
+- extras.rs：speech_openai（openai.js:273-318 字面：tts-1/mp3/alloy 默认值、
+  instructions 透传、audio/mpeg 二进制、上游错误 500+原文）
+- api.rs 接线：/api/translate/* dispatch、/api/openai/generate-voice
+- cargo 164 全绿 0 警告
