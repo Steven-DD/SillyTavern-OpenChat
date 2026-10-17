@@ -29,6 +29,7 @@ pub mod extensions;
 pub mod extras;
 pub mod gate;
 pub mod providers;
+pub mod providers_convert;
 mod providers_text;
 pub mod settings;
 pub mod tokenizers_secrets;
