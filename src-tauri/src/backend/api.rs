@@ -189,6 +189,32 @@ async fn route(
             Ok(v) => super::worldinfo_groups::gr_delete(&st, &v, origin),
             Err(_) => bad_json(origin),
         },
+        // 资产族（Phase 1 · manifest #30-#40）
+        ("GET", "/thumbnail") => {
+            let q = path_q.split_once('?').map(|(_, q)| q).unwrap_or("");
+            super::assets::thumbnail(&st, q, origin)
+        }
+        ("POST", "/api/avatars/get") => super::assets::avatars_get(&st, origin),
+        ("POST", "/api/avatars/upload") => {
+            super::assets::avatars_upload(&st, content_type, body_bytes.to_vec().into(), origin).await
+        }
+        ("POST", "/api/avatars/delete") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::assets::avatars_delete(&st, &v, origin),
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/backgrounds/all") => super::assets::backgrounds_all(&st, origin),
+        ("POST", "/api/images/upload") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::assets::images_upload(&st, &v, origin),
+            Err(_) => bad_json(origin),
+        },
+        ("GET", "/api/sprites/get") => {
+            let q = path_q.split_once('?').map(|(_, q)| q).unwrap_or("");
+            super::assets::sprites_get(&st, q, origin)
+        }
+        // 静态资源前缀（manifest #31-#33；鉴权豁免路径的落盘读取）
+        (m, p) if m == "GET" && (p.starts_with("/characters/") || p.starts_with("/backgrounds/") || p.starts_with("/user-images/")) => {
+            super::assets::static_asset(&st, p, origin)
+        }
         _ => not_implemented(origin, path_q),
     }
 }

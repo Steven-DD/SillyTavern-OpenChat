@@ -22,6 +22,7 @@
 
 mod api;
 mod auth;
+pub mod assets;
 pub mod characters;
 pub mod chats;
 pub mod gate;
