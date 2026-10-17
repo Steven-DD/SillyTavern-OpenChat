@@ -13,6 +13,7 @@
 
 pub mod app_settings;
 pub mod backend;
+pub mod compat;
 pub mod downloader;
 pub mod installer;
 pub mod pathguard;

@@ -22,7 +22,9 @@
 
 mod api;
 mod auth;
+pub mod characters;
 pub mod gate;
+pub mod settings;
 mod uploads;
 
 pub use auth::gen_token;
@@ -44,6 +46,8 @@ pub struct BackendState {
     /// 上传字节上限（S15：fileSize 语义；裁定值 32MB —— 与 relay 请求体上限一致，
     /// 覆盖实测最大角色卡；ST multer 的 fieldSize 500MB 是已知过宽面，不照抄）
     pub max_body_bytes: usize,
+    /// settings 服务的 autosave 节流状态（Phase 1 族一）
+    pub settings_svc: Arc<settings::SettingsService>,
 }
 
 use std::sync::Arc;
@@ -64,6 +68,7 @@ pub async fn start(data_root: std::path::PathBuf) -> std::io::Result<BackendHand
         token: Arc::new(token.clone()),
         data_root,
         max_body_bytes: 32 * 1024 * 1024,
+        settings_svc: Arc::new(settings::SettingsService::new()),
     };
 
     let app = router(state);
@@ -240,7 +245,7 @@ mod tests {
         let base = format!("http://127.0.0.1:{}", ep.port);
 
         let r = c
-            .post(format!("{base}/api/characters/all"))
+            .post(format!("{base}/api/chats/save"))
             .header("x-relay-auth", &ep.token)
             .header("x-csrf-token", "t")
             .header("content-type", "application/json")
@@ -300,5 +305,107 @@ mod tests {
             .unwrap();
         assert!(r.status().is_success());
         assert!(r.headers().get("access-control-allow-origin").is_none());
+    }
+
+    #[tokio::test]
+    async fn settings_family_roundtrip_with_unknown_keys() {
+        // Phase 1 族一验收（评审 A3/D3 + manifest #28/#29）：
+        // 200+ 未知键读-改-写零丢失；保存语义为整体覆盖；401/403 面不被打开
+        let root = std::env::temp_dir().join(format!("stchat-backend-settings-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let ep = start(root.clone()).await.expect("启动失败");
+        let c = reqwest::Client::builder().no_proxy().build().unwrap();
+        let base = format!("http://127.0.0.1:{}", ep.port);
+        let auth = ("x-relay-auth", ep.token.as_str());
+
+        // 无 token 的 settings/get → 403（数据面在鉴权后面）
+        let r = c.post(format!("{base}/api/settings/get")).send().await.unwrap();
+        assert_eq!(r.status().as_u16(), 403);
+
+        // 构造 200+ 未知键的全量 settings
+        let mut body = serde_json::Map::new();
+        body.insert("username".into(), serde_json::json!("老板"));
+        for i in 0..200 {
+            body.insert(format!("unknown_key_{i}"), serde_json::json!({ "i": i }));
+        }
+        body.insert(
+            "extension_settings".into(),
+            serde_json::json!({ "stchat_quick_replies": [{ "label": "qr" }] }),
+        );
+
+        // 模块 A 写入（QR）
+        let r = c
+            .post(format!("{base}/api/settings/save"))
+            .header(auth.0, auth.1)
+            .json(&serde_json::Value::Object(body.clone()))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status().as_u16(), 200);
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert_eq!(v["result"], "ok");
+
+        // 模块 B 读全量 → 合并新键 → 写全量（模拟 settings-writequeue 的事务）
+        let r = c
+            .post(format!("{base}/api/settings/get"))
+            .header(auth.0, auth.1)
+            .send()
+            .await
+            .unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        let raw = v["settings"].as_str().unwrap();
+        let mut cur: serde_json::Value = serde_json::from_str(raw).unwrap();
+        cur["extension_settings"]["regex"] = serde_json::json!([{ "script": "s1" }]);
+
+        let r = c
+            .post(format!("{base}/api/settings/save"))
+            .header(auth.0, auth.1)
+            .json(&cur)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status().as_u16(), 200);
+
+        // 读回：A 的键与 200 未知键全部保留（lost update 消除）
+        let r = c
+            .post(format!("{base}/api/settings/get"))
+            .header(auth.0, auth.1)
+            .send()
+            .await
+            .unwrap();
+        let v: serde_json::Value = r.json().await.unwrap();
+        let final_settings: serde_json::Value =
+            serde_json::from_str(v["settings"].as_str().unwrap()).unwrap();
+
+        assert_eq!(final_settings["username"], "老板");
+        assert!(
+            final_settings["extension_settings"]["stchat_quick_replies"].is_array(),
+            "模块 A 的键保留"
+        );
+        assert!(
+            final_settings["extension_settings"]["regex"].is_array(),
+            "模块 B 的键写入"
+        );
+        let lost: Vec<_> = (0..200)
+            .filter(|i| final_settings[format!("unknown_key_{i}")].is_null())
+            .collect();
+        assert!(lost.is_empty(), "未知键零丢失（丢 {:?}）", lost);
+
+        // 包装对象 → 400（三铁律）
+        let r = c
+            .post(format!("{base}/api/settings/save"))
+            .header(auth.0, auth.1)
+            .json(&serde_json::json!({ "settings": "{}" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status().as_u16(), 400);
+
+        // 备份产生（save 触发 autosave）
+        let backups = root.join("default-user").join("backups");
+        let n = std::fs::read_dir(&backups).map(|d| d.count()).unwrap_or(0);
+        assert!(n >= 1, "save 应触发备份，实际 {n}");
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

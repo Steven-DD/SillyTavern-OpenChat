@@ -9,7 +9,9 @@
 //! 未实现：fallback 统一 501 + `{error:{message}}`（S20 降级契约：
 //! 可判定的「未迁移」错误，禁止 200+空结果伪造成功）。
 
-use super::{apply_cors_resp, forbidden, is_exempt_from_auth, origin_allowed, preflight, BackendState};
+use super::{
+    apply_cors_resp, forbidden, is_exempt_from_auth, origin_allowed, preflight, BackendState,
+};
 use axum::{
     body::Body,
     extract::{OriginalUri, State},
@@ -20,14 +22,14 @@ use axum::{
 use serde_json::json;
 
 /// 鉴权 + CORS 统一入口（S2-S5）。所有请求（含已实现端点与 501 兜底）经此。
-/// body 当前不消费（Phase 1 无 body 端点）；保留在签名中以匹配 axum extractor 顺序，
-/// 后续 handler 直接在 route() 内取用。
+
+
 pub async fn authorize(
     State(st): State<BackendState>,
     method: Method,
     OriginalUri(uri): OriginalUri,
     headers: HeaderMap,
-    _body: Body,
+    body: Body,
 ) -> Response {
     // 非白名单 Origin 从 CORS 反射中剔除
     let origin = headers.get(header::ORIGIN).cloned().filter(|o| origin_allowed(o));
@@ -45,7 +47,23 @@ pub async fn authorize(
         return forbidden();
     }
 
-    route(st, method, origin, path_q).await
+    // 读取请求体（写端点需要；上限 S15）
+    let body_bytes = match axum::body::to_bytes(body, st.max_body_bytes).await {
+        Ok(b) => b,
+        Err(_) => {
+            return apply_cors_resp(
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "error": { "message": "请求体读取失败或超过上限" } })),
+                )
+                    .into_response(),
+                origin,
+            );
+        }
+    };
+
+    let content_type = headers.get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok());
+    route(st, method, origin, path_q, &body_bytes, content_type).await
 }
 
 /// 路由分发：已实现族 → handler；否则 501 兜底
@@ -54,13 +72,65 @@ async fn route(
     method: Method,
     origin: Option<HeaderValue>,
     path_q: &str,
+    body_bytes: &[u8],
+    content_type: Option<&str>,
 ) -> Response {
     let path = path_q.split('?').next().unwrap_or("/");
     match (method.as_str(), path) {
         ("GET", "/csrf-token") => csrf_token(st, origin),
         ("POST", "/api/ping") => ping(origin),
+        // settings 族（Phase 1 · manifest #28/#29）
+        ("POST", "/api/settings/get") => super::settings::get(&st, origin),
+        ("POST", "/api/settings/save") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::settings::save(&st, &st.settings_svc, &v, origin),
+            Err(_) => bad_json(origin),
+        },
+        // characters 族 JSON 面（Phase 1 · manifest #1/#2/#3/#6/#7）
+        ("POST", "/api/characters/all") => super::characters::all(&st, origin),
+        ("POST", "/api/characters/get") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::characters::get(&st, &v, origin),
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/characters/chats") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::characters::chats(&st, &v, origin),
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/characters/delete") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::characters::delete(&st, &v, origin),
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/characters/rename") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::characters::rename(&st, &v, origin),
+            Err(_) => bad_json(origin),
+        },
+        // characters 族三（multipart 面 + export · manifest #4/#5/#8）
+        ("POST", "/api/characters/create") => {
+            super::characters::create(&st, content_type, body_bytes.to_vec().into(), origin).await
+        }
+        ("POST", "/api/characters/edit") => {
+            super::characters::edit(&st, content_type, body_bytes.to_vec().into(), origin).await
+        }
+        ("POST", "/api/characters/import") => {
+            super::characters::import(&st, content_type, body_bytes.to_vec().into(), origin).await
+        }
+        ("POST", "/api/characters/export") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::characters::export(&st, &v, origin),
+            Err(_) => bad_json(origin),
+        },
         _ => not_implemented(origin, path_q),
     }
+}
+
+/// JSON 解析失败（400）
+fn bad_json(origin: Option<HeaderValue>) -> Response {
+    apply_cors_resp(
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": { "message": "请求体不是合法 JSON" } })),
+        )
+            .into_response(),
+        origin,
+    )
 }
 
 /// GET /csrf-token —— 与 ST 响应形态对齐 `{token}`（client.ts:62 读 data.token）

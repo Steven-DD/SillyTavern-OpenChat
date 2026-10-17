@@ -17,6 +17,11 @@ tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# 角色卡 PNG tEXt chunk 的 base64 编解码（ST character-card-parser.js 同语义）
+base64 = "0.22"
+# characters 族 create/import/edit 的 multipart/form-data 解析（multer 等价，
+# 对齐 ST server-main.js 的 single('avatar') 语义）
+multer = "3"
 tokio = { version = "1", features = ["full"] }
 
 # HTTP 中继（生产环境跨源方案）：Rust 侧反向代理到 ST，
