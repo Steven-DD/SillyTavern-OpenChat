@@ -274,6 +274,13 @@ pub fn save(
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn new_chats() -> std::sync::Arc<super::super::chats::ChatsService> {
+        std::sync::Arc::new(super::super::chats::ChatsService::new())
+    }
+
+    fn new_maid() -> std::sync::Arc<super::super::extras::MaidTokens> {
+        std::sync::Arc::new(super::super::extras::MaidTokens::new())
+    }
     use std::sync::Arc;
 
     fn tmp_root(tag: &str) -> std::path::PathBuf {
@@ -290,7 +297,8 @@ mod tests {
             data_root: root.clone(),
             max_body_bytes: 1024,
             settings_svc: Arc::new(SettingsService::new()),
-            chats_svc: Arc::new(super::super::chats::ChatsService::new()),
+            chats_svc: new_chats(),
+            maid_tokens: new_maid(),
         };
         let svc = SettingsService::new();
 
@@ -326,7 +334,8 @@ mod tests {
             data_root: root.clone(),
             max_body_bytes: 1024,
             settings_svc: Arc::new(SettingsService::new()),
-            chats_svc: Arc::new(super::super::chats::ChatsService::new()),
+            chats_svc: new_chats(),
+            maid_tokens: new_maid(),
         };
         let svc = SettingsService::new();
         let body = json!({ "settings": "{\"a\":1}" });
@@ -343,7 +352,8 @@ mod tests {
             data_root: root.clone(),
             max_body_bytes: 1024,
             settings_svc: Arc::new(SettingsService::new()),
-            chats_svc: Arc::new(super::super::chats::ChatsService::new()),
+            chats_svc: new_chats(),
+            maid_tokens: new_maid(),
         };
         let svc = SettingsService::new();
 

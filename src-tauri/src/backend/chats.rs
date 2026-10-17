@@ -761,6 +761,13 @@ pub fn group_save(st: &BackendState, svc: &ChatsService, body: &Value, origin: O
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn new_chats() -> std::sync::Arc<super::super::chats::ChatsService> {
+        std::sync::Arc::new(super::super::chats::ChatsService::new())
+    }
+
+    fn new_maid() -> std::sync::Arc<super::super::extras::MaidTokens> {
+        std::sync::Arc::new(super::super::extras::MaidTokens::new())
+    }
     use std::sync::Arc;
 
     fn st_with(tag: &str) -> BackendState {
@@ -774,7 +781,8 @@ mod tests {
             data_root: root,
             max_body_bytes: 1024,
             settings_svc: Arc::new(super::super::settings::SettingsService::new()),
-            chats_svc: Arc::new(ChatsService::new()),
+            chats_svc: new_chats(),
+            maid_tokens: new_maid(),
         }
     }
 
