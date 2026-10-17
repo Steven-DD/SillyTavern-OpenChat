@@ -269,9 +269,18 @@ async fn route(
             let q = path_q.split_once('?').map(|(_, q)| q).unwrap_or("");
             super::assets::sprites_get(&st, q, origin)
         }
-        // tokenizers + secrets 族（Phase 1 · manifest #50-#53；encode 两家族已实装）
+        // tokenizers + secrets 族（Phase 1 · manifest #50-#53；Phase 2 批7 精确分层）
         ("POST", "/api/tokenizers/openai/count") => {
-            super::tokenizers_secrets::count(&st, body_bytes, origin)
+            // path_q = "?model=<m>..."; route() 传整串路径 + 查询
+            let q = path_q
+                .split_once('?')
+                .map(|(_, q)| q)
+                .unwrap_or(path_q)
+                .split('&')
+                .filter_map(|kv| kv.split_once('='))
+                .find(|(k, _)| *k == "model")
+                .map(|(_, v)| v.to_string());
+            super::tokenizers_secrets::count_with_model(&st, q.as_deref(), body_bytes, origin)
         }
         ("POST", p) if p.starts_with("/api/tokenizers/") && p.ends_with("/encode") => {
             super::tokenizers_secrets::encode_with_body(

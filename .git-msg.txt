@@ -1,10 +1,9 @@
-批6：translate 八家出站（#54/#55）+ OpenAI TTS 出站（#58）
-
-- backend/translate.rs：libre/google(gtx 等价)/yandex(App chunks 兼容+ucid)/
-  lingva/deepl(formality default/pro 分流)/onering(App 期望 {data:{result}}，
-  登记偏离 ST 裸串面)/deeplx/bing(edge auth JWT → cognitive translator)
-  输出面统一 JSON 字符串（ST 裸 text/plain 面 App 无法 json()，同源偏差修正）
-- extras.rs：speech_openai（openai.js:273-318 字面：tts-1/mp3/alloy 默认值、
-  instructions 透传、audio/mpeg 二进制、上游错误 500+原文）
-- api.rs 接线：/api/translate/* dispatch、/api/openai/generate-voice
-- cargo 164 全绿 0 警告
+批7：T16 openai/count 精确分层（tiktoken/cl100k+o200k+llama3 精确）+ textgen 自检契约同步
+''
+- tokenizers_secrets：count_with_model（?model= 分流：gpt-5*4o/o1-o4 系 →
+  tiktoken o200k/cl100k encode_ordinary(JSON.stringify(body) 基准，ST 失败回落同口径)；
+  llama3 → HF tokenizers content 聚合；其余家族维持 guesstimate 回落）
+- Cargo + tiktoken-rs 0.6（内置词表）
+- api.rs openai/count 传 ?model= 查询串
+- scripts/selfcheck-textgen.mjs 同步 api_server=base 契约（App textgen 修正的回归面）
+- cargo 164 全绿 0 警告 + 集成面 8 项全过；selfcheck 13 项全过；TS/build 0

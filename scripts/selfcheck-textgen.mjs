@@ -1,4 +1,9 @@
-/** textgen body/prompt 拼接自检（回归脚本；用法同 selfcheck-macros.mjs） */
+/** textgen body/prompt 拼接自检（回归脚本；用法同 selfcheck-macros.mjs）
+ *
+ *  Phase 2 批3 起：api_server = **base only**（text-completions.js 服务端
+ *  按 api_type 拼端点路径；此前前端自带 path 会叠出双路径 —— 与后端契约
+ *  同步修正，端点归属回归由 src-tauri providers_textcomp 断言承接）。
+ */
 globalThis.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} }
 const { buildBody, messagesToPrompt, TEXTGEN_BACKENDS } = await import('../src/services/st/textgen.ts')
 
@@ -14,33 +19,33 @@ const b1 = buildBody({
   maxTokens: 256, sampler: { temperature: 0.8, topP: 0.9, repetitionPenalty: 1.1 },
 })
 eq(b1.api_type, 'generic', 'generic: api_type')
-eq(b1.api_server, 'http://127.0.0.1:5001/v1/completions', 'generic: 端点拼接（去尾斜杠）')
+eq(b1.api_server, 'http://127.0.0.1:5001', 'generic: api_server=base（去尾斜杠；路径由服务端拼）')
 eq(b1.prompt, 'PROMPT', 'generic: prompt 单字符串')
 eq(b1.max_tokens, 256, 'generic: max_tokens')
 eq(b1.temperature, 0.8, 'generic: temperature')
 eq(b1.repetition_penalty, 1.1, 'generic: repetition_penalty')
 eq(b1.stream, true, 'generic: stream')
 
-// llamacpp：/completion + n_predict + repeat_penalty 别名
+// llamacpp：n_predict + repeat_penalty 别名（路径 /completion 服务端拼）
 const b2 = buildBody({ prompt: 'P', model: 'm', backend: 'llamacpp', server: 'http://l:8080', maxTokens: 100, sampler: { repetitionPenalty: 1.2 } })
-eq(b2.api_server, 'http://l:8080/completion', 'llamacpp: /completion')
+eq(b2.api_server, 'http://l:8080', 'llamacpp: api_server=base')
 eq(b2.n_predict, 100, 'llamacpp: n_predict')
 eq(b2.repeat_penalty, 1.2, 'llamacpp: repeat_penalty 别名')
 ok(!('repetition_penalty' in b2), 'llamacpp: 不带通用字段')
 
-// ollama：/api/generate + raw + options
+// ollama：raw + options（路径 /api/generate 服务端拼）
 const b3 = buildBody({ prompt: 'P', model: 'llama3', backend: 'ollama', server: 'http://o:11434', maxTokens: 128, sampler: { temperature: 0.5 } })
-eq(b3.api_server, 'http://o:11434/api/generate', 'ollama: /api/generate')
+eq(b3.api_server, 'http://o:11434', 'ollama: api_server=base')
 eq(b3.raw, true, 'ollama: raw')
 eq(b3.options.num_predict, 128, 'ollama: options.num_predict')
 
-// openrouter text：chat/completions 端点
+// openrouter text：固定服务器 base（chat/completions 服务端拼）
 const b4 = buildBody({ prompt: 'P', model: 'm', backend: 'openrouter', server: '' })
-eq(b4.api_server, 'https://openrouter.ai/api/v1/chat/completions', 'openrouter: 固定服务器 + chat/completions')
+eq(b4.api_server, 'https://openrouter.ai/api', 'openrouter: 固定服务器 base')
 
-// dreamgen / mancer 特例路径
-eq(buildBody({ prompt: 'P', model: 'm', backend: 'dreamgen', server: '' }).api_server, 'https://api.dreamgen.com/api/openai/v1/completions', 'dreamgen 路径')
-eq(buildBody({ prompt: 'P', model: 'm', backend: 'mancer', server: '' }).api_server, 'https://neuro.mancer.tech/webui/api/oai/v1/completions', 'mancer 路径')
+// dreamgen / mancer 特例（路径由服务端拼）
+eq(buildBody({ prompt: 'P', model: 'm', backend: 'dreamgen', server: '' }).api_server, 'https://api.dreamgen.com', 'dreamgen base')
+eq(buildBody({ prompt: 'P', model: 'm', backend: 'mancer', server: '' }).api_server, 'https://neuro.mancer.tech/webui/api', 'mancer base')
 
 // 缺服务器报错
 try { buildBody({ prompt: 'P', model: 'm', backend: 'koboldcpp', server: '' }); fail++; console.error('✗ 本地后端缺地址应抛错') } catch { /* ok */ }

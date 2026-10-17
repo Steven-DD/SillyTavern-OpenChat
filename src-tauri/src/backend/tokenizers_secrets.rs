@@ -39,18 +39,93 @@ pub fn guesstimate(text: &str) -> u64 {
     (text.as_bytes().len() as f64 / BYTES_PER_TOKEN).ceil() as u64
 }
 
-/// POST /api/tokenizers/openai/count?model=（manifest #51）
-/// body：消息数组（前端 tokenizer.ts:28-31）—— ST 回落按 JSON.stringify(body) 计数。
-/// 返回 `{token_count}`。
+/// POST /api/tokenizers/openai/count?model=（manifest #51 · T16 批7 升级）
+/// body：消息数组（tokenizer.ts:28-31）。
+/// 分层（tokenizers.js:916-1036 精度链）：
+/// - **OpenAI gpt-* / o1/o3家族** → tiktoken 精确（cl100k/o200k 按模型分
+///   —— ST getTiktokenTokenizer 分流）；基准 = JSON.stringify(body)
+///   （ST 失败回落同口径，含 role 框架开销 —— 偏保守，符合回退语义）
+/// - llama3 家族 → HF tokenizers（nai_tokens::encode_llama3）
+/// - 其余（gemini/claude 等）→ guesstimate（原有 ST 回落公式）
 pub fn count(st: &BackendState, body_bytes: &[u8], origin: Option<HeaderValue>) -> Response {
+    let _ = st;
     if body_bytes.is_empty() {
         return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
     }
-    // Phase 1：gueestimate 口径 —— 与 ST 失败回落字面一致（对整个 body JSON 计数）。
-    // 真 tokenizer（tiktoken/SentencePiece/Web tokenizer）随 Phase 3 接入 crate。
-    let n = guesstimate(&String::from_utf8_lossy(body_bytes));
-    let _ = st;
+    let text = String::from_utf8_lossy(body_bytes);
+    let n = guesstimate(&text);
     ok_json(origin, json!({ "token_count": n }))
+}
+
+/// count 的带 model 版本（api.rs 从查询串取 `?model=<m>`；Phase 2 批7）
+pub fn count_with_model(
+    st: &BackendState,
+    model: Option<&str>,
+    body_bytes: &[u8],
+    origin: Option<HeaderValue>,
+) -> Response {
+    let _ = st;
+    let Some(model) = model else { return count(st, body_bytes, origin) };
+    if body_bytes.is_empty() {
+        return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
+    }
+    let model = model.to_ascii_lowercase();
+    if model.contains("llama3") || model.contains("llama-3") {
+        // llama3：消息数组的 content 拼接 → HF tokenizers
+        let text = content_of_body(&String::from_utf8_lossy(body_bytes));
+        if let Ok(ids) = super::nai_tokens::encode_llama3(&text) {
+            return ok_json(origin, json!({ "token_count": ids.len() }));
+        }
+        // llama3 tokenizer 不可用 → guesstimate 回落（ST 同语义）
+        return count(st, body_bytes, origin);
+    }
+    let body_text = String::from_utf8_lossy(body_bytes);
+    if is_o200k_model(&model) {
+        if let Ok(bpe) = tiktoken_rs::o200k_base() {
+            return ok_json(
+                origin,
+                json!({ "token_count": bpe.encode_ordinary(body_text.as_ref()).len() }),
+            );
+        }
+    }
+    if is_cl100k_model(&model) {
+        if let Ok(bpe) = tiktoken_rs::cl100k_base() {
+            return ok_json(
+                origin,
+                json!({ "token_count": bpe.encode_ordinary(body_text.as_ref()).len() }),
+            );
+        }
+    }
+    count(st, body_bytes, origin)
+}
+
+fn content_of_body(json_text: &str) -> String {
+    serde_json::from_str::<Value>(json_text)
+        .ok()
+        .and_then(|v| {
+            v.as_array()
+                .map(|msgs| {
+                    msgs.iter()
+                        .filter_map(|m| m.get("content"))
+                        .map(|c| match c {
+                            Value::String(s) => s.clone(),
+                            other => other.to_string(),
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .map(|parts| parts.join("\n"))
+        })
+        .unwrap_or_default()
+}
+
+/// o200k 家族（getTiktokenTokenizer 分流：o1/o3/o4/gpt-4o 系）
+fn is_o200k_model(m: &str) -> bool {
+    m.starts_with("o1") || m.starts_with("o3") || m.starts_with("o4") || m.starts_with("gpt-4o")
+}
+
+/// cl100k 家族（gpt-4 / gpt-3.5 非 instruct）
+fn is_cl100k_model(m: &str) -> bool {
+    m.starts_with("gpt-4") || m.starts_with("gpt-3.5")
 }
 
 /// POST /api/tokenizers/<model>/encode 的非 App 契约家族 → 501（S20）
