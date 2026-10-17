@@ -211,6 +211,55 @@ async fn route(
             let q = path_q.split_once('?').map(|(_, q)| q).unwrap_or("");
             super::assets::sprites_get(&st, q, origin)
         }
+        // tokenizers + secrets 族（Phase 1 · manifest #50-#53）
+        ("POST", "/api/tokenizers/openai/count") => super::tokenizers_secrets::count(&st, body_bytes, origin),
+        ("POST", p) if p.starts_with("/api/tokenizers/") && p.ends_with("/encode") => {
+            super::tokenizers_secrets::encode(
+                p.trim_start_matches("/api/tokenizers/").trim_end_matches("/encode"),
+                origin,
+            )
+        }
+        ("POST", "/api/secrets/write") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::tokenizers_secrets::secrets_write(&st, &v, origin),
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/secrets/read") => super::tokenizers_secrets::secrets_read(&st, origin),
+        ("POST", "/api/secrets/view") => super::tokenizers_secrets::secrets_view(origin),
+        // extras 族（Phase 1 · manifest #54-#65）：data-maid / translate / speech / vectors
+        ("POST", "/api/data-maid/report") => super::extras::maid_report(&st, &st.maid_tokens, origin),
+        ("POST", "/api/data-maid/finalize") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::extras::maid_finalize(&st, &st.maid_tokens, &v, origin),
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/data-maid/delete") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::extras::maid_delete(&st, &st.maid_tokens, &v, origin),
+            Err(_) => bad_json(origin),
+        },
+        ("GET", "/api/data-maid/view") => {
+            let q = path_q.split_once('?').map(|(_, q)| q).unwrap_or("");
+            super::extras::maid_view(&st, &st.maid_tokens, q, origin)
+        }
+        ("POST", "/api/translate/onering") => super::extras::translate_not_migrated("onering", origin),
+        ("POST", p) if p.starts_with("/api/translate/") => {
+            super::extras::translate_not_migrated(p.trim_start_matches("/api/translate/"), origin)
+        }
+        ("POST", "/api/speech/synthesize") => super::extras::speech_local_unavailable(origin),
+        ("POST", "/api/vector/list") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::extras::vector_list(&st, &v, origin),
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/vector/insert") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::extras::vector_insert(&st, &v, origin),
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/vector/query") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::extras::vector_query(&st, &v, origin),
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/vector/delete") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::extras::vector_delete(&st, &v, origin),
+            Err(_) => bad_json(origin),
+        },
         // 静态资源前缀（manifest #31-#33；鉴权豁免路径的落盘读取）
         (m, p) if m == "GET" && (p.starts_with("/characters/") || p.starts_with("/backgrounds/") || p.starts_with("/user-images/")) => {
             super::assets::static_asset(&st, p, origin)

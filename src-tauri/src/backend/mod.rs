@@ -25,8 +25,10 @@ mod auth;
 pub mod assets;
 pub mod characters;
 pub mod chats;
+pub mod extras;
 pub mod gate;
 pub mod settings;
+pub mod tokenizers_secrets;
 mod uploads;
 pub mod worldinfo_groups;
 
@@ -53,6 +55,8 @@ pub struct BackendState {
     pub settings_svc: Arc<settings::SettingsService>,
     /// chats 服务的备份节流状态（Phase 1 族四）
     pub chats_svc: Arc<chats::ChatsService>,
+    /// data-maid 内存 token 表（族八）
+    pub maid_tokens: Arc<extras::MaidTokens>,
 }
 
 use std::sync::Arc;
@@ -75,6 +79,7 @@ pub async fn start(data_root: std::path::PathBuf) -> std::io::Result<BackendHand
         max_body_bytes: 32 * 1024 * 1024,
         settings_svc: Arc::new(settings::SettingsService::new()),
         chats_svc: Arc::new(chats::ChatsService::new()),
+        maid_tokens: Arc::new(extras::MaidTokens::new()),
     };
 
     let app = router(state);
@@ -251,7 +256,7 @@ mod tests {
         let base = format!("http://127.0.0.1:{}", ep.port);
 
         let r = c
-            .post(format!("{base}/api/data-maid/report"))
+            .post(format!("{base}/api/backends/chat-completions/generate"))
             .header("x-relay-auth", &ep.token)
             .header("x-csrf-token", "t")
             .header("content-type", "application/json")
