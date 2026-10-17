@@ -243,10 +243,17 @@ export interface DataBagResult {
   message: string
 }
 
-/** 导出数据（data 目录 + config.yaml）到指定 zip 路径；ST 运行中会被拒绝 */
-export async function stDataExport(dest: string): Promise<DataBagResult | null> {
+/**
+ * 导出数据（data 目录 + config.yaml）到指定 zip 路径；ST 运行中会被拒绝。
+ * T19：includeSecrets=false（默认）排除明文密钥（secrets.json / cookie-secret.txt）；
+ * true 则打包并在结果 message 里附带明文警告（调用方需负责提示/确认）。
+ */
+export async function stDataExport(
+  dest: string,
+  includeSecrets = false,
+): Promise<DataBagResult | null> {
   if (!hasTauri()) return null
-  return call<DataBagResult>('st_data_export', { dest })
+  return call<DataBagResult>('st_data_export', { dest, includeSecrets })
 }
 
 /** 从数据袋 zip 导入（覆盖现有数据，导入前自动备份 data.bak-<时间戳>） */

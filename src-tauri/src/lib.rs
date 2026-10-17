@@ -740,8 +740,14 @@ fn data_bag_context(host: &plugin::PluginHost) -> Result<(PathBuf, PathBuf, bool
 
 /// 导出数据袋（data 目录 + config.yaml）到指定 zip 路径。
 /// 路径由前端用系统对话框选好再传进来。
+/// T19：include_secrets=false（默认）排除明文密钥文件（secrets.json /
+/// cookie-secret.txt），true 则打包并在结果 message 里带明文警告。
 #[tauri::command]
-async fn st_data_export(host: Host<'_>, dest: String) -> Result<st_data::DataBagResult, String> {
+async fn st_data_export(
+    host: Host<'_>,
+    dest: String,
+    include_secrets: Option<bool>,
+) -> Result<st_data::DataBagResult, String> {
     let (root, cfg, _) = data_bag_context(&host)?;
     let dest = PathBuf::from(dest.trim());
     if dest.extension().map(|e| e != "zip").unwrap_or(true) {
@@ -749,7 +755,7 @@ async fn st_data_export(host: Host<'_>, dest: String) -> Result<st_data::DataBag
     }
     let cfg_ref = cfg.is_file().then_some(cfg);
     tauri::async_runtime::spawn_blocking(move || {
-        st_data::export_bag(&root, cfg_ref.as_deref(), &dest)
+        st_data::export_bag(&root, cfg_ref.as_deref(), &dest, include_secrets.unwrap_or(false))
     })
     .await
     .map_err(|e| format!("导出任务异常：{e}"))?

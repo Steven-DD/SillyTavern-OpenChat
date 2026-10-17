@@ -25,6 +25,10 @@ const errMsg = ref('')
 /** 导入确认弹窗（pendingZip 暂存待导入的 zip 路径） */
 const confirmImport = ref(false)
 const pendingZip = ref('')
+/** T19：是否把明文密钥打进数据袋（默认否）+ 二次确认弹窗状态 */
+const includeSecrets = ref(false)
+const secretConfirm = ref(false)
+const pendingDest = ref('')
 
 const data = computed(() => plugins.dataStatus)
 
@@ -67,14 +71,25 @@ async function doExport() {
   const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '')
   const dest = await pickSavePath(`st-chat-data-${stamp}.zip`)
   if (!dest) return
+  // T19：勾「包含 API 密钥明文」→ 二次确认（明文密钥出数据目录的安全面）
+  if (includeSecrets.value) {
+    secretConfirm.value = true
+    pendingDest.value = dest
+    return
+  }
+  await doExportRun(dest)
+}
+
+async function doExportRun(dest: string) {
   busy.value = 'export'
   try {
-    const r = await stDataExport(dest)
+    const r = await stDataExport(dest, includeSecrets.value)
     note.value = r ? `${r.message} → ${r.path}` : ''
   } catch (e) {
     errMsg.value = e instanceof Error ? e.message : String(e)
   } finally {
     busy.value = null
+    pendingDest.value = ''
   }
 }
 
@@ -143,6 +158,16 @@ async function doImportConfirmed() {
         <span v-if="!hasTauri()" class="sub">（需要桌面环境）</span>
       </div>
 
+      <!-- T19：密钥明文是否打包（默认排除） -->
+      <label class="secret-opt">
+        <input type="checkbox" v-model="includeSecrets" />
+        包含 API 密钥明文（secrets.json 等）
+      </label>
+      <p v-if="includeSecrets" class="hint warn-hint">
+        ⚠ 勾选后导出的 zip 会包含 API 密钥<strong>明文</strong>（导入需要重填的密钥也将随袋携带）。
+        导出前会再弹一次确认；备份用途结束后请删除该文件。
+      </p>
+
       <p v-if="note" class="rsp okish">{{ note }}</p>
       <p v-if="errMsg" class="rsp err">{{ errMsg }}</p>
       <p v-else-if="plugins.error" class="rsp err">{{ plugins.error }}</p>
@@ -158,6 +183,17 @@ async function doImportConfirmed() {
       @confirm="doImportConfirmed"
       @cancel="confirmImport = false"
     />
+
+    <!-- T19：明文密钥导出二次确认 -->
+    <ConfirmDialog
+      :open="secretConfirm"
+      title="导出包含明文密钥"
+      message="该数据袋将包含 API 密钥明文。\n请确保目标位置安全（不要随意上传 / 分享），备份用途结束后及时删除。确定继续？"
+      confirm-text="确认导出（含明文密钥）"
+      :busy="busy === 'export'"
+      @confirm="() => { secretConfirm = false; if (pendingDest) void doExportRun(pendingDest) }"
+      @cancel="secretConfirm = false; pendingDest = ''"
+    />
   </section>
 </template>
 
@@ -170,6 +206,18 @@ async function doImportConfirmed() {
 /* .hint 外观走全局 shortcut；只保留本组件的上下距 */
 .hint {
   margin: 8px 0;
+}
+.secret-opt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+  font-size: 12px;
+  color: var(--c-text-2);
+  cursor: pointer;
+}
+.warn-hint {
+  color: var(--c-err, #d57f4a);
 }
 .kv {
   width: 100%;

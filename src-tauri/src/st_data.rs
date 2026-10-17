@@ -624,6 +624,7 @@ pub fn export_bag(
     data_root: &Path,
     config_path: Option<&Path>,
     dest: &Path,
+    include_secrets: bool,
 ) -> Result<DataBagResult, String> {
     if !data_root.is_dir() {
         return Err(format!("数据目录不存在：{}", display_path(data_root)));
@@ -640,6 +641,10 @@ pub fn export_bag(
 
     let mut files = 0u64;
     let mut bytes = 0u64;
+    let mut excluded = 0u64;
+    // T19：明文密钥面排除清单（secrets.json = API 密钥多值结构；
+    // cookie-secret.txt = 会话签名密钥）。include_secrets=false 时跳过。
+    const SECRET_FILES: [&str; 2] = ["default-user/secrets.json", "cookie-secret.txt"];
     let mut stack = vec![data_root.to_path_buf()];
     while let Some(dir) = stack.pop() {
         let rd = fs::read_dir(&dir).map_err(|e| format!("读取目录失败 {}: {e}", dir.display()))?;
@@ -648,16 +653,21 @@ pub fn export_bag(
             let rel = p
                 .strip_prefix(data_root)
                 .map_err(|_| "相对路径计算失败".to_string())?;
+            let rel_norm = rel.to_string_lossy().replace('\\', "/");
             if p.is_dir() {
                 stack.push(p);
-            } else {
-                zip.start_file(rel.to_string_lossy().replace('\\', "/"), opts.clone())
-                    .map_err(|e| format!("写入 zip 条目失败：{e}"))?;
-                let mut f = fs::File::open(&p).map_err(|e| format!("打开文件失败：{e}"))?;
-                std::io::copy(&mut f, &mut zip).map_err(|e| format!("压缩写入失败：{e}"))?;
-                files += 1;
-                bytes += fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+                continue;
             }
+            if !include_secrets && SECRET_FILES.iter().any(|s| rel_norm == *s) {
+                excluded += 1;
+                continue;
+            }
+            zip.start_file(rel_norm, opts.clone())
+                .map_err(|e| format!("写入 zip 条目失败：{e}"))?;
+            let mut f = fs::File::open(&p).map_err(|e| format!("打开文件失败：{e}"))?;
+            std::io::copy(&mut f, &mut zip).map_err(|e| format!("压缩写入失败：{e}"))?;
+            files += 1;
+            bytes += fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
         }
     }
     if let Some(cp) = config_path {
@@ -672,14 +682,30 @@ pub fn export_bag(
     zip.finish().map_err(|e| format!("收尾 zip 失败：{e}"))?;
     fs::rename(&part, dest).map_err(|e| format!("落盘导出文件失败：{e}"))?;
 
+    // 导入兼容面：被排除明文密钥的数据袋导入后，secrets.json 缺失 ——
+    // vault 链 keychain 条目仍在原机；换机导入靠 settings.stchat_native（配置类）+ 用户重填。
+    let message = if !include_secrets && excluded > 0 {
+        format!(
+            "已导出 {files} 个文件（{:.1} MB）——已排除 {excluded} 个明文密钥文件（API 密钥 / 会话签名密钥）；导入到新机器后需重新填写 API 密钥",
+            bytes as f64 / 1048576.0
+        )
+    } else if include_secrets {
+        format!(
+            "已导出 {files} 个文件（{:.1} MB）——⚠ 本数据袋包含 API 密钥**明文**，请妥善保管并在备份用途结束后删除",
+            bytes as f64 / 1048576.0
+        )
+    } else {
+        format!(
+            "已导出 {files} 个文件（{:.1} MB）",
+            bytes as f64 / 1048576.0
+        )
+    };
+
     Ok(DataBagResult {
         path: display_path(dest),
         files,
         bytes,
-        message: format!(
-            "已导出 {files} 个文件（{:.1} MB）",
-            bytes as f64 / 1048576.0
-        ),
+        message,
     })
 }
 
@@ -940,10 +966,30 @@ mod tests {
         let config = base.join("st-runtime/config.yaml");
         fs::write(&config, b"port: 8000\n").unwrap();
 
-        // 导出
+        // 导出（含密钥 → 老口径）
         let zip_path = base.join("bag.zip");
-        let out = export_bag(&data, Some(&config), &zip_path).expect("export ok");
+        let out = export_bag(&data, Some(&config), &zip_path, true).expect("export ok");
         assert_eq!(out.files, 3, "2 个数据文件 + config.yaml");
+        assert!(out.message.contains("明文"), "含密钥导出必须带 T19 警告");
+
+        // T19：排除密钥导出（默认面）→ secrets/cookie 文件不进袋
+        let zip_safe = base.join("bag-safe.zip");
+        let out2 = export_bag(&data, Some(&config), &zip_safe, false).expect("export safe ok");
+        assert_eq!(out2.files, 2, "排除 secrets + cookie-secret 后仅剩 c1.png + config");
+        assert!(out2.message.contains("已排除"), "排除面消息必须带提示");
+        // 文件面断言（读 zip 清单）
+        let f = fs::File::open(&zip_safe).unwrap();
+        let mut z = zip::ZipArchive::new(std::io::BufReader::new(f)).unwrap();
+        let mut names: Vec<String> = Vec::new();
+        for i in 0..z.len() {
+            if let Ok(e) = z.by_index(i) {
+                names.push(e.name().to_string());
+            }
+        }
+        names.sort();
+        assert!(!names.iter().any(|n| n.contains("secrets.json")), "secrets.json 必须被排除", );
+        assert!(!names.iter().any(|n| n.contains("cookie-secret")), "cookie-secret.txt 必须被排除");
+        assert!(names.iter().any(|n| n.ends_with("c1.png")));
 
         // 破坏现场，再导入 → 内容应恢复
         fs::remove_dir_all(&data).unwrap();
