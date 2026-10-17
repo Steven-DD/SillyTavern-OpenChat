@@ -28,6 +28,7 @@ pub mod chats;
 pub mod extensions;
 pub mod extras;
 pub mod gate;
+pub mod horde;
 pub mod providers;
 pub mod providers_claude;
 pub mod providers_convert;

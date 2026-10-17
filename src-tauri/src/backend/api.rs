@@ -278,6 +278,23 @@ async fn route(
             Ok(v) => super::providers_textcomp::generate(&st, &v, origin).await,
             Err(_) => bad_json(origin),
         },
+        // AI Horde 独立通道（Phase 2 批4 · manifest #44-#47）
+        ("POST", "/api/horde/generate-text") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::horde::generate_text(&st, &v, origin).await,
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/horde/task-status") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::horde::task_status(&st, &v, origin).await,
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/horde/cancel-task") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::horde::cancel_task(&st, &v, origin).await,
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/horde/text-models") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::horde::text_models(&st, &v, origin).await,
+            Err(_) => bad_json(origin),
+        },
         // extensions 族（Phase 1/5 · manifest #67-#68；git 安装面 501 → Phase 5 T14）
         ("GET", "/api/extensions/discover") => super::extensions::discover(&st, origin),
         ("POST", "/api/quick-replies/save") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
