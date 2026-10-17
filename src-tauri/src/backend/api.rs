@@ -158,6 +158,37 @@ async fn route(
             Ok(v) => super::chats::group_save(&st, &st.chats_svc, &v, origin),
             Err(_) => bad_json(origin),
         },
+        // worldinfo 族（Phase 1 · manifest #19-#22）
+        ("POST", "/api/worldinfo/list") => super::worldinfo_groups::wi_list(&st, origin),
+        ("POST", "/api/worldinfo/get") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::worldinfo_groups::wi_get(&st, &v, origin),
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/worldinfo/edit") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::worldinfo_groups::wi_edit(&st, &v, origin),
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/worldinfo/delete") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::worldinfo_groups::wi_delete(&st, &v, origin),
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/worldinfo/import") => {
+            super::worldinfo_groups::wi_import(&st, content_type, body_bytes.to_vec().into(), origin).await
+        }
+        // groups 族（Phase 1 · groups.js）
+        ("POST", "/api/groups/all") => super::worldinfo_groups::gr_all(&st, origin),
+        ("POST", "/api/groups/create") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::worldinfo_groups::gr_create(&st, &v, origin),
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/groups/edit") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::worldinfo_groups::gr_edit(&st, &v, origin),
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/groups/delete") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::worldinfo_groups::gr_delete(&st, &v, origin),
+            Err(_) => bad_json(origin),
+        },
         _ => not_implemented(origin, path_q),
     }
 }

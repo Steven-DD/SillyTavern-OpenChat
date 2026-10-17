@@ -27,6 +27,7 @@ pub mod chats;
 pub mod gate;
 pub mod settings;
 mod uploads;
+pub mod worldinfo_groups;
 
 pub use auth::gen_token;
 
@@ -249,7 +250,7 @@ mod tests {
         let base = format!("http://127.0.0.1:{}", ep.port);
 
         let r = c
-            .post(format!("{base}/api/worldinfo/list"))
+            .post(format!("{base}/api/data-maid/report"))
             .header("x-relay-auth", &ep.token)
             .header("x-csrf-token", "t")
             .header("content-type", "application/json")
