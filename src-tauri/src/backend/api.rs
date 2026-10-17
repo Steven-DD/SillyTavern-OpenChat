@@ -260,6 +260,24 @@ async fn route(
             Ok(v) => super::extras::vector_delete(&st, &v, origin),
             Err(_) => bad_json(origin),
         },
+        // providers 族切片（Phase 1 · manifest #41/#42：openai/custom；其余源 501）
+        ("POST", "/api/backends/chat-completions/status") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::providers::status(&st, &v, origin).await,
+            Err(_) => bad_json(origin),
+        },
+        ("POST", "/api/backends/chat-completions/generate") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::providers::generate(&st, &v, origin).await,
+            Err(_) => bad_json(origin),
+        },
+        // extensions 族（Phase 1/5 · manifest #67-#68；git 安装面 501 → Phase 5 T14）
+        ("GET", "/api/extensions/discover") => super::extensions::discover(&st, origin),
+        ("POST", "/api/quick-replies/save") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            Ok(v) => super::extensions::qr_save(&st, &v, origin),
+            Err(_) => bad_json(origin),
+        },
+        ("POST", p) if p.starts_with("/api/extensions/") => {
+            super::extensions::git_ops_not_migrated(p.trim_start_matches("/api/extensions/"), origin)
+        }
         // 静态资源前缀（manifest #31-#33；鉴权豁免路径的落盘读取）
         (m, p) if m == "GET" && (p.starts_with("/characters/") || p.starts_with("/backgrounds/") || p.starts_with("/user-images/")) => {
             super::assets::static_asset(&st, p, origin)

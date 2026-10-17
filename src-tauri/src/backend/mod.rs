@@ -25,8 +25,11 @@ mod auth;
 pub mod assets;
 pub mod characters;
 pub mod chats;
+pub mod extensions;
 pub mod extras;
 pub mod gate;
+pub mod providers;
+mod providers_text;
 pub mod settings;
 pub mod tokenizers_secrets;
 mod uploads;
@@ -256,7 +259,7 @@ mod tests {
         let base = format!("http://127.0.0.1:{}", ep.port);
 
         let r = c
-            .post(format!("{base}/api/backends/chat-completions/generate"))
+            .post(format!("{base}/api/sd/generate"))
             .header("x-relay-auth", &ep.token)
             .header("x-csrf-token", "t")
             .header("content-type", "application/json")
