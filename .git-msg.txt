@@ -1,0 +1,7 @@
+批2：providers 全量接线（26 源专属 body/URL/headers 分流 + 独立 sender + Anthropic/Cohere 输出面转换 + makersuite 模型分页）
+
+providers_claude.rs：Claude messages API 全量（模型档位 regex 门/thinking 无已指/adaptive 与 output_config.effort/noPrefill 回填性质工具/stop_sequences）+ 流式 Anthropic SSE → OpenAI chunk（App 单解析约束，登记偏差）
+providers_misc.rs：mistralai/ai21/deepseek/xai/aimlapi/electronhub/chutes/minimax/azure_openai 全量 + cohere（v2 原生请求面保留，输出转 OpenAI 形）错误语义 ST 字面（缺key 400/上游 500+tryParse）
+providers_google.rs：makersuite/vertexai-express body 组装（generationConfig/thinkingConfig/noSampling/安全设置/ октools）+ Google 原生 passthrough + /status 分页模型发现（bypass:true）+ vertexai status ST 字面 400
+providers_text.rs：OPENAI_REASONING_EFFORT 名单/映射/NANOGPT 映射/VERBOSITY 判别
+S12 custom_url 保留 + key 只服务端读；cargo 150 全绿 0 警告

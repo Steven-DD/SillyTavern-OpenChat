@@ -506,14 +506,12 @@ mod tests {
         let mp = "--B\r\nContent-Disposition: form-data; name=\"avatar\"; filename=\"a.png\"\r\n\r\n<svg>\r\n--B--\r\n";
         let r = avatars_upload(&st, Some("multipart/form-data; boundary=B"), axum::body::Bytes::from(mp), None).await;
         assert_eq!(r.status().as_u16(), 400);
-        // 真 PNG → {path}
+        // 真 PNG → {path}（b64 变体仅留作对照；multipart 文件字段是原始字节）
         let b64img = {
             use base64::Engine;
             base64::engine::general_purpose::STANDARD.encode(real_png())
         };
-        let mp = format!(
-            "--B\r\nContent-Disposition: form-data; name=\"avatar\"; filename=\"a.png\"\r\n\r\n{b64img}\r\n--B--\r\n"
-        );
+        let _b64img = b64img;
         // 注意：multipart 文件字段是原始字节，不是 base64 —— 用真字节
         let mut body = Vec::new();
         body.extend_from_slice(b"--B\r\nContent-Disposition: form-data; name=\"avatar\"; filename=\"a.png\"\r\nContent-Type: image/png\r\n\r\n");
