@@ -369,9 +369,7 @@ fn launch_and_watch(
             };
             if let Ok(Some(status)) = polled {
                 s.child_gone.store(true, Ordering::SeqCst);
-                let msg = format!(
-                    "SillyTavern 进程已退出（{status}）。详见日志 sillytavern.log"
-                );
+                let msg = format!("SillyTavern 进程已退出（{status}）。详见日志 sillytavern.log");
                 s.emit(&watch_handle, "error", &msg);
                 eprintln!("[sidecar] {msg}");
                 return;
@@ -536,7 +534,9 @@ pub fn prepare_for_migration(app: &AppHandle) -> Result<Option<String>, String> 
     for _ in 0..30 {
         if !is_listening(port) {
             mark_state(app, "stopped", "已为数据迁移暂停，迁移完成后请重启应用");
-            return Ok(Some(format!("已暂停本应用托管的 SillyTavern（端口 {port}）")));
+            return Ok(Some(format!(
+                "已暂停本应用托管的 SillyTavern（端口 {port}）"
+            )));
         }
         std::thread::sleep(Duration::from_millis(200));
     }
@@ -713,7 +713,8 @@ Proto  Local Address          Foreign Address        State           PID
     /// 端口后缀匹配必须是**精确的后缀**，不能 `8000` 命中 `18000`（字符串 ends_with 的经典坑）
     #[test]
     fn does_not_match_port_by_loose_substring() {
-        let tricky = "  TCP    127.0.0.1:18000        0.0.0.0:0              LISTENING       5150\n";
+        let tricky =
+            "  TCP    127.0.0.1:18000        0.0.0.0:0              LISTENING       5150\n";
         assert_eq!(parse_listening_pid(tricky, 8000), None);
         assert_eq!(parse_listening_pid(tricky, 18000), Some(5150));
     }
@@ -721,7 +722,10 @@ Proto  Local Address          Foreign Address        State           PID
     #[test]
     fn tolerates_garbage_input() {
         assert_eq!(parse_listening_pid("", 8000), None);
-        assert_eq!(parse_listening_pid("完全没有 netstat 结构的一行", 8000), None);
+        assert_eq!(
+            parse_listening_pid("完全没有 netstat 结构的一行", 8000),
+            None
+        );
         assert_eq!(
             parse_listening_pid("  TCP    127.0.0.1:8000  LISTENING\n", 8000),
             None // 列数不足

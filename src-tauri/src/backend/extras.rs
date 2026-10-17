@@ -59,7 +59,9 @@ struct MaidTokenEntry {
 
 impl MaidTokens {
     pub fn new() -> Self {
-        Self { inner: Mutex::new(HashMap::new()) }
+        Self {
+            inner: Mutex::new(HashMap::new()),
+        }
     }
 }
 
@@ -71,7 +73,9 @@ fn sha256_hex(s: &str) -> String {
 
 /// 递归收集目录文件（平铺一层 + 子目录一层，覆盖 collectImages 的 user/images 子树）
 fn list_files_flat(dir: &std::path::Path, recursive: bool, out: &mut Vec<std::path::PathBuf>) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in rd.flatten() {
         let p = e.path();
         if p.is_file() {
@@ -95,7 +99,12 @@ fn collect_report(st: &BackendState) -> Value {
             for e in rd.flatten() {
                 let p = e.path();
                 if p.extension().and_then(|x| x.to_str()) == Some("png") {
-                    v.push(p.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_string());
+                    v.push(
+                        p.file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("")
+                            .to_string(),
+                    );
                 }
             }
         }
@@ -143,7 +152,12 @@ fn collect_report(st: &BackendState) -> Value {
     };
     if let Ok(rd) = std::fs::read_dir(du.join("group chats")) {
         for e in rd.flatten() {
-            let stem = e.path().file_stem().and_then(|s| s.to_str()).unwrap_or("").to_string();
+            let stem = e
+                .path()
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
             if known_chat_ids.iter().any(|s| s == &stem) {
                 continue;
             }
@@ -210,18 +224,37 @@ fn sanitize_record(st: &BackendState, path_str: &str, with_parent: bool) -> Valu
     });
     let o = rec.as_object_mut().unwrap();
     if with_parent {
-        o.insert("parent".into(), json!(p.parent().and_then(|x| x.file_name()).and_then(|s| s.to_str()).unwrap_or("")));
+        o.insert(
+            "parent".into(),
+            json!(p
+                .parent()
+                .and_then(|x| x.file_name())
+                .and_then(|s| s.to_str())
+                .unwrap_or("")),
+        );
     }
     if let Some(s) = stat {
         o.insert("size".into(), json!(s.len()));
-        o.insert("mtime".into(), json!(s.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis() as u64).unwrap_or(0)));
+        o.insert(
+            "mtime".into(),
+            json!(s
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0)),
+        );
     }
     let _ = st;
     rec
 }
 
 /// POST /api/data-maid/report {…}（manifest #62）
-pub fn maid_report(st: &BackendState, tokens: &MaidTokens, origin: Option<HeaderValue>) -> Response {
+pub fn maid_report(
+    st: &BackendState,
+    tokens: &MaidTokens,
+    origin: Option<HeaderValue>,
+) -> Response {
     let raw = collect_report(st);
     // sanitize：全部组统一记录形态（withParent：images/chats=true，其余 false ——
     // data-maid.js:163-172 的 per-组 参数）
@@ -230,9 +263,16 @@ pub fn maid_report(st: &BackendState, tokens: &MaidTokens, origin: Option<Header
         let with_parent = matches!(k.as_str(), "images" | "chats");
         let arr: Vec<Value> = v
             .as_array()
-            .map(|a| a.iter().map(|s| sanitize_record(st, s.as_str().unwrap_or(""), with_parent)).collect())
+            .map(|a| {
+                a.iter()
+                    .map(|s| sanitize_record(st, s.as_str().unwrap_or(""), with_parent))
+                    .collect()
+            })
             .unwrap_or_default();
-        sanitized.as_object_mut().unwrap().insert(k.clone(), json!(arr));
+        sanitized
+            .as_object_mut()
+            .unwrap()
+            .insert(k.clone(), json!(arr));
     }
     // token：内存表 + 全 raw 路径注册
     let mut token_bytes = [0u8; 32];
@@ -250,13 +290,22 @@ pub fn maid_report(st: &BackendState, tokens: &MaidTokens, origin: Option<Header
     {
         let mut t = tokens.inner.lock().unwrap_or_else(|e| e.into_inner());
         t.clear(); // ST：同 handle 旧 token 移除
-        t.insert("default-user".into(), MaidTokenEntry { token: token.clone(), paths });
+        t.insert(
+            "default-user".into(),
+            MaidTokenEntry {
+                token: token.clone(),
+                paths,
+            },
+        );
     }
     ok_json(origin, json!({ "report": sanitized, "token": token }))
 }
 
 /// token 校验 helper：不存在 403 / 拿到 entry 克隆
-fn check_token(tokens: &MaidTokens, token: &str) -> Result<(String, Vec<(String, String)>), StatusCode> {
+fn check_token(
+    tokens: &MaidTokens,
+    token: &str,
+) -> Result<(String, Vec<(String, String)>), StatusCode> {
     let t = tokens.inner.lock().unwrap_or_else(|e| e.into_inner());
     match t.get("default-user") {
         Some(e) if e.token == token => Ok((e.token.clone(), e.paths.clone())),
@@ -265,14 +314,23 @@ fn check_token(tokens: &MaidTokens, token: &str) -> Result<(String, Vec<(String,
 }
 
 /// POST /api/data-maid/finalize {token}（manifest #63）—— 用后失效 → 204
-pub fn maid_finalize(st: &BackendState, tokens: &MaidTokens, body: &Value, origin: Option<HeaderValue>) -> Response {
+pub fn maid_finalize(
+    st: &BackendState,
+    tokens: &MaidTokens,
+    body: &Value,
+    origin: Option<HeaderValue>,
+) -> Response {
     let _ = st;
     let Some(token) = body.get("token").and_then(|v| v.as_str()) else {
         return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
     };
     match check_token(tokens, token) {
         Ok(_) => {
-            tokens.inner.lock().unwrap_or_else(|e| e.into_inner()).remove("default-user");
+            tokens
+                .inner
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove("default-user");
             apply_cors_resp(StatusCode::NO_CONTENT.into_response(), origin)
         }
         Err(code) => apply_cors_resp(code.into_response(), origin),
@@ -280,7 +338,12 @@ pub fn maid_finalize(st: &BackendState, tokens: &MaidTokens, body: &Value, origi
 }
 
 /// POST /api/data-maid/delete {token, hashes[]}（manifest #65）—— 逐 hash 删除 → 204
-pub fn maid_delete(st: &BackendState, tokens: &MaidTokens, body: &Value, origin: Option<HeaderValue>) -> Response {
+pub fn maid_delete(
+    st: &BackendState,
+    tokens: &MaidTokens,
+    body: &Value,
+    origin: Option<HeaderValue>,
+) -> Response {
     let (Some(token), Some(hashes)) = (
         body.get("token").and_then(|v| v.as_str()),
         body.get("hashes").and_then(|v| v.as_array()),
@@ -309,7 +372,12 @@ pub fn maid_delete(st: &BackendState, tokens: &MaidTokens, body: &Value, origin:
 /// GET /api/data-maid/view?token=&hash=（manifest #64）
 /// ⚠ 鉴权已由 authorize 统一处理（S5：query token 不参与鉴权）；
 /// 这里的 token 是 maid 内存表的一次性凭证。mime 按扩展名。
-pub fn maid_view(_st: &BackendState, tokens: &MaidTokens, query: &str, origin: Option<HeaderValue>) -> Response {
+pub fn maid_view(
+    _st: &BackendState,
+    tokens: &MaidTokens,
+    query: &str,
+    origin: Option<HeaderValue>,
+) -> Response {
     let mut token = "";
     let mut hash = "";
     for pair in query.split('&') {
@@ -335,7 +403,11 @@ pub fn maid_view(_st: &BackendState, tokens: &MaidTokens, query: &str, origin: O
         return apply_cors_resp(StatusCode::NOT_FOUND.into_response(), origin);
     }
     // mime 按扩展名（data-maid.js:761 mimetype guess → 回落 text/plain）
-    let ext = p.extension().and_then(|x| x.to_str()).unwrap_or("").to_ascii_lowercase();
+    let ext = p
+        .extension()
+        .and_then(|x| x.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
     let mime = match ext.as_str() {
         "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" => {
             Box::leak(format!("image/{ext}").into_boxed_str()) as &'static str
@@ -404,7 +476,12 @@ struct VectraIndex {
 }
 
 impl VectraIndex {
-    fn open(vectors_root: &std::path::Path, source: &str, collection: &str, model_dir: &str) -> Result<Self, String> {
+    fn open(
+        vectors_root: &std::path::Path,
+        source: &str,
+        collection: &str,
+        model_dir: &str,
+    ) -> Result<Self, String> {
         let dir = vectors_root.join(source).join(collection).join(model_dir);
         let path = dir.join("index.json");
         if path.is_file() {
@@ -443,7 +520,10 @@ pub fn vector_list(st: &BackendState, body: &Value, origin: Option<HeaderValue>)
     let Some(collection) = body.get("collectionId").and_then(|v| v.as_str()) else {
         return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
     };
-    let source = body.get("source").and_then(|v| v.as_str()).unwrap_or("transformers");
+    let source = body
+        .get("source")
+        .and_then(|v| v.as_str())
+        .unwrap_or("transformers");
     let Ok(col) = crate::pathguard::component(collection) else {
         return apply_cors_resp(StatusCode::FORBIDDEN.into_response(), origin);
     };
@@ -452,7 +532,12 @@ pub fn vector_list(st: &BackendState, body: &Value, origin: Option<HeaderValue>)
     };
     let index = match VectraIndex::open(&vectors_dir(st), &src, &col, "default") {
         Ok(i) => i,
-        Err(e) => return err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("vector index 打开失败：{e}")),
+        Err(e) => {
+            return err_json(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("vector index 打开失败：{e}"),
+            )
+        }
     };
     let hashes: Vec<Value> = index
         .items()
@@ -467,7 +552,11 @@ pub fn vector_list(st: &BackendState, body: &Value, origin: Option<HeaderValue>)
 /// **S20/D5：返回可判定错误而非 200+空成功。**
 pub fn vector_insert(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
     let _ = st;
-    let has_items = body.get("items").and_then(|v| v.as_array()).map(|a| !a.is_empty()).unwrap_or(false);
+    let has_items = body
+        .get("items")
+        .and_then(|v| v.as_array())
+        .map(|a| !a.is_empty())
+        .unwrap_or(false);
     if !has_items || body.get("collectionId").is_none() {
         return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
     }
@@ -491,13 +580,24 @@ pub fn vector_query(st: &BackendState, body: &Value, origin: Option<HeaderValue>
     let Some(collection) = body.get("collectionId").and_then(|v| v.as_str()) else {
         return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
     };
-    if body.get("searchText").and_then(|v| v.as_str()).unwrap_or("").is_empty() {
+    if body
+        .get("searchText")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .is_empty()
+    {
         return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
     }
-    let source = body.get("source").and_then(|v| v.as_str()).unwrap_or("transformers");
+    let source = body
+        .get("source")
+        .and_then(|v| v.as_str())
+        .unwrap_or("transformers");
     let top_k = body.get("topK").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
     // threshold：无嵌入能力时相似度不可判 —— 仅保留入参校验位（degraded 模式不再过滤）
-    let _threshold = body.get("threshold").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let _threshold = body
+        .get("threshold")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
     let Ok(col) = crate::pathguard::component(collection) else {
         return apply_cors_resp(StatusCode::FORBIDDEN.into_response(), origin);
     };
@@ -506,7 +606,12 @@ pub fn vector_query(st: &BackendState, body: &Value, origin: Option<HeaderValue>
     };
     let index = match VectraIndex::open(&vectors_dir(st), &src, &col, "default") {
         Ok(i) => i,
-        Err(e) => return err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("vector index 打开失败：{e}")),
+        Err(e) => {
+            return err_json(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("vector index 打开失败：{e}"),
+            )
+        }
     };
     // 查询向量缺失（无嵌入能力）：按 metadata hash 序稳定返回 topK
     // ⚠ 语义降级：不能做语义相似度 —— 但**明示**（degraded 标记），前端
@@ -532,7 +637,10 @@ pub fn vector_delete(st: &BackendState, body: &Value, origin: Option<HeaderValue
     let Some(hashes) = body.get("hashes").and_then(|v| v.as_array()) else {
         return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
     };
-    let source = body.get("source").and_then(|v| v.as_str()).unwrap_or("transformers");
+    let source = body
+        .get("source")
+        .and_then(|v| v.as_str())
+        .unwrap_or("transformers");
     let Ok(col) = crate::pathguard::component(collection) else {
         return apply_cors_resp(StatusCode::FORBIDDEN.into_response(), origin);
     };
@@ -541,7 +649,12 @@ pub fn vector_delete(st: &BackendState, body: &Value, origin: Option<HeaderValue
     };
     let mut index = match VectraIndex::open(&vectors_dir(st), &src, &col, "default") {
         Ok(i) => i,
-        Err(e) => return err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("vector index 打开失败：{e}")),
+        Err(e) => {
+            return err_json(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("vector index 打开失败：{e}"),
+            )
+        }
     };
     let items = index.data.get_mut("items").and_then(|v| v.as_array_mut());
     if let Some(items) = items {
@@ -596,19 +709,27 @@ mod tests {
         std::fs::write(du.join("backups").join("chat_x_1.jsonl"), "{}").unwrap();
         // 有卡片的目录（不 loose）
         std::fs::create_dir_all(du.join("characters")).unwrap();
-        std::fs::write(du.join("characters").join("known.png"), [0x89u8, b'P', b'N', b'G']).unwrap();
+        std::fs::write(
+            du.join("characters").join("known.png"),
+            [0x89u8, b'P', b'N', b'G'],
+        )
+        .unwrap();
         std::fs::create_dir_all(du.join("chats").join("known")).unwrap();
         std::fs::write(du.join("chats").join("known").join("k.jsonl"), "{}\n").unwrap();
 
         let tokens = MaidTokens::new();
         let r = maid_report(&st, &tokens, None);
         assert_eq!(r.status().as_u16(), 200);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         let report = &v["report"];
-        assert_eq!(report["chats"].as_array().unwrap().len(), 1, "loose 会话目录检出");
+        assert_eq!(
+            report["chats"].as_array().unwrap().len(),
+            1,
+            "loose 会话目录检出"
+        );
         assert_eq!(report["chatBackups"].as_array().unwrap().len(), 1);
         let token = v["token"].as_str().unwrap().to_string();
 
@@ -629,9 +750,9 @@ mod tests {
 
         // list_urls/data URI 不可行：known 会话不检
         let r = maid_report(&st, &tokens, None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(
             v["report"]["chats"].as_array().unwrap().len(),
@@ -648,17 +769,22 @@ mod tests {
         std::fs::write(du.join("backups").join("chat_l_1.jsonl"), "{\"mes\":\"x\"}").unwrap();
         let tokens = MaidTokens::new();
         let r = maid_report(&st, &tokens, None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         let token = v["token"].as_str().unwrap().to_string();
-        let hash = v["report"]["chatBackups"][0]["hash"].as_str().unwrap().to_string();
+        let hash = v["report"]["chatBackups"][0]["hash"]
+            .as_str()
+            .unwrap()
+            .to_string();
 
         let r = maid_view(&st, &tokens, &format!("token={token}&hash={hash}"), None);
         assert_eq!(r.status().as_u16(), 200);
         assert_eq!(
-            r.headers().get("content-type").and_then(|c| c.to_str().ok()),
+            r.headers()
+                .get("content-type")
+                .and_then(|c| c.to_str().ok()),
             Some("application/json")
         );
         // 错 hash → 404；错 token → 403
@@ -672,7 +798,11 @@ mod tests {
     fn vector_list_and_delete_work_with_st_index() {
         let st = st_with("vec");
         // 手工构造 ST vectra 双写遗留 index
-        let dir = du(&st).join("vectors").join("openai").join("coll-1").join("default");
+        let dir = du(&st)
+            .join("vectors")
+            .join("openai")
+            .join("coll-1")
+            .join("default");
         std::fs::create_dir_all(&dir).unwrap();
         let index = json!({
             "version": 1,
@@ -684,24 +814,40 @@ mod tests {
         });
         std::fs::write(dir.join("index.json"), index.to_string()).unwrap();
 
-        let r = vector_list(&st, &json!({ "collectionId": "coll-1", "source": "openai" }), None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let r = vector_list(
+            &st,
+            &json!({ "collectionId": "coll-1", "source": "openai" }),
+            None,
+        );
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v, json!([111, 222]));
 
         // insert → 501（S20）
-        let r = vector_insert(&st, &json!({ "collectionId": "c", "items": [{ "hash": 1 }] }), None);
+        let r = vector_insert(
+            &st,
+            &json!({ "collectionId": "c", "items": [{ "hash": 1 }] }),
+            None,
+        );
         assert_eq!(r.status().as_u16(), 501);
 
         // delete by hash
-        let r = vector_delete(&st, &json!({ "collectionId": "coll-1", "source": "openai", "hashes": [111] }), None);
+        let r = vector_delete(
+            &st,
+            &json!({ "collectionId": "coll-1", "source": "openai", "hashes": [111] }),
+            None,
+        );
         assert_eq!(r.status().as_u16(), 204);
-        let r = vector_list(&st, &json!({ "collectionId": "coll-1", "source": "openai" }), None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let r = vector_list(
+            &st,
+            &json!({ "collectionId": "coll-1", "source": "openai" }),
+            None,
+        );
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v, json!([222]));
     }
@@ -711,10 +857,13 @@ mod tests {
         let r = translate_not_migrated("deepl", None);
         assert_eq!(r.status().as_u16(), 501);
         let r = speech_local_unavailable(None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(v["error"]["code"], "CAPABILITY_UNAVAILABLE", "S20 降级可判定");
+        assert_eq!(
+            v["error"]["code"], "CAPABILITY_UNAVAILABLE",
+            "S20 降级可判定"
+        );
     }
 }

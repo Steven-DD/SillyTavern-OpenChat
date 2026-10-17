@@ -191,7 +191,10 @@ pub(crate) fn gemini_safety() -> Value {
  * ================================================================ */
 
 async fn post_client() -> reqwest::Client {
-    reqwest::Client::builder().no_proxy().build().unwrap_or_default()
+    reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap_or_default()
 }
 
 /// 通用 POST（Bearer 鉴权；key 为空不带头 —— custom 源匿名放行 ST 字面）+
@@ -246,7 +249,10 @@ pub(crate) fn downgrade_status(status: StatusCode) -> StatusCode {
 }
 
 /// 原样透传：保留上游状态码（401→400 降级）+ 逐字节流（SSE 不缓冲 S14）
-pub(crate) async fn passthrough(upstream: reqwest::Response, origin: Option<HeaderValue>) -> Response {
+pub(crate) async fn passthrough(
+    upstream: reqwest::Response,
+    origin: Option<HeaderValue>,
+) -> Response {
     let status = downgrade_status(upstream.status());
     let ct = upstream
         .headers()
@@ -284,14 +290,23 @@ pub(crate) async fn transform_sse_reply(
     map: fn(&Value) -> SseAction,
 ) -> Response {
     struct SseState {
-        stream: std::pin::Pin<Box<dyn futures_util::Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Send>>,
+        stream: std::pin::Pin<
+            Box<dyn futures_util::Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Send>,
+        >,
         buf: Vec<u8>,
         finished: bool,
     }
 
     let stream = Box::pin(upstream.bytes_stream());
     let sse = futures_util::stream::unfold(
-        (map, SseState { stream, buf: Vec::new(), finished: false }),
+        (
+            map,
+            SseState {
+                stream,
+                buf: Vec::new(),
+                finished: false,
+            },
+        ),
         |(map, mut st)| async move {
             if st.finished {
                 return None;
@@ -310,7 +325,9 @@ pub(crate) async fn transform_sse_reply(
                         }
                         if let Ok(ev) = serde_json::from_slice::<Value>(payload.as_bytes()) {
                             match map(&ev) {
-                                SseAction::Frame(f) => out.extend_from_slice(format!("data: {f}\n\n").as_bytes()),
+                                SseAction::Frame(f) => {
+                                    out.extend_from_slice(format!("data: {f}\n\n").as_bytes())
+                                }
                                 SseAction::FrameOnly => {}
                                 SseAction::Done => {
                                     st.finished = true;
@@ -369,14 +386,19 @@ fn sse_sep_len(buf: &[u8], pos: usize) -> usize {
     if buf.get(pos) == Some(&b'\n') && buf.get(pos + 1) == Some(&b'\n') {
         return 2;
     }
-    if buf.get(pos) == Some(&b'\r') && buf.get(pos + 1) == Some(&b'\n') && buf.get(pos + 3) == Some(&b'\n') {
+    if buf.get(pos) == Some(&b'\r')
+        && buf.get(pos + 1) == Some(&b'\n')
+        && buf.get(pos + 3) == Some(&b'\n')
+    {
         return 4;
     }
     2
 }
 
 fn find_sse_sep(buf: &[u8]) -> Option<usize> {
-    buf.windows(2).position(|w| w == b"\n\n").or_else(|| buf.windows(4).position(|w| w == b"\r\n\r\n"))
+    buf.windows(2)
+        .position(|w| w == b"\n\n")
+        .or_else(|| buf.windows(4).position(|w| w == b"\r\n\r\n"))
 }
 
 fn data_lines(block: &[u8]) -> Vec<String> {
@@ -411,7 +433,13 @@ pub(crate) async fn relay_independent(
     let resp = match upstream {
         Ok(r) => r,
         // 连接失败（catch 分支）→ 500 {error:true}
-        Err(_) => return json_resp(StatusCode::INTERNAL_SERVER_ERROR, json!({ "error": true }), origin),
+        Err(_) => {
+            return json_resp(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({ "error": true }),
+                origin,
+            )
+        }
     };
     let status_ok = resp.status().is_success();
 
@@ -463,8 +491,7 @@ pub(crate) fn cohere_to_openai(ev: &Value) -> SseAction {
         "message-end" => {
             let mut chunk = json!({ "choices": [{ "index": 0, "delta": {} }] });
             if let Some(fr) = ev.pointer("/delta/finish_reason") {
-                chunk["choices"][0]["finish_reason"] =
-                    map_finish_reason(fr.as_str().unwrap_or(""));
+                chunk["choices"][0]["finish_reason"] = map_finish_reason(fr.as_str().unwrap_or(""));
             }
             SseAction::Frame(chunk)
         }
@@ -521,7 +548,9 @@ pub async fn generate(st: &BackendState, body: &Value, origin: Option<HeaderValu
 
     match source {
         "claude" => super::providers_claude::send_claude(st, &body, origin).await,
-        "makersuite" | "vertexai" => super::providers_google::send_makersuite(st, &body, origin).await,
+        "makersuite" | "vertexai" => {
+            super::providers_google::send_makersuite(st, &body, origin).await
+        }
         "ai21" => super::providers_misc::send_ai21(st, &body, origin).await,
         "mistralai" => super::providers_misc::send_mistral(st, &body, origin).await,
         "cohere" => super::providers_misc::send_cohere(st, &body, origin).await,
@@ -563,7 +592,9 @@ pub(crate) fn ensure_post_processing(body: &Value) -> Value {
         &super::providers_convert::PromptNames::from_body(body),
     );
     let mut out = body.clone();
-    out.as_object_mut().unwrap().insert("messages".into(), processed);
+    out.as_object_mut()
+        .unwrap()
+        .insert("messages".into(), processed);
     out
 }
 
@@ -600,11 +631,16 @@ fn reverse_proxy_on(body: &Value) -> bool {
 }
 
 fn proxy_password(body: &Value) -> String {
-    body.get("proxy_password").and_then(|v| v.as_str()).unwrap_or("").to_string()
+    body.get("proxy_password")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
 }
 
 fn stream_of(body: &Value) -> bool {
-    body.get("stream").and_then(|v| v.as_bool()).unwrap_or(false)
+    body.get("stream")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
 }
 
 async fn generic_generate(
@@ -655,9 +691,15 @@ async fn generic_generate(
                 _ => {}
             };
             body_params.insert("plugins".into(), json!([])); // web 关闭 → 空数组（ST 字面）
-            let include_reasoning = take(body, "include_reasoning").and_then(|v| v.as_bool()).unwrap_or(false);
+            let include_reasoning = take(body, "include_reasoning")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             let mut reasoning = json!({ "exclude": !include_reasoning });
-            put(reasoning.as_object_mut().unwrap(), "effort", take(body, "reasoning_effort"));
+            put(
+                reasoning.as_object_mut().unwrap(),
+                "effort",
+                take(body, "reasoning_effort"),
+            );
             body_params.insert("reasoning".into(), reasoning);
             if let Some(v) = take(body, "min_p") {
                 body_params.insert("min_p".into(), v);
@@ -696,9 +738,17 @@ async fn generic_generate(
         "perplexity" => {
             api_root = API_PERPLEXITY.to_string();
             direct_key = Some(read_secret(st, "api_key_perplexity").unwrap_or_default());
-            put(&mut body_params, "reasoning_effort", take(body, "reasoning_effort"));
+            put(
+                &mut body_params,
+                "reasoning_effort",
+                take(body, "reasoning_effort"),
+            );
             post_process_messages(&mut msg_mutated, "strict");
-            if body.get("json_schema").map(|j| j.is_object()).unwrap_or(false) {
+            if body
+                .get("json_schema")
+                .map(|j| j.is_object())
+                .unwrap_or(false)
+            {
                 body_params.insert(
                     "response_format".into(),
                     json!({ "type": "json_schema", "json_schema": { "schema": body["json_schema"]["value"].clone() } }),
@@ -713,7 +763,11 @@ async fn generic_generate(
         "fireworks" => {
             api_root = API_FIREWORKS.to_string();
             direct_key = Some(read_secret(st, "api_key_fireworks").unwrap_or_default());
-            put(&mut body_params, "reasoning_effort", take(body, "reasoning_effort"));
+            put(
+                &mut body_params,
+                "reasoning_effort",
+                take(body, "reasoning_effort"),
+            );
             json_schema_response_format(&mut body_params, body);
         }
         "nanogpt" => {
@@ -722,11 +776,16 @@ async fn generic_generate(
             if let Some(p) = take(body, "nanogpt_provider") {
                 headers.push(("X-Provider".into(), p.as_str().unwrap_or("").to_string()));
             }
-            if take(body, "nanogpt_payg_override").map(|v| !v.is_null()).unwrap_or(false) {
+            if take(body, "nanogpt_payg_override")
+                .map(|v| !v.is_null())
+                .unwrap_or(false)
+            {
                 headers.push(("X-Billing-Mode".into(), "paygo".into()));
                 body_params.insert("billing_mode".into(), json!("paygo"));
             }
-            if take(body, "enable_web_search").and_then(|v| v.as_bool()).unwrap_or(false)
+            if take(body, "enable_web_search")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
                 && !model.ends_with(":online")
             {
                 if let Some(obj) = msg_mutated.as_object_mut() {
@@ -742,7 +801,9 @@ async fn generic_generate(
             if let Some(v) = take(body, "repetition_penalty") {
                 body_params.insert("repetition_penalty".into(), v);
             }
-            if let Some(effort) = take(body, "reasoning_effort").and_then(|e| e.as_str().map(String::from)) {
+            if let Some(effort) =
+                take(body, "reasoning_effort").and_then(|e| e.as_str().map(String::from))
+            {
                 let mapped = super::providers_text::map_nanogpt_reasoning_effort(&effort);
                 if !mapped.is_empty() {
                     body_params.insert("reasoning".into(), json!({ "effort": mapped }));
@@ -764,8 +825,16 @@ async fn generic_generate(
             };
             body_params.insert("seed".into(), seed);
             if !is_anon {
-                put(&mut body_params, "reasoning_effort", take(body, "reasoning_effort"));
-                if body.get("json_schema").map(|j| j.is_object()).unwrap_or(false) {
+                put(
+                    &mut body_params,
+                    "reasoning_effort",
+                    take(body, "reasoning_effort"),
+                );
+                if body
+                    .get("json_schema")
+                    .map(|j| j.is_object())
+                    .unwrap_or(false)
+                {
                     body_params.insert(
                         "response_format".into(),
                         json!({ "type": "json_schema", "json_schema": { "schema": body["json_schema"]["value"].clone() } }),
@@ -785,12 +854,18 @@ async fn generic_generate(
             } else {
                 read_secret(st, "api_key_moonshot").unwrap_or_default()
             });
-            let include_reasoning = take(body, "include_reasoning").and_then(|v| v.as_bool()).unwrap_or(false);
+            let include_reasoning = take(body, "include_reasoning")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             body_params.insert(
                 "thinking".into(),
                 json!({ "type": if include_reasoning { "enabled" } else { "disabled" } }),
             );
-            if body.get("json_schema").map(|j| j.is_object()).unwrap_or(false) {
+            if body
+                .get("json_schema")
+                .map(|j| j.is_object())
+                .unwrap_or(false)
+            {
                 set_json_object_format(&mut body_params, &mut msg_mutated, body);
             } else {
                 add_partial_prefix(&mut msg_mutated);
@@ -814,12 +889,18 @@ async fn generic_generate(
                 read_secret(st, "api_key_zai").unwrap_or_default()
             });
             headers = zai_headers();
-            let include_reasoning = take(body, "include_reasoning").and_then(|v| v.as_bool()).unwrap_or(false);
+            let include_reasoning = take(body, "include_reasoning")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             body_params.insert(
                 "thinking".into(),
                 json!({ "type": if include_reasoning { "enabled" } else { "disabled" } }),
             );
-            if body.get("json_schema").map(|j| j.is_object()).unwrap_or(false) {
+            if body
+                .get("json_schema")
+                .map(|j| j.is_object())
+                .unwrap_or(false)
+            {
                 set_json_object_format(&mut body_params, &mut msg_mutated, body);
             }
         }
@@ -831,19 +912,33 @@ async fn generic_generate(
             }
             .to_string();
             direct_key = Some(read_secret(st, "api_key_siliconflow").unwrap_or_default());
-            if body.get("json_schema").map(|j| j.is_object()).unwrap_or(false) {
+            if body
+                .get("json_schema")
+                .map(|j| j.is_object())
+                .unwrap_or(false)
+            {
                 set_json_object_format(&mut body_params, &mut msg_mutated, body);
             }
         }
         "workers_ai" => {
-            let account_id = s_field(body, "workers_ai_account_id").map(|s| s.trim().to_string()).unwrap_or_default();
+            let account_id = s_field(body, "workers_ai_account_id")
+                .map(|s| s.trim().to_string())
+                .unwrap_or_default();
             if account_id.is_empty() {
                 return json_resp(StatusCode::BAD_REQUEST, json!({ "error": true }), origin);
             }
             direct_key = Some(read_secret(st, "api_key_workers_ai").unwrap_or_default());
             api_root = format!("{API_WORKERS_AI}/{account_id}/ai/v1");
-            put(&mut body_params, "repetition_penalty", take(body, "repetition_penalty"));
-            if body.get("json_schema").map(|j| j.is_object()).unwrap_or(false) {
+            put(
+                &mut body_params,
+                "repetition_penalty",
+                take(body, "repetition_penalty"),
+            );
+            if body
+                .get("json_schema")
+                .map(|j| j.is_object())
+                .unwrap_or(false)
+            {
                 body_params.insert(
                     "response_format".into(),
                     json!({ "type": "json_schema", "json_schema": body["json_schema"]["value"].clone() }),
@@ -859,17 +954,31 @@ async fn generic_generate(
     let effort = s_field(body, "reasoning_effort");
     if (source == "openai" || source == "custom") && effort.is_some() {
         if super::providers_text::is_openai_reasoning_effort_model(model) {
-            let mapped = super::providers_text::map_openai_reasoning_effort(model, effort.as_deref().unwrap_or(""));
+            let mapped = super::providers_text::map_openai_reasoning_effort(
+                model,
+                effort.as_deref().unwrap_or(""),
+            );
             body_params.insert("reasoning_effort".into(), json!(mapped));
         }
-        if source == "custom" && model.split_once("koboldcpp/").map(|x| x.0.is_empty()).unwrap_or(false) {
-            body_params.insert("reasoning_effort".into(), json!(effort.as_deref().unwrap_or("")));
+        if source == "custom"
+            && model
+                .split_once("koboldcpp/")
+                .map(|x| x.0.is_empty())
+                .unwrap_or(false)
+        {
+            body_params.insert(
+                "reasoning_effort".into(),
+                json!(effort.as_deref().unwrap_or("")),
+            );
         }
     }
     let verbosity = s_field(body, "verbosity");
     if (source == "openai" || source == "custom") && verbosity.is_some() {
         if super::providers_text::is_openai_verbosity_model(model) {
-            body_params.insert("verbosity".into(), json!(verbosity.as_deref().unwrap_or("")));
+            body_params.insert(
+                "verbosity".into(),
+                json!(verbosity.as_deref().unwrap_or("")),
+            );
         }
     }
 
@@ -885,16 +994,23 @@ async fn generic_generate(
     }
 
     let is_text_completion = super::providers_text::is_text_completion_model(model)
-        || msg_mutated.get("messages").map(|m| m.is_string()).unwrap_or(false);
+        || msg_mutated
+            .get("messages")
+            .map(|m| m.is_string())
+            .unwrap_or(false);
 
     // tools / tool_choice（chat-completions.js:2636-2639）
-    let tools = take(body, "tools").filter(|t| t.as_array().map(|a| !a.is_empty()).unwrap_or(false));
+    let tools =
+        take(body, "tools").filter(|t| t.as_array().map(|a| !a.is_empty()).unwrap_or(false));
     if !is_text_completion && tools.is_some() {
         body_params.insert("tools".into(), tools.unwrap());
         put(&mut body_params, "tool_choice", take(body, "tool_choice"));
     }
     // json_schema 统一兜底（:2641-2649）
-    if body.get("json_schema").map(|j| j.is_object()).unwrap_or(false)
+    if body
+        .get("json_schema")
+        .map(|j| j.is_object())
+        .unwrap_or(false)
         && !body_params.contains_key("response_format")
     {
         json_schema_response_format(&mut body_params, body);
@@ -903,7 +1019,10 @@ async fn generic_generate(
     // requestBody 装配（message/prompt 互斥 + bodyParams 摊平）
     let mut rb = Map::new();
     if !is_text_completion {
-        rb.insert("messages".into(), take(&msg_mutated, "messages").unwrap_or(json!([])));
+        rb.insert(
+            "messages".into(),
+            take(&msg_mutated, "messages").unwrap_or(json!([])),
+        );
     } else {
         let prompt = super::providers_convert::convert_text_completion_prompt(
             &take(&msg_mutated, "messages").unwrap_or(Value::Null),
@@ -913,10 +1032,18 @@ async fn generic_generate(
     put(&mut rb, "model", take(&msg_mutated, "model"));
     put(&mut rb, "temperature", take(body, "temperature"));
     put(&mut rb, "max_tokens", take(body, "max_tokens"));
-    put(&mut rb, "max_completion_tokens", take(body, "max_completion_tokens"));
+    put(
+        &mut rb,
+        "max_completion_tokens",
+        take(body, "max_completion_tokens"),
+    );
     put(&mut rb, "stream", take(body, "stream"));
     put(&mut rb, "presence_penalty", take(body, "presence_penalty"));
-    put(&mut rb, "frequency_penalty", take(body, "frequency_penalty"));
+    put(
+        &mut rb,
+        "frequency_penalty",
+        take(body, "frequency_penalty"),
+    );
     put(&mut rb, "top_p", take(body, "top_p"));
     put(&mut rb, "top_k", take(body, "top_k"));
     if !is_text_completion {
@@ -929,7 +1056,9 @@ async fn generic_generate(
 
     // custom 源 excludeKeysByYaml（:2671-2673）
     if source == "custom" {
-        if let Some(ex) = take(body, "custom_exclude_body").and_then(|e| e.as_str().map(String::from)) {
+        if let Some(ex) =
+            take(body, "custom_exclude_body").and_then(|e| e.as_str().map(String::from))
+        {
             exclude_yaml_keys(&mut rb, &ex);
         }
     }
@@ -967,7 +1096,10 @@ async fn generic_generate(
 
 fn random_seed() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let n = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0);
+    let n = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.subsec_nanos())
+        .unwrap_or(0);
     (n as u64) % 99999999
 }
 
@@ -986,14 +1118,27 @@ fn post_process_messages(body: &mut Value, ptype: &str) {
         ptype,
         &super::providers_convert::PromptNames::from_body(body),
     );
-    body.as_object_mut().unwrap().insert("messages".into(), processed);
+    body.as_object_mut()
+        .unwrap()
+        .insert("messages".into(), processed);
 }
 
 /// {type: json_object} + push schema user message（moonshot/zai/siliconflow ST 字面）
-fn set_json_object_format(body_params: &mut Map<String, Value>, msg_mutated: &mut Value, body: &Value) {
+fn set_json_object_format(
+    body_params: &mut Map<String, Value>,
+    msg_mutated: &mut Value,
+    body: &Value,
+) {
     body_params.insert("response_format".into(), json!({ "type": "json_object" }));
-    if let Some(messages) = msg_mutated.get_mut("messages").and_then(|m| m.as_array_mut()) {
-        let schema_text = json_pretty4(body.get("json_schema").and_then(|j| j.get("value")).unwrap_or(&json!({})));
+    if let Some(messages) = msg_mutated
+        .get_mut("messages")
+        .and_then(|m| m.as_array_mut())
+    {
+        let schema_text = json_pretty4(
+            body.get("json_schema")
+                .and_then(|j| j.get("value"))
+                .unwrap_or(&json!({})),
+        );
         messages.push(json!({
             "role": "user",
             "content": format!("JSON schema for the response:\n{schema_text}"),
@@ -1003,7 +1148,10 @@ fn set_json_object_format(body_params: &mut Map<String, Value>, msg_mutated: &mu
 
 /// moonshot 无 json_schema 分支：末条 assistant（无 tools 时）加 partial=true
 fn add_partial_prefix(msg_mutated: &mut Value) {
-    if let Some(messages) = msg_mutated.get_mut("messages").and_then(|m| m.as_array_mut()) {
+    if let Some(messages) = msg_mutated
+        .get_mut("messages")
+        .and_then(|m| m.as_array_mut())
+    {
         super::providers_convert::add_assistant_prefix(messages, None, "partial");
     }
 }
@@ -1141,30 +1289,106 @@ pub async fn status(st: &BackendState, body: &Value, origin: Option<HeaderValue>
         }
         "mistralai" => {
             let (use_rp, url) = rp_or_pair(body, API_MISTRAL);
-            let key = if use_rp { proxy_password(body) } else { read_secret(st, "api_key_mistralai").unwrap_or_default() };
+            let key = if use_rp {
+                proxy_password(body)
+            } else {
+                read_secret(st, "api_key_mistralai").unwrap_or_default()
+            };
             fetch_models_common(st, &url, &key, Vec::new(), &[], origin).await
         }
         "deepseek" => {
             let (use_rp, url) = rp_or_pair(body, API_DEEPSEEK_STATUS);
-            let key = if use_rp { proxy_password(body) } else { read_secret(st, "api_key_deepseek").unwrap_or_default() };
+            let key = if use_rp {
+                proxy_password(body)
+            } else {
+                read_secret(st, "api_key_deepseek").unwrap_or_default()
+            };
             fetch_models_common(st, &url, &key, Vec::new(), &[], origin).await
         }
         "xai" => {
             let (use_rp, url) = rp_or_pair(body, API_XAI);
-            let key = if use_rp { proxy_password(body) } else { read_secret(st, "api_key_xai").unwrap_or_default() };
+            let key = if use_rp {
+                proxy_password(body)
+            } else {
+                read_secret(st, "api_key_xai").unwrap_or_default()
+            };
             fetch_models_common(st, &url, &key, Vec::new(), &[], origin).await
         }
         "moonshot" => {
             let (use_rp, url) = rp_or_pair(body, API_MOONSHOT);
-            let key = if use_rp { proxy_password(body) } else { read_secret(st, "api_key_moonshot").unwrap_or_default() };
+            let key = if use_rp {
+                proxy_password(body)
+            } else {
+                read_secret(st, "api_key_moonshot").unwrap_or_default()
+            };
             fetch_models_common(st, &url, &key, Vec::new(), &[], origin).await
         }
-        "cohere" => fetch_models_common(st, API_COHERE_V1, &read_secret(st, "api_key_cohere").unwrap_or_default(), Vec::new(), &[], origin).await,
-        "chutes" => fetch_models_common(st, API_CHUTES, &read_secret(st, "api_key_chutes").unwrap_or_default(), Vec::new(), &[], origin).await,
-        "electronhub" => fetch_models_common(st, API_ELECTRONHUB, &read_secret(st, "api_key_electronhub").unwrap_or_default(), Vec::new(), &[], origin).await,
-        "nanogpt" => fetch_models_common(st, API_NANOGPT, &read_secret(st, "api_key_nanogpt").unwrap_or_default(), Vec::new(), &[("detailed", "true")], origin).await,
-        "aimlapi" => fetch_models_common(st, API_AIMLAPI, &read_secret(st, "api_key_aimlapi").unwrap_or_default(), aimlapi_headers(), &[], origin).await,
-        "groq" => fetch_models_common(st, API_GROQ, &read_secret(st, "api_key_groq").unwrap_or_default(), Vec::new(), &[], origin).await,
+        "cohere" => {
+            fetch_models_common(
+                st,
+                API_COHERE_V1,
+                &read_secret(st, "api_key_cohere").unwrap_or_default(),
+                Vec::new(),
+                &[],
+                origin,
+            )
+            .await
+        }
+        "chutes" => {
+            fetch_models_common(
+                st,
+                API_CHUTES,
+                &read_secret(st, "api_key_chutes").unwrap_or_default(),
+                Vec::new(),
+                &[],
+                origin,
+            )
+            .await
+        }
+        "electronhub" => {
+            fetch_models_common(
+                st,
+                API_ELECTRONHUB,
+                &read_secret(st, "api_key_electronhub").unwrap_or_default(),
+                Vec::new(),
+                &[],
+                origin,
+            )
+            .await
+        }
+        "nanogpt" => {
+            fetch_models_common(
+                st,
+                API_NANOGPT,
+                &read_secret(st, "api_key_nanogpt").unwrap_or_default(),
+                Vec::new(),
+                &[("detailed", "true")],
+                origin,
+            )
+            .await
+        }
+        "aimlapi" => {
+            fetch_models_common(
+                st,
+                API_AIMLAPI,
+                &read_secret(st, "api_key_aimlapi").unwrap_or_default(),
+                aimlapi_headers(),
+                &[],
+                origin,
+            )
+            .await
+        }
+        "groq" => {
+            fetch_models_common(
+                st,
+                API_GROQ,
+                &read_secret(st, "api_key_groq").unwrap_or_default(),
+                Vec::new(),
+                &[],
+                origin,
+            )
+            .await
+        }
         "siliconflow" => {
             let base = if s_field(body, "siliconflow_endpoint").as_deref() == Some("cn") {
                 API_SILICONFLOW_CN
@@ -1203,7 +1427,11 @@ fn rp_or(body: &Value, base: &str) -> String {
 }
 
 fn rp_or_pair(body: &Value, base: &str) -> (bool, String) {
-    match body.get("reverse_proxy").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+    match body
+        .get("reverse_proxy")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+    {
         Some(rp) => (true, rp.to_string()),
         None => (false, base.to_string()),
     }
@@ -1239,7 +1467,11 @@ async fn fetch_models_common(
         Ok(r) if r.status().is_success() => {
             let text = r.text().await.unwrap_or_default();
             apply_cors_resp(
-                Json(serde_json::from_str::<Value>(&text).unwrap_or(json!({ "error": true, "data": { "data": [] } }))).into_response(),
+                Json(
+                    serde_json::from_str::<Value>(&text)
+                        .unwrap_or(json!({ "error": true, "data": { "data": [] } })),
+                )
+                .into_response(),
                 origin,
             )
         }
@@ -1257,7 +1489,8 @@ async fn fireworks_status(st: &BackendState, origin: Option<HeaderValue>) -> Res
         return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
     }
     let url = "https://api.fireworks.ai/v1/accounts/fireworks/models?filter=supports_serverless%3Dtrue&pageSize=200";
-    let resp = post_client().await
+    let resp = post_client()
+        .await
         .get(url)
         .header("Authorization", format!("Bearer {key}"))
         .header("accept-encoding", "identity")
@@ -1265,13 +1498,25 @@ async fn fireworks_status(st: &BackendState, origin: Option<HeaderValue>) -> Res
         .send()
         .await;
     let Ok(resp) = resp else {
-        return json_resp(StatusCode::OK, json!({ "error": true, "data": { "data": [] } }), origin);
+        return json_resp(
+            StatusCode::OK,
+            json!({ "error": true, "data": { "data": [] } }),
+            origin,
+        );
     };
     if !resp.status().is_success() {
-        return json_resp(StatusCode::OK, json!({ "error": true, "data": { "data": [] } }), origin);
+        return json_resp(
+            StatusCode::OK,
+            json!({ "error": true, "data": { "data": [] } }),
+            origin,
+        );
     }
     let data = resp.json::<Value>().await.unwrap_or(json!({}));
-    let models_raw = data.get("models").and_then(|m| m.as_array()).cloned().unwrap_or_default();
+    let models_raw = data
+        .get("models")
+        .and_then(|m| m.as_array())
+        .cloned()
+        .unwrap_or_default();
     let mut models: Vec<Value> = models_raw
         .into_iter()
         .filter(|m| {
@@ -1289,10 +1534,22 @@ async fn fireworks_status(st: &BackendState, origin: Option<HeaderValue>) -> Res
         })
         .collect();
     let fast_routers: &[(&str, &str)] = &[
-        ("accounts/fireworks/models/glm-5p2", "accounts/fireworks/routers/glm-5p2-fast"),
-        ("accounts/fireworks/models/kimi-k2p6", "accounts/fireworks/routers/kimi-k2p6-fast"),
-        ("accounts/fireworks/models/kimi-k2p7-code", "accounts/fireworks/routers/kimi-k2p7-code-fast"),
-        ("accounts/fireworks/models/kimi-k3", "accounts/fireworks/routers/kimi-k3-fast"),
+        (
+            "accounts/fireworks/models/glm-5p2",
+            "accounts/fireworks/routers/glm-5p2-fast",
+        ),
+        (
+            "accounts/fireworks/models/kimi-k2p6",
+            "accounts/fireworks/routers/kimi-k2p6-fast",
+        ),
+        (
+            "accounts/fireworks/models/kimi-k2p7-code",
+            "accounts/fireworks/routers/kimi-k2p7-code-fast",
+        ),
+        (
+            "accounts/fireworks/models/kimi-k3",
+            "accounts/fireworks/routers/kimi-k3-fast",
+        ),
     ];
     for (std_id, fast_id) in fast_routers {
         if let Some(base_model) = models
@@ -1348,7 +1605,8 @@ async fn azure_status(st: &BackendState, body: &Value, origin: Option<HeaderValu
     if !probe.status().is_success() {
         let message = azure_status_error_map(probe.status().as_u16())
             .unwrap_or("Azure Models endpoint error");
-        let code = StatusCode::from_u16(probe.status().as_u16()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+        let code = StatusCode::from_u16(probe.status().as_u16())
+            .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
         return json_resp(code, json!({ "error": true, "message": message }), origin);
     }
 
@@ -1375,8 +1633,16 @@ async fn azure_status(st: &BackendState, body: &Value, origin: Option<HeaderValu
         );
     };
     let model_json = probe2.json::<Value>().await.unwrap_or(json!({}));
-    match model_json.get("model").and_then(|m| m.as_str()).map(String::from) {
-        Some(model_id) => json_resp(StatusCode::OK, json!({ "data": [{ "id": model_id }] }), origin),
+    match model_json
+        .get("model")
+        .and_then(|m| m.as_str())
+        .map(String::from)
+    {
+        Some(model_id) => json_resp(
+            StatusCode::OK,
+            json!({ "data": [{ "id": model_id }] }),
+            origin,
+        ),
         None => json_resp(StatusCode::OK, json!({ "data": [] }), origin),
     }
 }
@@ -1391,14 +1657,23 @@ fn azure_status_error_map(status: u16) -> Option<&'static str> {
 }
 
 /// workers_ai：/ai/models/search?task=Text+Generation&per_page=1000（:2019-2061）
-async fn workers_ai_status(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
+async fn workers_ai_status(
+    st: &BackendState,
+    body: &Value,
+    origin: Option<HeaderValue>,
+) -> Response {
     let key = read_secret(st, "api_key_workers_ai").unwrap_or_default();
-    let account_id = s_field(body, "workers_ai_account_id").map(|s| s.trim().to_string()).unwrap_or_default();
+    let account_id = s_field(body, "workers_ai_account_id")
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
     if key.is_empty() || account_id.is_empty() {
         return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
     }
-    let url = format!("{API_WORKERS_AI}/{account_id}/ai/models/search?task=Text+Generation&per_page=1000");
-    let resp = post_client().await
+    let url = format!(
+        "{API_WORKERS_AI}/{account_id}/ai/models/search?task=Text+Generation&per_page=1000"
+    );
+    let resp = post_client()
+        .await
         .get(&url)
         .header("Authorization", format!("Bearer {key}"))
         .header("accept-encoding", "identity")
@@ -1425,7 +1700,9 @@ async fn workers_ai_status(st: &BackendState, body: &Value, origin: Option<Heade
             json_resp(StatusCode::OK, json!({ "data": models }), origin)
         }
         Ok(r) => apply_cors_resp(
-            StatusCode::from_u16(r.status().as_u16()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR).into_response(),
+            StatusCode::from_u16(r.status().as_u16())
+                .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
+                .into_response(),
             origin,
         ),
         Err(_) => apply_cors_resp(StatusCode::INTERNAL_SERVER_ERROR.into_response(), origin),
@@ -1433,7 +1710,11 @@ async fn workers_ai_status(st: &BackendState, body: &Value, origin: Option<Heade
 }
 
 /// pollinations：gen.pollinations.ai/text 裸数组 → {data:[{...}|{id:name}]}
-async fn pollinations_status(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
+async fn pollinations_status(
+    st: &BackendState,
+    body: &Value,
+    origin: Option<HeaderValue>,
+) -> Response {
     let is_anon = s_field(body, "pollinations_endpoint").as_deref() == Some("anonymous");
     let key = if is_anon {
         "anonymous".to_string()
@@ -1443,7 +1724,8 @@ async fn pollinations_status(st: &BackendState, body: &Value, origin: Option<Hea
     if key.is_empty() {
         return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
     }
-    let resp = post_client().await
+    let resp = post_client()
+        .await
         .get("https://gen.pollinations.ai/text/models")
         .header("Authorization", format!("Bearer {key}"))
         .header("accept-encoding", "identity")
@@ -1451,10 +1733,18 @@ async fn pollinations_status(st: &BackendState, body: &Value, origin: Option<Hea
         .send()
         .await;
     let Ok(resp) = resp else {
-        return json_resp(StatusCode::OK, json!({ "error": true, "data": { "data": [] } }), origin);
+        return json_resp(
+            StatusCode::OK,
+            json!({ "error": true, "data": { "data": [] } }),
+            origin,
+        );
     };
     if !resp.status().is_success() {
-        return json_resp(StatusCode::OK, json!({ "error": true, "data": { "data": [] } }), origin);
+        return json_resp(
+            StatusCode::OK,
+            json!({ "error": true, "data": { "data": [] } }),
+            origin,
+        );
     }
     let text = resp.text().await.unwrap_or_default();
     let v = serde_json::from_str::<Value>(&text).unwrap_or(json!([]));
@@ -1486,9 +1776,15 @@ mod tests {
     #[test]
     fn custom_url_validation() {
         assert!(validate_custom_url("https://api.x.com/v1").is_ok());
-        assert!(validate_custom_url("http://127.0.0.1:5001/v1").is_ok(), "环回 http 放行");
+        assert!(
+            validate_custom_url("http://127.0.0.1:5001/v1").is_ok(),
+            "环回 http 放行"
+        );
         assert!(validate_custom_url("http://localhost:8008").is_ok());
-        assert!(validate_custom_url("http://10.0.0.5/v1").is_err(), "非环回 http 拒");
+        assert!(
+            validate_custom_url("http://10.0.0.5/v1").is_err(),
+            "非环回 http 拒"
+        );
         assert!(validate_custom_url("ftp://x").is_err());
         assert!(validate_custom_url("127.0.0.1:5001").is_err(), "无协议拒");
     }
@@ -1527,7 +1823,10 @@ mod tests {
     #[test]
     fn effort_mappings() {
         use crate::backend::providers_text as txt;
-        assert_eq!(txt::map_openai_reasoning_effort("gpt-5.3-chat-latest", "high"), "medium");
+        assert_eq!(
+            txt::map_openai_reasoning_effort("gpt-5.3-chat-latest", "high"),
+            "medium"
+        );
         assert_eq!(txt::map_openai_reasoning_effort("o3", "min"), "minimal");
         assert_eq!(txt::map_nanogpt_reasoning_effort("min"), "none");
         assert!(txt::is_openai_reasoning_effort_model("gpt-6-astra"));

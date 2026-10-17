@@ -36,7 +36,11 @@ fn err_resp(status: StatusCode) -> Response {
 
 /// S18：静态图片响应 —— Content-Type 按扩展名映射 + nosniff
 fn image_response(bytes: Vec<u8>, file_name: &str, origin: Option<HeaderValue>) -> Response {
-    let ext = file_name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+    let ext = file_name
+        .rsplit('.')
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
     let mime = match ext.as_str() {
         "png" | "apng" => "image/png",
         "jpg" | "jpeg" | "jfif" => "image/jpeg",
@@ -51,7 +55,10 @@ fn image_response(bytes: Vec<u8>, file_name: &str, origin: Option<HeaderValue>) 
     if let Ok(v) = HeaderValue::from_str(mime) {
         h.insert(header::CONTENT_TYPE, v);
     }
-    h.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    h.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
     apply_cors_resp(resp, origin)
 }
 
@@ -61,7 +68,10 @@ fn thumb_dirs(st: &BackendState, t: &str) -> Option<(std::path::PathBuf, std::pa
     match t {
         "bg" => Some((du.join("thumbnails").join("bg"), du.join("backgrounds"))),
         "avatar" => Some((du.join("thumbnails").join("avatar"), du.join("characters"))),
-        "persona" => Some((du.join("thumbnails").join("persona"), du.join("User Avatars"))),
+        "persona" => Some((
+            du.join("thumbnails").join("persona"),
+            du.join("User Avatars"),
+        )),
         _ => None,
     }
 }
@@ -168,7 +178,9 @@ pub async fn avatars_upload(
         Ok(m) => m,
         Err(_) => return err_resp(StatusCode::BAD_REQUEST),
     };
-    let Some(bytes) = m.avatar else { return err_resp(StatusCode::BAD_REQUEST) };
+    let Some(bytes) = m.avatar else {
+        return err_resp(StatusCode::BAD_REQUEST);
+    };
     // S16：魔数校验（persona 头像必须真图片）
     let declared = m
         .avatar_filename
@@ -177,14 +189,22 @@ pub async fn avatars_upload(
         .unwrap_or("png");
     if let Err(e) = super::uploads::check_magic(declared, &bytes) {
         return apply_cors_resp(
-            (StatusCode::BAD_REQUEST, Json(json!({ "error": { "message": e.to_string() } }))).into_response(),
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": { "message": e.to_string() } })),
+            )
+                .into_response(),
             origin,
         );
     }
     let dir = du(st).join("User Avatars");
     let _ = std::fs::create_dir_all(&dir);
     // overwrite_name 或 时间戳.png（avatars.js:56）
-    let filename = match m.fields.get("overwrite_name").filter(|s| !s.trim().is_empty()) {
+    let filename = match m
+        .fields
+        .get("overwrite_name")
+        .filter(|s| !s.trim().is_empty())
+    {
         Some(ow) => crate::pathguard::sanitize(ow),
         None => {
             let ts = std::time::SystemTime::now()
@@ -255,7 +275,10 @@ pub fn backgrounds_all(st: &BackendState, origin: Option<HeaderValue>) -> Respon
         .map(|n| json!({ "filename": n, "isAnimated": false }))
         .collect();
     // config：thumbnailDimensions.bg（image-metadata.js；ST 默认 bg=[320,180]）
-    ok_json(origin, json!({ "images": images, "config": { "width": 320, "height": 180 } }))
+    ok_json(
+        origin,
+        json!({ "images": images, "config": { "width": 320, "height": 180 } }),
+    )
 }
 
 /// POST /api/images/upload {image, format, ch_name, filename}（manifest #39）
@@ -269,27 +292,36 @@ pub fn images_upload(st: &BackendState, body: &Value, origin: Option<HeaderValue
     let bytes = match use_base64_decode(b64) {
         Ok(b) => b,
         Err(_) => {
-            return apply_cors_resp(
-                err_json_internal("base64 解码失败").into_response(),
-                origin,
-            )
+            return apply_cors_resp(err_json_internal("base64 解码失败").into_response(), origin)
         }
     };
     if let Err(e) = super::uploads::check_extension(format) {
         return apply_cors_resp(
-            (StatusCode::BAD_REQUEST, Json(json!({ "error": e.to_string() }))).into_response(),
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": e.to_string() })),
+            )
+                .into_response(),
             origin,
         );
     }
     if let Err(e) = super::uploads::check_magic(format, &bytes) {
         return apply_cors_resp(
-            (StatusCode::BAD_REQUEST, Json(json!({ "error": e.to_string() }))).into_response(),
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": e.to_string() })),
+            )
+                .into_response(),
             origin,
         );
     }
     if let Err(e) = super::uploads::check_size(bytes.len(), st.max_body_bytes) {
         return apply_cors_resp(
-            (StatusCode::BAD_REQUEST, Json(json!({ "error": e.to_string() }))).into_response(),
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": e.to_string() })),
+            )
+                .into_response(),
             origin,
         );
     }
@@ -298,7 +330,11 @@ pub fn images_upload(st: &BackendState, body: &Value, origin: Option<HeaderValue
     let safe_ch = crate::pathguard::sanitize(ch_name);
     if safe_ch.is_empty() {
         return apply_cors_resp(
-            (StatusCode::BAD_REQUEST, Json(json!({ "error": "ch_name 无效" }))).into_response(),
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": "ch_name 无效" })),
+            )
+                .into_response(),
             origin,
         );
     }
@@ -319,7 +355,10 @@ pub fn images_upload(st: &BackendState, body: &Value, origin: Option<HeaderValue
     }
     // 返回路径（ST images.js：`user/images/<ch_name>/<file>` 相对形态，
     // 前端 groups.ts:78 消费 r.path 并写回 group.avatar_url）
-    ok_json(origin, json!({ "path": format!("user/images/{safe_ch}/{file_name}") }))
+    ok_json(
+        origin,
+        json!({ "path": format!("user/images/{safe_ch}/{file_name}") }),
+    )
 }
 
 /// GET /api/sprites/get?name=（manifest #40）
@@ -365,20 +404,27 @@ pub fn sprites_get(st: &BackendState, query: &str, origin: Option<HeaderValue>) 
                 .and_then(|m| m.modified().ok())
                 .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
                 .map(|d| {
-                    let (y, mth, dd, h, mi, s) =
-                        super::settings::civil_utc(d.as_secs() as i64);
+                    let (y, mth, dd, h, mi, s) = super::settings::civil_utc(d.as_secs() as i64);
                     format!("{y:04}{mth:02}{dd:02}{h:02}{mi:02}{s:02}")
                 })
                 .unwrap_or_default();
             // label：文件名 stem 的小写，剥首个 -/. 后缀（sprites.js:138）
-            let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+            let stem = p
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_lowercase();
             let label = stem
                 .split(['-', '.'])
                 .next()
                 .filter(|s| !s.is_empty())
                 .unwrap_or(&stem)
                 .to_string();
-            let q = if mtime_tag.is_empty() { String::new() } else { format!("?t={mtime_tag}") };
+            let q = if mtime_tag.is_empty() {
+                String::new()
+            } else {
+                format!("?t={mtime_tag}")
+            };
             out.push(json!({
                 "label": label,
                 "path": format!("/characters/{name}/{f}{q}"),
@@ -391,7 +437,10 @@ pub fn sprites_get(st: &BackendState, query: &str, origin: Option<HeaderValue>) 
 /// 图片扩展名判定（getImages 的 mime lookup 等价面）
 fn is_image_name(n: &str) -> bool {
     let ext = n.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
-    matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "tif" | "tiff" | "apng" | "jfif")
+    matches!(
+        ext.as_str(),
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "tif" | "tiff" | "apng" | "jfif"
+    )
 }
 
 fn ok_json(origin: Option<HeaderValue>, v: Value) -> Response {
@@ -399,7 +448,11 @@ fn ok_json(origin: Option<HeaderValue>, v: Value) -> Response {
 }
 
 fn err_json_internal(msg: &str) -> axum::response::Response {
-    (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": { "message": msg } }))).into_response()
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(json!({ "error": { "message": msg } })),
+    )
+        .into_response()
 }
 
 /// base64 解码（独立 helper：避免 uploads.rs 引入 base64 依赖重复）
@@ -447,9 +500,16 @@ mod tests {
         // 正常取图
         let r = thumbnail(&st, "type=avatar&file=a.png", None);
         assert_eq!(r.status().as_u16(), 200);
-        assert_eq!(r.headers().get("content-type").and_then(|v| v.to_str().ok()), Some("image/png"));
         assert_eq!(
-            r.headers().get("x-content-type-options").and_then(|v| v.to_str().ok()),
+            r.headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok()),
+            Some("image/png")
+        );
+        assert_eq!(
+            r.headers()
+                .get("x-content-type-options")
+                .and_then(|v| v.to_str().ok()),
             Some("nosniff")
         );
         // 恶意名 403（ST thumbnails.js:258）
@@ -484,9 +544,9 @@ mod tests {
         std::fs::write(dir.join("p.png"), real_png()).unwrap();
 
         let r = avatars_get(&st, None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v.as_array().unwrap().len(), 1);
 
@@ -504,7 +564,13 @@ mod tests {
         let st = st_with("avup");
         // 伪 PNG → 400
         let mp = "--B\r\nContent-Disposition: form-data; name=\"avatar\"; filename=\"a.png\"\r\n\r\n<svg>\r\n--B--\r\n";
-        let r = avatars_upload(&st, Some("multipart/form-data; boundary=B"), axum::body::Bytes::from(mp), None).await;
+        let r = avatars_upload(
+            &st,
+            Some("multipart/form-data; boundary=B"),
+            axum::body::Bytes::from(mp),
+            None,
+        )
+        .await;
         assert_eq!(r.status().as_u16(), 400);
         // 真 PNG → {path}（b64 变体仅留作对照；multipart 文件字段是原始字节）
         let b64img = {
@@ -540,9 +606,9 @@ mod tests {
         std::fs::write(dir.join("note.txt"), "not image").unwrap();
 
         let r = backgrounds_all(&st, None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         let arr = v["images"].as_array().unwrap();
         assert_eq!(arr.len(), 1, "非图片文件被过滤");
@@ -562,9 +628,9 @@ mod tests {
             None,
         );
         assert_eq!(r.status().as_u16(), 200);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         let path = v["path"].as_str().unwrap();
         assert!(path.starts_with("user/images/grp1/grp1_"), "{path}");
@@ -584,9 +650,9 @@ mod tests {
         std::fs::write(dir.join("readme.txt"), "skip").unwrap();
 
         let r = sprites_get(&st, "name=甲", None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         let arr = v.as_array().unwrap();
         assert_eq!(arr.len(), 3, "非图片跳过");
@@ -594,21 +660,29 @@ mod tests {
         // 注意：joy-1.png 与 joy.png 同 label，排序在前者先返回（ST 同语义）
         let joy_path = joy["path"].as_str().unwrap();
         assert!(
-            joy_path.starts_with("/characters/甲/joy.png?t=") || joy_path.starts_with("/characters/甲/joy-1.png?t="),
+            joy_path.starts_with("/characters/甲/joy.png?t=")
+                || joy_path.starts_with("/characters/甲/joy-1.png?t="),
             "{joy_path}"
         );
-        assert!(arr.iter().any(|s| s["label"] == "sad"), "sad.expressive → label=sad");
+        assert!(
+            arr.iter().any(|s| s["label"] == "sad"),
+            "sad.expressive → label=sad"
+        );
         // 子目录形态
         std::fs::create_dir_all(du(&st).join("characters").join("乙").join("sub")).unwrap();
         std::fs::write(
-            du(&st).join("characters").join("乙").join("sub").join("calm.png"),
+            du(&st)
+                .join("characters")
+                .join("乙")
+                .join("sub")
+                .join("calm.png"),
             real_png(),
         )
         .unwrap();
         let r = sprites_get(&st, "name=乙/sub", None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v.as_array().unwrap()[0]["label"], "calm");
     }

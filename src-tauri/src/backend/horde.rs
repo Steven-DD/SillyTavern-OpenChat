@@ -29,7 +29,12 @@ pub(crate) const CLIENT_AGENT: &str = "SillyTavern-OpenChat:1.0.0:Steven-DD";
 
 fn cache() -> &'static Mutex<HordeCache> {
     static CACHE: std::sync::OnceLock<Mutex<HordeCache>> = std::sync::OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(HordeCache { models: None, models_at: None }))
+    CACHE.get_or_init(|| {
+        Mutex::new(HordeCache {
+            models: None,
+            models_at: None,
+        })
+    })
 }
 
 struct HordeCache {
@@ -48,7 +53,10 @@ async fn fetch_json(
     body: Option<&Value>,
     timeout: Duration,
 ) -> (reqwest::StatusCode, Value) {
-    let client = reqwest::Client::builder().no_proxy().build().unwrap_or_default();
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap_or_default();
     let mut req = client
         .request(method, url)
         .header("accept-encoding", "identity")
@@ -64,53 +72,108 @@ async fn fetch_json(
         Ok(r) => {
             let status = r.status();
             let text = r.text().await.unwrap_or_default();
-            (status, serde_json::from_str::<Value>(&text).unwrap_or(json!(null)))
+            (
+                status,
+                serde_json::from_str::<Value>(&text).unwrap_or(json!(null)),
+            )
         }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, json!({ "error": { "message": e.to_string() } })),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            json!({ "error": { "message": e.to_string() } }),
+        ),
     }
 }
 
 /// POST /api/horde/generate-text（manifest #44）
-pub async fn generate_text(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
+pub async fn generate_text(
+    st: &BackendState,
+    body: &Value,
+    origin: Option<HeaderValue>,
+) -> Response {
     let Some(_) = body.as_object() else {
         return json_resp(StatusCode::OK, json!({ "error": true }), origin);
     };
     let api_key = read_secret(st, "api_key_horde").unwrap_or_else(|| ANONYMOUS_KEY.to_string());
     let url = format!("{HORDE_ROOT}/generate/text/async");
-    let (status, data) = fetch_json(&url, reqwest::Method::POST, Some(api_key), Some(body), Duration::from_secs(60)).await;
+    let (status, data) = fetch_json(
+        &url,
+        reqwest::Method::POST,
+        Some(api_key),
+        Some(body),
+        Duration::from_secs(60),
+    )
+    .await;
     if !status.is_success() {
         // ST 字面：{error:{message: 上游原文}}
         let msg = match data.get("message").and_then(|m| m.as_str()) {
             Some(m) => json!(m),
             None => json!(data.to_string()),
         };
-        return json_resp(StatusCode::OK, json!({ "error": { "message": msg } }), origin);
+        return json_resp(
+            StatusCode::OK,
+            json!({ "error": { "message": msg } }),
+            origin,
+        );
     }
     json_resp(StatusCode::OK, data, origin)
 }
 
 /// POST /api/horde/task-status（manifest #45）
-pub async fn task_status(_st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
+pub async fn task_status(
+    _st: &BackendState,
+    body: &Value,
+    origin: Option<HeaderValue>,
+) -> Response {
     let Some(task_id) = body.get("taskId").and_then(|t| t.as_str()) else {
-        return json_resp(StatusCode::INTERNAL_SERVER_ERROR, json!({ "error": true }), origin);
+        return json_resp(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            json!({ "error": true }),
+            origin,
+        );
     };
     let url = format!("{HORDE_ROOT}/generate/text/status/{task_id}");
-    let (_, data) = fetch_json(&url, reqwest::Method::GET, None, None, Duration::from_secs(30)).await;
+    let (_, data) = fetch_json(
+        &url,
+        reqwest::Method::GET,
+        None,
+        None,
+        Duration::from_secs(30),
+    )
+    .await;
     json_resp(StatusCode::OK, data, origin)
 }
 
 /// POST /api/horde/cancel-task（manifest #46）
-pub async fn cancel_task(_st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
+pub async fn cancel_task(
+    _st: &BackendState,
+    body: &Value,
+    origin: Option<HeaderValue>,
+) -> Response {
     let Some(task_id) = body.get("taskId").and_then(|t| t.as_str()) else {
-        return json_resp(StatusCode::INTERNAL_SERVER_ERROR, json!({ "error": true }), origin);
+        return json_resp(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            json!({ "error": true }),
+            origin,
+        );
     };
     let url = format!("{HORDE_ROOT}/generate/text/status/{task_id}");
-    let (_, data) = fetch_json(&url, reqwest::Method::DELETE, None, None, Duration::from_secs(30)).await;
+    let (_, data) = fetch_json(
+        &url,
+        reqwest::Method::DELETE,
+        None,
+        None,
+        Duration::from_secs(30),
+    )
+    .await;
     json_resp(StatusCode::OK, data, origin)
 }
 
 /// POST /api/horde/text-models（manifest #47：模型列表 + reference 元数据合并 + 60s 缓存）
-pub async fn text_models(_st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
+pub async fn text_models(
+    _st: &BackendState,
+    body: &Value,
+    origin: Option<HeaderValue>,
+) -> Response {
     let force = body.get("force").and_then(|f| f.as_bool()).unwrap_or(false);
     {
         let c = cache().lock().unwrap();
@@ -124,12 +187,31 @@ pub async fn text_models(_st: &BackendState, body: &Value, origin: Option<Header
     }
 
     let url = format!("{HORDE_ROOT}/status/models?type=text");
-    let (status, mut data) = fetch_json(&url, reqwest::Method::GET, None, None, Duration::from_secs(30)).await;
+    let (status, mut data) = fetch_json(
+        &url,
+        reqwest::Method::GET,
+        None,
+        None,
+        Duration::from_secs(30),
+    )
+    .await;
     if !status.is_success() {
-        return json_resp(StatusCode::INTERNAL_SERVER_ERROR, json!({ "error": true }), origin);
+        return json_resp(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            json!({ "error": true }),
+            origin,
+        );
     }
     // reference db.json 合并（best-effort；失败不影响列表）
-    match fetch_json(TEXT_MODEL_METADATA_URL, reqwest::Method::GET, None, None, Duration::from_secs(30)).await {
+    match fetch_json(
+        TEXT_MODEL_METADATA_URL,
+        reqwest::Method::GET,
+        None,
+        None,
+        Duration::from_secs(30),
+    )
+    .await
+    {
         (_, metadata) if metadata.is_object() => {
             if data.is_null() {
                 data = json!([]);
@@ -151,7 +233,9 @@ pub async fn text_models(_st: &BackendState, body: &Value, origin: Option<Header
                         }
                     }
                     None => {
-                        model.as_object_mut().map(|om| om.insert("is_whitelisted".into(), json!(false)));
+                        model
+                            .as_object_mut()
+                            .map(|om| om.insert("is_whitelisted".into(), json!(false)));
                     }
                 }
             }

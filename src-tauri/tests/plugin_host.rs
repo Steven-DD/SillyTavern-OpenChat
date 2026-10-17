@@ -7,9 +7,9 @@
 //! 运行：cargo test --test plugin_host -- --nocapture
 //! 注意：Rust 编译/运行在本环境需非沙箱权限。
 
+use st_chat_lib::plugin::PluginHost;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use st_chat_lib::plugin::PluginHost;
 
 /// 测试并行执行，因此每次调用都要拿到**独立**目录。
 /// （只用进程 id 命名会互相覆盖 —— 曾导致 binding 往返测试偶发失败）
@@ -46,7 +46,11 @@ fn builtin_manifests_load() {
     // 必需/可选分组与执行模型
     let by = |id: &str| stack.plugins.iter().find(|p| p.id == id).unwrap();
     assert_eq!(by("node").tier, "required", "node 应为必要插件");
-    assert_eq!(by("sillytavern").tier, "required", "sillytavern 应为必要插件");
+    assert_eq!(
+        by("sillytavern").tier,
+        "required",
+        "sillytavern 应为必要插件"
+    );
     assert_eq!(
         by("git").tier,
         "optional",
@@ -62,7 +66,12 @@ fn builtin_manifests_load() {
         assert!(caps.contains(&want), "缺少能力 {want}，实际 {caps:?}");
     }
     assert!(
-        stack.capabilities.iter().find(|c| c.id == "theme").unwrap().ok,
+        stack
+            .capabilities
+            .iter()
+            .find(|c| c.id == "theme")
+            .unwrap()
+            .ok,
         "资源型能力应始终可用"
     );
 }
@@ -74,7 +83,11 @@ fn probes_local_node_and_sillytavern() {
     let stack = host.stack();
 
     let node = stack.plugins.iter().find(|p| p.id == "node").unwrap();
-    let st = stack.plugins.iter().find(|p| p.id == "sillytavern").unwrap();
+    let st = stack
+        .plugins
+        .iter()
+        .find(|p| p.id == "sillytavern")
+        .unwrap();
 
     println!("--- node ---");
     println!("  status  = {}", node.status);
@@ -104,7 +117,10 @@ fn probes_local_node_and_sillytavern() {
                 std::fs::canonicalize(&expected).unwrap(),
                 "ST 路径不符"
             );
-            assert!(st.version.is_some(), "未读到 ST 版本（package.json:version）");
+            assert!(
+                st.version.is_some(),
+                "未读到 ST 版本（package.json:version）"
+            );
             // 依赖校验：ST requires node，必须判定通过
             let dep = st
                 .dependencies
@@ -157,8 +173,12 @@ fn binding_roundtrip_and_validation() {
     )
     .unwrap();
     let st = fixture;
-    host.set_binding("sillytavern", "manual", Some(st.to_string_lossy().into_owned()))
-        .expect("指定真实路径应成功");
+    host.set_binding(
+        "sillytavern",
+        "manual",
+        Some(st.to_string_lossy().into_owned()),
+    )
+    .expect("指定真实路径应成功");
 
     let state_file = dir.join("plugins.json");
     assert!(state_file.is_file(), "状态未落盘: {}", state_file.display());

@@ -68,25 +68,41 @@ pub fn wi_list(st: &BackendState, origin: Option<HeaderValue>) -> Response {
             .flatten()
             .filter(|e| {
                 e.path().is_file()
-                    && e.path().extension().and_then(|x| x.to_str()).map(|x| x.to_lowercase()) == Some("json".into())
+                    && e.path()
+                        .extension()
+                        .and_then(|x| x.to_str())
+                        .map(|x| x.to_lowercase())
+                        == Some("json".into())
             })
             .map(|e| e.file_name().to_string_lossy().to_string())
             .collect(),
-        Err(e) => return err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("worlds 目录读取失败：{e}")),
+        Err(e) => {
+            return err_json(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("worlds 目录读取失败：{e}"),
+            )
+        }
     };
     names.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
     let mut out = Vec::new();
     for f in names {
         let p = dir.join(&f);
-        let Ok(text) = std::fs::read_to_string(&p) else { continue };
-        let Ok(parsed) = serde_json::from_str::<Value>(&text) else { continue };
+        let Ok(text) = std::fs::read_to_string(&p) else {
+            continue;
+        };
+        let Ok(parsed) = serde_json::from_str::<Value>(&text) else {
+            continue;
+        };
         let file_id = f.trim_end_matches(".json").to_string();
         let name = parsed
             .get("name")
             .and_then(|n| n.as_str())
             .unwrap_or(&file_id)
             .to_string();
-        let ext = parsed.get("extensions").cloned().unwrap_or_else(|| json!({}));
+        let ext = parsed
+            .get("extensions")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
         let ext = if ext.is_object() { ext } else { json!({}) };
         out.push(json!({ "file_id": file_id, "name": name, "extensions": ext }));
     }
@@ -108,7 +124,10 @@ pub fn wi_get(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> R
     match std::fs::read_to_string(&p) {
         Ok(text) => match serde_json::from_str::<Value>(&text) {
             Ok(v) => ok_json(origin, v),
-            Err(e) => err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("world JSON 解析失败：{e}")),
+            Err(e) => err_json(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("world JSON 解析失败：{e}"),
+            ),
         },
         Err(e) => err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("读取失败：{e}")),
     }
@@ -175,7 +194,10 @@ pub async fn wi_import(
     body: axum::body::Bytes,
     origin: Option<HeaderValue>,
 ) -> Response {
-    if !content_type.map(|c| c.starts_with("multipart/form-data")).unwrap_or(false) {
+    if !content_type
+        .map(|c| c.starts_with("multipart/form-data"))
+        .unwrap_or(false)
+    {
         return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
     }
     // 复用 characters 的解析器（同 multer single('avatar') 字段名）
@@ -183,7 +205,9 @@ pub async fn wi_import(
         Ok(m) => m,
         Err(_) => return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin),
     };
-    let Some(bytes) = m.avatar else { return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin) };
+    let Some(bytes) = m.avatar else {
+        return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
+    };
     let raw_name = m.avatar_filename.unwrap_or_else(|| "imported.json".into());
     let stem = raw_name.trim_end_matches(".json").to_string();
     let Ok(safe) = crate::pathguard::component(&format!("{stem}.json")) else {
@@ -191,14 +215,23 @@ pub async fn wi_import(
     };
     let text = String::from_utf8_lossy(&bytes).to_string();
     let Ok(world) = serde_json::from_str::<Value>(&text) else {
-        return apply_cors_resp((StatusCode::BAD_REQUEST, "Is not a valid world info file").into_response(), origin);
+        return apply_cors_resp(
+            (StatusCode::BAD_REQUEST, "Is not a valid world info file").into_response(),
+            origin,
+        );
     };
     if world.get("entries").is_none() {
-        return apply_cors_resp((StatusCode::BAD_REQUEST, "Is not a valid world info file").into_response(), origin);
+        return apply_cors_resp(
+            (StatusCode::BAD_REQUEST, "Is not a valid world info file").into_response(),
+            origin,
+        );
     }
     let file_id = safe.trim_end_matches(".json").to_string();
     if file_id.is_empty() {
-        return apply_cors_resp((StatusCode::BAD_REQUEST, "World file must have a name").into_response(), origin);
+        return apply_cors_resp(
+            (StatusCode::BAD_REQUEST, "World file must have a name").into_response(),
+            origin,
+        );
     }
     let p = worlds_dir(st).join(safe);
     if let Some(parent) = p.parent() {
@@ -224,13 +257,22 @@ pub fn gr_all(st: &BackendState, origin: Option<HeaderValue>) -> Response {
             .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("json"))
             .map(|e| e.file_name().to_string_lossy().to_string())
             .collect(),
-        Err(e) => return err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("groups 目录读取失败：{e}")),
+        Err(e) => {
+            return err_json(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("groups 目录读取失败：{e}"),
+            )
+        }
     };
     names.sort();
     for f in names {
         let p = gdir.join(&f);
-        let Ok(text) = std::fs::read_to_string(&p) else { continue };
-        let Ok(mut group) = serde_json::from_str::<Value>(&text) else { continue };
+        let Ok(text) = std::fs::read_to_string(&p) else {
+            continue;
+        };
+        let Ok(mut group) = serde_json::from_str::<Value>(&text) else {
+            continue;
+        };
         let stat = match std::fs::metadata(&p) {
             Ok(s) => s,
             Err(_) => continue,
@@ -357,7 +399,8 @@ pub fn gr_delete(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -
             if let Some(chats) = group.get("chats").and_then(|c| c.as_array()) {
                 for c in chats {
                     if let Some(chat) = c.as_str() {
-                        if let Ok(safe_chat) = crate::pathguard::component(&format!("{chat}.jsonl")) {
+                        if let Ok(safe_chat) = crate::pathguard::component(&format!("{chat}.jsonl"))
+                        {
                             let _ = std::fs::remove_file(group_chats_dir(st).join(safe_chat));
                         }
                     }
@@ -401,32 +444,36 @@ mod tests {
         let st = st_with("wi");
         // get 不存在 → dummy
         let r = wi_get(&st, &json!({ "name": "nope" }), None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["entries"], json!({}));
 
         // edit → get
-        let r = wi_edit(&st, &json!({ "name": "书", "data": { "entries": { "0": { "uid": 0 } }, "x": 1 } }), None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let r = wi_edit(
+            &st,
+            &json!({ "name": "书", "data": { "entries": { "0": { "uid": 0 } }, "x": 1 } }),
+            None,
+        );
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["ok"], true);
 
         let r = wi_get(&st, &json!({ "name": "书" }), None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         assert!(v["entries"].is_object());
 
         // list 带元数据
         let r = wi_list(&st, None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         let arr = v.as_array().unwrap();
         assert_eq!(arr.len(), 1);
@@ -451,14 +498,26 @@ mod tests {
         let mp = format!(
             "--B\r\nContent-Disposition: form-data; name=\"avatar\"; filename=\"我的书.json\"\r\n\r\n{content}\r\n--B--\r\n"
         );
-        let r = wi_import(&st, Some("multipart/form-data; boundary=B"), axum::body::Bytes::from(mp), None).await;
+        let r = wi_import(
+            &st,
+            Some("multipart/form-data; boundary=B"),
+            axum::body::Bytes::from(mp),
+            None,
+        )
+        .await;
         assert_eq!(r.status().as_u16(), 200);
         let bytes = axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap();
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["name"], "我的书");
         // 非 world 文件 → 400
         let mp2 = "--B\r\nContent-Disposition: form-data; name=\"avatar\"; filename=\"x.json\"\r\n\r\n{\"nope\":1}\r\n--B--\r\n";
-        let r = wi_import(&st, Some("multipart/form-data; boundary=B"), axum::body::Bytes::from(mp2), None).await;
+        let r = wi_import(
+            &st,
+            Some("multipart/form-data; boundary=B"),
+            axum::body::Bytes::from(mp2),
+            None,
+        )
+        .await;
         assert_eq!(r.status().as_u16(), 400);
     }
 
@@ -466,10 +525,14 @@ mod tests {
     fn groups_lifecycle() {
         let st = st_with("gr");
         // create
-        let r = gr_create(&st, &json!({ "name": "测试群", "members": ["a.png"] }), None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let r = gr_create(
+            &st,
+            &json!({ "name": "测试群", "members": ["a.png"] }),
+            None,
+        );
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let created: Value = serde_json::from_slice(&bytes).unwrap();
         let id = created["id"].as_str().unwrap().to_string();
         assert_eq!(created["chats"], json!([id]), "chats 默认 [id]");
@@ -477,9 +540,9 @@ mod tests {
 
         // all 带统计
         let r = gr_all(&st, None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         let arr = v.as_array().unwrap();
         assert_eq!(arr.len(), 1);
@@ -490,9 +553,9 @@ mod tests {
         let mut edited = created.clone();
         edited["name"] = json!("改名群");
         let r = gr_edit(&st, &edited, None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["ok"], true);
 
@@ -505,12 +568,15 @@ mod tests {
         // delete 连带群聊
         std::fs::write(group_chats_dir(&st).join(format!("{id}.jsonl")), "{}\n").unwrap();
         let r = gr_delete(&st, &json!({ "id": id }), None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["ok"], true);
         assert!(!groups_dir(&st).join(format!("{id}.json")).exists());
-        assert!(!group_chats_dir(&st).join(format!("{id}.jsonl")).exists(), "群聊文件连带删除");
+        assert!(
+            !group_chats_dir(&st).join(format!("{id}.jsonl")).exists(),
+            "群聊文件连带删除"
+        );
     }
 }

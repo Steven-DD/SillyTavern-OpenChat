@@ -53,20 +53,67 @@ pub fn count(st: &BackendState, body_bytes: &[u8], origin: Option<HeaderValue>) 
     ok_json(origin, json!({ "token_count": n }))
 }
 
-/// POST /api/tokenizers/<model>/encode（manifest #52/#53）
-/// token id 精度不可伪造 → 501（NAI 依赖，Phase 2 交付）。
-pub fn encode(model: &str, origin: Option<HeaderValue>) -> Response {
-    let _ = model;
+/// POST /api/tokenizers/<model>/encode 的非 App 契约家族 → 501（S20）
+fn encode_unsupported(model: &str, origin: Option<HeaderValue>) -> Response {
     let resp = (
         StatusCode::NOT_IMPLEMENTED,
         Json(json!({
             "error": {
-                "message": "tokenizer encode 尚未迁移（需要真 tokenizer 精度，Phase 2 范围）",
+                "message": format!("tokenizer {model} encode 尚未开放（App 契约仅 llama3/nerdstash_v2）"),
                 "code": "NOT_MIGRATED",
             }
         })),
     );
     apply_cors_resp(resp.into_response(), origin)
+}
+
+/// POST /api/tokenizers/<model>/encode（manifest #52/#53 · T16 批5）
+/// App 契约只消耗 llama3 / nerdstash_v2（api.ts:266-280 NAI 停止词/禁词编码）：
+/// - llama3：HF tokenizers 精确（见 nai_tokens.rs 模块头）
+/// - nerdstash_v2：词表精确 + 贪心分段近似（SPM BPE 无 Rust 参考实现）
+pub fn encode_with_body(model: &str, body_bytes: &[u8], origin: Option<HeaderValue>) -> Response {
+    if model != "llama3" && model != "nerdstash_v2" {
+        return encode_unsupported(model, origin);
+    }
+    let text = match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+        Ok(v) => v
+            .get("text")
+            .and_then(|t| t.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        Err(_) => {
+            return apply_cors_resp(
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "error": { "message": "请求体不是合法 JSON" } })),
+                )
+                    .into_response(),
+                origin,
+            )
+        }
+    };
+    let result = match model {
+        "llama3" => super::nai_tokens::encode_llama3(&text),
+        _ => super::nai_tokens::encode_nerdstash_v2(&text),
+    };
+    match result {
+        Ok(ids) => apply_cors_resp(
+            (
+                StatusCode::OK,
+                Json(json!({ "ids": ids, "length": ids.len() })),
+            )
+                .into_response(),
+            origin,
+        ),
+        Err(e) => apply_cors_resp(
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": { "message": e } })),
+            )
+                .into_response(),
+            origin,
+        ),
+    }
 }
 
 /* ---------------- secrets（manifest #50） ---------------- */
@@ -106,13 +153,27 @@ fn deactivate_all(arr: &mut Vec<Value>) {
 /// 返回 `{id}`。⚠ T12（keychain vault）落地前仍为明文 JSON 北斗形态 ——
 /// 这是与 ST 当前一致的已知基线（清单 T1 已纠正文档口径）。
 pub fn secrets_write(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
-    let Some(key) = body.get("key").and_then(|v| v.as_str()).filter(|k| !k.is_empty()) else {
-        return apply_cors_resp((StatusCode::BAD_REQUEST, "Invalid key or value").into_response(), origin);
+    let Some(key) = body
+        .get("key")
+        .and_then(|v| v.as_str())
+        .filter(|k| !k.is_empty())
+    else {
+        return apply_cors_resp(
+            (StatusCode::BAD_REQUEST, "Invalid key or value").into_response(),
+            origin,
+        );
     };
     let Some(value) = body.get("value").and_then(|v| v.as_str()) else {
-        return apply_cors_resp((StatusCode::BAD_REQUEST, "Invalid key or value").into_response(), origin);
+        return apply_cors_resp(
+            (StatusCode::BAD_REQUEST, "Invalid key or value").into_response(),
+            origin,
+        );
     };
-    let label = body.get("label").and_then(|v| v.as_str()).unwrap_or("Unlabeled").to_string();
+    let label = body
+        .get("label")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Unlabeled")
+        .to_string();
 
     let p = secrets_path(st);
     let mut secrets: Value = match std::fs::read_to_string(&p) {
@@ -120,9 +181,7 @@ pub fn secrets_write(st: &BackendState, body: &Value, origin: Option<HeaderValue
         Err(_) => json!({}),
     };
     let obj = secrets.as_object_mut().unwrap();
-    let arr = obj
-        .entry(key.to_string())
-        .or_insert_with(|| json!([]));
+    let arr = obj.entry(key.to_string()).or_insert_with(|| json!([]));
     if !arr.is_array() {
         *arr = json!([]);
     }
@@ -143,7 +202,10 @@ pub fn secrets_write(st: &BackendState, body: &Value, origin: Option<HeaderValue
     let tmp = p.with_extension("json.tmp");
     match std::fs::write(&tmp, &pretty).and_then(|_| std::fs::rename(&tmp, &p)) {
         Ok(()) => ok_json(origin, json!({ "id": id })),
-        Err(e) => err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("secrets 写入失败：{e}")),
+        Err(e) => err_json(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("secrets 写入失败：{e}"),
+        ),
     }
 }
 
@@ -162,9 +224,14 @@ pub fn secrets_read(st: &BackendState, origin: Option<HeaderValue>) -> Response 
         for (k, v) in obj {
             let has_active = v
                 .as_array()
-                .map(|a| a.iter().any(|s| s.get("active").and_then(|b| b.as_bool()).unwrap_or(false)))
+                .map(|a| {
+                    a.iter()
+                        .any(|s| s.get("active").and_then(|b| b.as_bool()).unwrap_or(false))
+                })
                 .unwrap_or(false);
-            out.as_object_mut().unwrap().insert(k.clone(), json!(has_active));
+            out.as_object_mut()
+                .unwrap()
+                .insert(k.clone(), json!(has_active));
         }
     }
     ok_json(origin, out)
@@ -226,9 +293,9 @@ mod tests {
         let body = json!([{ "role": "system", "content": "hello world" }]).to_string();
         let r = count(&st, body.as_bytes(), None);
         assert_eq!(r.status().as_u16(), 200);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         let n = v["token_count"].as_u64().unwrap();
         assert!(n > 0);
@@ -238,20 +305,31 @@ mod tests {
     }
 
     #[test]
-    fn encode_is_not_migrated() {
-        let r = encode("llama3", None);
+    fn encode_unregistered_family_is_501() {
+        let r = encode_with_body("claude", b"{}", None);
         assert_eq!(r.status().as_u16(), 501);
+    }
+
+    #[test]
+    fn encode_llama3_family_delegates() {
+        // 有 body：llama3 走真 tokenizer → 200 + ids
+        let r = encode_with_body("llama3", br#"{"text":"Hello"}"#, None);
+        assert_eq!(r.status().as_u16(), 200);
     }
 
     #[test]
     fn secrets_write_multistate_and_rotation() {
         let st = st_with("sec");
         // 第一次写入
-        let r = secrets_write(&st, &json!({ "key": "api_key_openai", "value": "sk-1" }), None);
+        let r = secrets_write(
+            &st,
+            &json!({ "key": "api_key_openai", "value": "sk-1" }),
+            None,
+        );
         assert_eq!(r.status().as_u16(), 200);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         let id1 = v["id"].as_str().unwrap().to_string();
         assert_eq!(id1.len(), 36, "uuid 形态");
@@ -265,10 +343,14 @@ mod tests {
         assert_eq!(arr[0]["label"], "Unlabeled");
 
         // 轮换：新条目激活、旧条目失活（_deactivateAllSecrets）
-        let r = secrets_write(&st, &json!({ "key": "api_key_openai", "value": "sk-2" }), None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let r = secrets_write(
+            &st,
+            &json!({ "key": "api_key_openai", "value": "sk-2" }),
+            None,
+        );
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         let id2 = v["id"].as_str().unwrap().to_string();
         assert_ne!(id1, id2);
@@ -288,11 +370,15 @@ mod tests {
     #[test]
     fn secrets_read_state_and_view_forbidden() {
         let st = st_with("secstate");
-        secrets_write(&st, &json!({ "key": "api_key_claude", "value": "sk" }), None);
+        secrets_write(
+            &st,
+            &json!({ "key": "api_key_claude", "value": "sk" }),
+            None,
+        );
         let r = secrets_read(&st, None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["api_key_claude"], true, "布尔形态（不回明文）");
         assert!(!v.to_string().contains("sk"), "读回面无明文");

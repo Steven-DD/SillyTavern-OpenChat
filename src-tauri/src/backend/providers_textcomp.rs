@@ -172,61 +172,176 @@ fn pick_keys(body: &Value, keys: &[&str]) -> Value {
 }
 
 const TOGETHERAI_KEYS: &[&str] = &[
-    "model", "prompt", "max_tokens", "temperature", "top_p", "top_k",
-    "repetition_penalty", "min_p", "presence_penalty", "frequency_penalty",
-    "stream", "stop",
+    "model",
+    "prompt",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "top_k",
+    "repetition_penalty",
+    "min_p",
+    "presence_penalty",
+    "frequency_penalty",
+    "stream",
+    "stop",
 ];
 
 const OLLAMA_KEYS: &[&str] = &[
-    "num_predict", "num_ctx", "num_batch", "stop", "temperature",
-    "repeat_penalty", "presence_penalty", "frequency_penalty", "top_k",
-    "top_p", "tfs_z", "typical_p", "seed", "repeat_last_n", "min_p",
+    "num_predict",
+    "num_ctx",
+    "num_batch",
+    "stop",
+    "temperature",
+    "repeat_penalty",
+    "presence_penalty",
+    "frequency_penalty",
+    "top_k",
+    "top_p",
+    "tfs_z",
+    "typical_p",
+    "seed",
+    "repeat_last_n",
+    "min_p",
 ];
 
 const OPENAI_KEYS: &[&str] = &[
-    "model", "prompt", "stream", "temperature", "top_p",
-    "frequency_penalty", "presence_penalty", "stop", "seed", "logit_bias",
-    "logprobs", "max_tokens", "n", "best_of",
+    "model",
+    "prompt",
+    "stream",
+    "temperature",
+    "top_p",
+    "frequency_penalty",
+    "presence_penalty",
+    "stop",
+    "seed",
+    "logit_bias",
+    "logprobs",
+    "max_tokens",
+    "n",
+    "best_of",
 ];
 
 const OPENROUTER_KEYS: &[&str] = &[
-    "max_tokens", "temperature", "top_k", "top_p", "presence_penalty",
-    "frequency_penalty", "repetition_penalty", "min_p", "top_a", "seed",
-    "logit_bias", "model", "stream", "prompt", "stop", "provider",
+    "max_tokens",
+    "temperature",
+    "top_k",
+    "top_p",
+    "presence_penalty",
+    "frequency_penalty",
+    "repetition_penalty",
+    "min_p",
+    "top_a",
+    "seed",
+    "logit_bias",
+    "model",
+    "stream",
+    "prompt",
+    "stop",
+    "provider",
     "include_reasoning",
 ];
 
 const VLLM_KEYS: &[&str] = &[
-    "model", "prompt", "best_of", "echo", "frequency_penalty", "logit_bias",
-    "logprobs", "max_tokens", "n", "presence_penalty", "seed", "stop",
-    "stream", "suffix", "temperature", "top_p", "user",
-    "use_beam_search", "top_k", "min_p", "repetition_penalty",
-    "length_penalty", "early_stopping", "stop_token_ids", "ignore_eos",
-    "min_tokens", "skip_special_tokens", "spaces_between_special_tokens",
-    "truncate_prompt_tokens", "include_stop_str_in_output",
-    "response_format", "guided_json", "guided_regex", "guided_choice",
-    "guided_grammar", "guided_decoding_backend", "guided_whitespace_pattern",
+    "model",
+    "prompt",
+    "best_of",
+    "echo",
+    "frequency_penalty",
+    "logit_bias",
+    "logprobs",
+    "max_tokens",
+    "n",
+    "presence_penalty",
+    "seed",
+    "stop",
+    "stream",
+    "suffix",
+    "temperature",
+    "top_p",
+    "user",
+    "use_beam_search",
+    "top_k",
+    "min_p",
+    "repetition_penalty",
+    "length_penalty",
+    "early_stopping",
+    "stop_token_ids",
+    "ignore_eos",
+    "min_tokens",
+    "skip_special_tokens",
+    "spaces_between_special_tokens",
+    "truncate_prompt_tokens",
+    "include_stop_str_in_output",
+    "response_format",
+    "guided_json",
+    "guided_regex",
+    "guided_choice",
+    "guided_grammar",
+    "guided_decoding_backend",
+    "guided_whitespace_pattern",
 ];
 
 const INFERMATICAI_KEYS: &[&str] = &[
-    "model", "prompt", "max_tokens", "temperature", "top_p", "top_k",
-    "repetition_penalty", "stream", "stop", "presence_penalty",
-    "frequency_penalty", "min_p", "seed", "ignore_eos", "n", "best_of",
-    "min_tokens", "spaces_between_special_tokens", "skip_special_tokens",
+    "model",
+    "prompt",
+    "max_tokens",
+    "temperature",
+    "top_p",
+    "top_k",
+    "repetition_penalty",
+    "stream",
+    "stop",
+    "presence_penalty",
+    "frequency_penalty",
+    "min_p",
+    "seed",
+    "ignore_eos",
+    "n",
+    "best_of",
+    "min_tokens",
+    "spaces_between_special_tokens",
+    "skip_special_tokens",
     "logprobs",
 ];
 
 const FEATHERLESS_KEYS: &[&str] = &[
-    "model", "prompt", "best_of", "echo", "frequency_penalty", "logit_bias",
-    "logprobs", "max_tokens", "n", "presence_penalty", "seed", "stop",
-    "stream", "suffix", "temperature", "top_p", "user",
-    "use_beam_search", "top_k", "min_p", "repetition_penalty",
-    "length_penalty", "early_stopping", "stop_token_ids", "ignore_eos",
-    "min_tokens", "skip_special_tokens", "spaces_between_special_tokens",
+    "model",
+    "prompt",
+    "best_of",
+    "echo",
+    "frequency_penalty",
+    "logit_bias",
+    "logprobs",
+    "max_tokens",
+    "n",
+    "presence_penalty",
+    "seed",
+    "stop",
+    "stream",
+    "suffix",
+    "temperature",
+    "top_p",
+    "user",
+    "use_beam_search",
+    "top_k",
+    "min_p",
+    "repetition_penalty",
+    "length_penalty",
+    "early_stopping",
+    "stop_token_ids",
+    "ignore_eos",
+    "min_tokens",
+    "skip_special_tokens",
+    "spaces_between_special_tokens",
     "truncate_prompt_tokens",
     "include_stop_str_in_output",
-    "response_format", "guided_json", "guided_regex", "guided_choice",
-    "guided_grammar", "guided_decoding_backend", "guided_whitespace_pattern",
+    "response_format",
+    "guided_json",
+    "guided_regex",
+    "guided_choice",
+    "guided_grammar",
+    "guided_decoding_backend",
+    "guided_whitespace_pattern",
 ];
 
 /* ============================================================ *
@@ -236,7 +351,11 @@ pub async fn generate(st: &BackendState, body: &Value, origin: Option<HeaderValu
     let Some(api_server) = body.get("api_server").and_then(|v| v.as_str()) else {
         return json_resp(StatusCode::BAD_REQUEST, json!({ "error": true }), origin);
     };
-    let Some(api_type) = body.get("api_type").and_then(|v| v.as_str()).and_then(parse_type) else {
+    let Some(api_type) = body
+        .get("api_type")
+        .and_then(|v| v.as_str())
+        .and_then(parse_type)
+    else {
         return json_resp(StatusCode::BAD_REQUEST, json!({ "error": true }), origin);
     };
 
@@ -275,7 +394,11 @@ pub async fn generate(st: &BackendState, body: &Value, origin: Option<HeaderValu
                     reshaped.as_object_mut().unwrap().remove("provider");
                 }
             }
-            if let Some(q) = body.get("quantizations").and_then(|q| q.as_array()).cloned() {
+            if let Some(q) = body
+                .get("quantizations")
+                .and_then(|q| q.as_array())
+                .cloned()
+            {
                 if !q.is_empty() {
                     let o = reshaped.as_object_mut().unwrap();
                     o.entry(String::from("provider"))
@@ -294,10 +417,14 @@ pub async fn generate(st: &BackendState, body: &Value, origin: Option<HeaderValu
             const NUM_BATCH: i64 = -1;
             let mut opts = pick_keys(body, OLLAMA_KEYS);
             if NUM_BATCH > 0 {
-                opts.as_object_mut().unwrap().insert("num_batch".into(), json!(NUM_BATCH));
+                opts.as_object_mut()
+                    .unwrap()
+                    .insert("num_batch".into(), json!(NUM_BATCH));
             }
             if let Some(np) = body.get("n_predict") {
-                opts.as_object_mut().unwrap().entry(String::from("num_predict"))
+                opts.as_object_mut()
+                    .unwrap()
+                    .entry(String::from("num_predict"))
                     .or_insert_with(|| np.clone());
             }
             out_body = json!({
@@ -314,12 +441,16 @@ pub async fn generate(st: &BackendState, body: &Value, origin: Option<HeaderValu
     }
 
     // ollama+stream：裸 JSON 流 → SSE 包装
-    let want_stream = body.get("stream").and_then(|v| v.as_bool()).unwrap_or(false);
+    let want_stream = body
+        .get("stream")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     if api_type == T::Ollama && want_stream {
         return send_ollama_stream(&url, &out_body, typed_headers(st, api_type), origin).await;
     }
 
-    let resp_res = super::providers::upstream_post(&url, "", typed_headers(st, api_type), &out_body).await;
+    let resp_res =
+        super::providers::upstream_post(&url, "", typed_headers(st, api_type), &out_body).await;
     let resp = match resp_res {
         Ok(r) => r,
         Err(e) => {
@@ -366,11 +497,12 @@ pub async fn generate(st: &BackendState, body: &Value, origin: Option<HeaderValu
                 })
             })
             .collect();
-        data.as_object_mut().unwrap().insert("choices".into(), Value::Array(mapped));
+        data.as_object_mut()
+            .unwrap()
+            .insert("choices".into(), Value::Array(mapped));
     }
     super::providers::json_resp(StatusCode::OK, data, origin)
 }
-
 
 async fn send_ollama_stream(
     url: &str,
@@ -378,7 +510,10 @@ async fn send_ollama_stream(
     headers: Vec<(String, String)>,
     origin: Option<HeaderValue>,
 ) -> Response {
-    let client = reqwest::Client::builder().no_proxy().build().unwrap_or_default();
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap_or_default();
     let mut req = client
         .post(url)
         .header("Content-Type", "application/json")
@@ -406,7 +541,11 @@ async fn send_ollama_stream(
         .bytes_stream()
         .map(|r| r.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)));
     let sse = futures_util::stream::unfold(
-        NdjState { stream: Box::pin(wrapped), buf: Vec::new(), finished: false },
+        NdjState {
+            stream: Box::pin(wrapped),
+            buf: Vec::new(),
+            finished: false,
+        },
         |mut st2| async move {
             if st2.finished {
                 return None;
@@ -423,7 +562,10 @@ async fn send_ollama_stream(
                         let th = j.get("thinking").cloned().unwrap_or(json!(""));
                         if j.get("done").and_then(|d| d.as_bool()).unwrap_or(false) {
                             st2.finished = true;
-                            let mut out = format!("data: {}\n\n", json!({ "choices": [{ "text": t, "thinking": th }] }));
+                            let mut out = format!(
+                                "data: {}\n\n",
+                                json!({ "choices": [{ "text": t, "thinking": th }] })
+                            );
                             out.push_str("data: [DONE]\n\n");
                             return Some((Ok(out.into_bytes()), st2));
                         }
@@ -477,7 +619,9 @@ async fn send_ollama_stream(
 }
 
 struct NdjState {
-    stream: std::pin::Pin<Box<dyn futures_util::Stream<Item = Result<bytes::Bytes, std::io::Error>> + Send>>,
+    stream: std::pin::Pin<
+        Box<dyn futures_util::Stream<Item = Result<bytes::Bytes, std::io::Error>> + Send>,
+    >,
     buf: Vec<u8>,
     finished: bool,
 }
@@ -489,7 +633,11 @@ pub async fn status(st: &BackendState, body: &Value, origin: Option<HeaderValue>
     let Some(api_server) = body.get("api_server").and_then(|v| v.as_str()) else {
         return json_resp(StatusCode::BAD_REQUEST, json!({ "error": true }), origin);
     };
-    let Some(api_type) = body.get("api_type").and_then(|v| v.as_str()).and_then(parse_type) else {
+    let Some(api_type) = body
+        .get("api_type")
+        .and_then(|v| v.as_str())
+        .and_then(parse_type)
+    else {
         return json_resp(StatusCode::BAD_REQUEST, json!({ "error": true }), origin);
     };
     let base_raw = api_server.replace("localhost", "127.0.0.1");
@@ -497,7 +645,10 @@ pub async fn status(st: &BackendState, body: &Value, origin: Option<HeaderValue>
     let url = format!("{}{}", trim_v1(base), status_path(api_type));
 
     let headers = typed_headers(st, api_type);
-    let client = reqwest::Client::builder().no_proxy().build().unwrap_or_default();
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap_or_default();
     let mut req = client
         .get(&url)
         .header("accept-encoding", "identity")
@@ -507,7 +658,13 @@ pub async fn status(st: &BackendState, body: &Value, origin: Option<HeaderValue>
     }
     let resp = match req.send().await {
         Ok(r) => r,
-        Err(_) => return json_resp(StatusCode::INTERNAL_SERVER_ERROR, json!({ "error": true }), origin),
+        Err(_) => {
+            return json_resp(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({ "error": true }),
+                origin,
+            )
+        }
     };
     let is_possibly_lm_studio = resp
         .headers()
@@ -572,7 +729,12 @@ pub async fn status(st: &BackendState, body: &Value, origin: Option<HeaderValue>
 
     if api_type == T::Ooba && !is_possibly_lm_studio {
         let info_url = format!("{}{}/v1/internal/model/info", trim_v1(base), "");
-        let info = client.get(&info_url).header("accept-encoding", "identity").timeout(std::time::Duration::from_secs(30)).send().await;
+        let info = client
+            .get(&info_url)
+            .header("accept-encoding", "identity")
+            .timeout(std::time::Duration::from_secs(30))
+            .send()
+            .await;
         if let Ok(info) = info {
             if info.status().is_success() {
                 if let Ok(mi) = info.json::<Value>().await {
@@ -587,7 +749,12 @@ pub async fn status(st: &BackendState, body: &Value, origin: Option<HeaderValue>
         }
     } else if api_type == T::Tabby {
         let info_url = format!("{}{}/v1/model", trim_v1(base), "");
-        let info = client.get(&info_url).header("accept-encoding", "identity").timeout(std::time::Duration::from_secs(30)).send().await;
+        let info = client
+            .get(&info_url)
+            .header("accept-encoding", "identity")
+            .timeout(std::time::Duration::from_secs(30))
+            .send()
+            .await;
         if let Ok(info) = info {
             if info.status().is_success() {
                 if let Ok(mi) = info.json::<Value>().await {
@@ -606,7 +773,8 @@ pub async fn status(st: &BackendState, body: &Value, origin: Option<HeaderValue>
     let reply = json!({ "result": result, "data": data.get("data").cloned().unwrap_or(json!([])) });
     let mut mr = super::providers::json_resp(StatusCode::OK, reply, origin);
     if supports_tokenization {
-        mr.headers_mut().insert("x-supports-tokenization", HeaderValue::from_static("true"));
+        mr.headers_mut()
+            .insert("x-supports-tokenization", HeaderValue::from_static("true"));
     }
     mr
 }
@@ -621,20 +789,30 @@ mod tests {
         assert_eq!(trim_v1("https://x:5000/"), "https://x:5000");
         assert_eq!(trim_v1("https://x:5000/v1"), "https://x:5000");
         // 不剥中间：/v1/completions 的后续路径保留（App 旧版叠路径正是踩这里）
-        assert_eq!(trim_v1("https://x:5000/v1/completions"), "https://x:5000/v1/completions");
+        assert_eq!(
+            trim_v1("https://x:5000/v1/completions"),
+            "https://x:5000/v1/completions"
+        );
     }
 
     #[test]
     fn paths_per_type() {
-        assert_eq!(gen_path(parse_type("openrouter").unwrap()), "/v1/chat/completions");
-        assert_eq!(gen_path(parse_type("mancer").unwrap()), "/oai/v1/completions");
+        assert_eq!(
+            gen_path(parse_type("openrouter").unwrap()),
+            "/v1/chat/completions"
+        );
+        assert_eq!(
+            gen_path(parse_type("mancer").unwrap()),
+            "/oai/v1/completions"
+        );
         assert_eq!(gen_path(parse_type("ollama").unwrap()), "/api/generate");
         assert_eq!(status_path(parse_type("tabby").unwrap()), "/v1/model/list");
     }
 
     #[test]
     fn pick_keys_strips_outside_fields() {
-        let body = serde_json::json!({ "model": "m", "prompt": "p", "api_key": "nope", "stream": true });
+        let body =
+            serde_json::json!({ "model": "m", "prompt": "p", "api_key": "nope", "stream": true });
         let got = pick_keys(&body, OPENAI_KEYS);
         assert!(got.get("api_key").is_none());
         assert_eq!(got["model"], "m");
@@ -651,9 +829,12 @@ mod tests {
         // openrouter reshape（与 generate 内逻辑同款）
         let provider = body.get("provider").and_then(|p| p.as_array()).cloned();
         if let Some(order) = provider {
-            reshaped.as_object_mut().unwrap().insert("provider".into(), serde_json::json!({
-                "allow_fallbacks": true, "order": order,
-            }));
+            reshaped.as_object_mut().unwrap().insert(
+                "provider".into(),
+                serde_json::json!({
+                    "allow_fallbacks": true, "order": order,
+                }),
+            );
         }
         let got = pick_keys(&reshaped, OPENROUTER_KEYS);
         assert_eq!(got["provider"]["order"], serde_json::json!(["A", "B"]));

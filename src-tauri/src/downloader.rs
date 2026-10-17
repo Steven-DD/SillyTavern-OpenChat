@@ -147,11 +147,18 @@ where
 
         for attempt in 1..=MAX_RETRY_PER_SOURCE {
             // 每次尝试前重新读 .part 大小 —— 上一次失败可能已经下了一部分
-            let existing = tokio::fs::metadata(&part).await.map(|m| m.len()).unwrap_or(0);
+            let existing = tokio::fs::metadata(&part)
+                .await
+                .map(|m| m.len())
+                .unwrap_or(0);
 
             on(DownloadProgress {
                 id: spec.id.clone(),
-                phase: if attempt > 1 { "retrying".into() } else { "connecting".into() },
+                phase: if attempt > 1 {
+                    "retrying".into()
+                } else {
+                    "connecting".into()
+                },
                 source: url.clone(),
                 source_index,
                 source_total: total_sources,
@@ -165,8 +172,17 @@ where
                 },
             });
 
-            match try_once(client, spec, url, &part, existing, &mut on, source_index, total_sources)
-                .await
+            match try_once(
+                client,
+                spec,
+                url,
+                &part,
+                existing,
+                &mut on,
+                source_index,
+                total_sources,
+            )
+            .await
             {
                 Ok(bytes) => {
                     // ---- 校验（不信任"下完了"，只信任"算出来一致"）----
@@ -195,9 +211,9 @@ where
                         }
                     }
 
-                    tokio::fs::rename(&part, dest)
-                        .await
-                        .map_err(|e| format!("重命名失败 {} → {}：{e}", part.display(), dest.display()))?;
+                    tokio::fs::rename(&part, dest).await.map_err(|e| {
+                        format!("重命名失败 {} → {}：{e}", part.display(), dest.display())
+                    })?;
 
                     let elapsed_ms = started.elapsed().as_millis() as u64;
                     on(DownloadProgress {
@@ -261,10 +277,7 @@ where
         req = req.header("Range", format!("bytes={existing}-"));
     }
 
-    let resp = req
-        .send()
-        .await
-        .map_err(|e| format!("请求失败：{e}"))?;
+    let resp = req.send().await.map_err(|e| format!("请求失败：{e}"))?;
     let status = resp.status();
 
     if !status.is_success() {

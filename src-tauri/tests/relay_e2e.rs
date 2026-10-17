@@ -77,12 +77,9 @@ async fn relay_proxies_real_st() {
     );
     let token = {
         let text = r.text().await.expect("读取 token 响应失败");
-        let v: serde_json::Value =
-            serde_json::from_str(&text).unwrap_or_else(|e| panic!("token 响应非 JSON: {e} / {text}"));
-        v["token"]
-            .as_str()
-            .expect("token 字段缺失")
-            .to_string()
+        let v: serde_json::Value = serde_json::from_str(&text)
+            .unwrap_or_else(|e| panic!("token 响应非 JSON: {e} / {text}"));
+        v["token"].as_str().expect("token 字段缺失").to_string()
     };
     assert!(!token.is_empty());
 
@@ -166,7 +163,9 @@ async fn relay_proxies_real_st() {
             "非 200 时应为上游结构化错误透传，实际: {head}"
         );
         if gstatus == 400 {
-            println!("ℹ️  生成端点返回 400（ST 可达但未配置 API key，全新安装的正常状态）；鉴权链路正常");
+            println!(
+                "ℹ️  生成端点返回 400（ST 可达但未配置 API key，全新安装的正常状态）；鉴权链路正常"
+            );
         } else {
             println!("ℹ️  生成端点返回上游 {gstatus}（配额/过载），鉴权链路正常；流式验证由 mock 测试覆盖");
         }
@@ -183,7 +182,9 @@ async fn relay_proxies_real_st() {
 async fn mock_sse_upstream() -> u16 {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .unwrap();
     let port = listener.local_addr().unwrap().port();
 
     tokio::spawn(async move {

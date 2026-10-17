@@ -42,7 +42,9 @@ pub struct SettingsService {
 
 impl SettingsService {
     pub fn new() -> Self {
-        Self { autosave: Mutex::new(AutosaveState::default()) }
+        Self {
+            autosave: Mutex::new(AutosaveState::default()),
+        }
     }
 }
 
@@ -64,7 +66,9 @@ fn backups_dir(data_root: &std::path::Path) -> std::path::PathBuf {
 /// ⚠ 追加毫秒 —— ST 原版秒级在同秒内两次备份会同名互相覆盖（其 10 分钟节流
 /// 使概率可忽略）；我们的测试与快节奏写入需要唯一性，毫秒不破坏可排序性。
 fn generate_timestamp() -> String {
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
     let secs = now.as_secs() as i64;
     let ms = now.subsec_millis();
     let dt = civil_utc(secs);
@@ -79,7 +83,11 @@ fn generate_timestamp() -> String {
 pub fn civil_utc(secs: i64) -> (i64, u32, u32, u32, u32, u32) {
     let days = secs.div_euclid(86400);
     let rem = secs.rem_euclid(86400);
-    let (h, m, s) = ((rem / 3600) as u32, ((rem % 3600) / 60) as u32, (rem % 60) as u32);
+    let (h, m, s) = (
+        (rem / 3600) as u32,
+        ((rem % 3600) / 60) as u32,
+        (rem % 60) as u32,
+    );
     // civil_from_days（Howard Hinnant 算法）
     let z = days + 719468;
     let era = z.div_euclid(146097);
@@ -97,7 +105,10 @@ pub fn civil_utc(secs: i64) -> (i64, u32, u32, u32, u32, u32) {
 const SETTINGS_BACKUP_PREFIX: &str = "settings_default-user_";
 
 /// 备份当前 settings（等价 backupUserSettings：去重 + 保留上限）
-fn backup_user_settings(data_root: &std::path::Path, prevent_duplicates: bool) -> std::io::Result<()> {
+fn backup_user_settings(
+    data_root: &std::path::Path,
+    prevent_duplicates: bool,
+) -> std::io::Result<()> {
     let source = settings_path(data_root);
     if !source.exists() {
         return Ok(());
@@ -110,7 +121,10 @@ fn backup_user_settings(data_root: &std::path::Path, prevent_duplicates: bool) -
         return Ok(());
     }
 
-    let backup = dir.join(format!("{SETTINGS_BACKUP_PREFIX}{}.json", generate_timestamp()));
+    let backup = dir.join(format!(
+        "{SETTINGS_BACKUP_PREFIX}{}.json",
+        generate_timestamp()
+    ));
     std::fs::write(&backup, &content)?;
     remove_old_backups(&dir);
     Ok(())
@@ -120,7 +134,9 @@ fn backup_user_settings(data_root: &std::path::Path, prevent_duplicates: bool) -
 fn is_duplicate_backup(dir: &std::path::Path, content: &[u8]) -> bool {
     let latest = latest_backup(dir);
     let Some(latest) = latest else { return false };
-    std::fs::read(&latest).map(|c| c == content).unwrap_or(false)
+    std::fs::read(&latest)
+        .map(|c| c == content)
+        .unwrap_or(false)
 }
 
 /// 等价 getLatestBackup（settings.js:192-202）：按 ctime 取最新
@@ -163,7 +179,10 @@ fn remove_old_backups(dir: &std::path::Path) {
                 .unwrap_or(false)
         })
         .map(|e| {
-            let mtime = e.metadata().and_then(|m| m.modified()).unwrap_or(UNIX_EPOCH);
+            let mtime = e
+                .metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(UNIX_EPOCH);
             (e.path(), mtime)
         })
         .collect();
@@ -247,8 +266,7 @@ pub fn save(
     let pretty = serde_json::to_string_pretty(body).unwrap_or_else(|_| body.to_string());
     // 原子写：临时文件 + rename（等价 write-file-atomic；规避损坏半写）
     let tmp = p.with_extension("json.tmp");
-    if let Err(e) = std::fs::write(&tmp, pretty.as_bytes())
-        .and_then(|_| std::fs::rename(&tmp, &p))
+    if let Err(e) = std::fs::write(&tmp, pretty.as_bytes()).and_then(|_| std::fs::rename(&tmp, &p))
     {
         let _ = std::fs::remove_file(&tmp);
         let resp = (
@@ -371,7 +389,10 @@ mod tests {
         assert!(after_first >= 1, "应产生至少 1 个备份");
 
         // 内容未变 → 去重，不新增
-        assert!(!trigger_autosave(&st, &svc) || count() == after_first, "节流窗口内不重复触发");
+        assert!(
+            !trigger_autosave(&st, &svc) || count() == after_first,
+            "节流窗口内不重复触发"
+        );
         // 手动清节流位模拟窗口过后再触发：内容相同 → 去重不新增
         {
             let mut state = svc.autosave.lock().unwrap();
@@ -408,13 +429,20 @@ mod tests {
         remove_old_backups(&dir);
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), MAX_BACKUPS);
         // 最旧的 5 个被删（i=0..4），i=5 起保留
-        assert!(!dir.join(format!("{SETTINGS_BACKUP_PREFIX}202601001-000000.json")).exists());
-        assert!(dir.join(format!("{SETTINGS_BACKUP_PREFIX}202601006-000000.json")).exists());
+        assert!(!dir
+            .join(format!("{SETTINGS_BACKUP_PREFIX}202601001-000000.json"))
+            .exists());
+        assert!(dir
+            .join(format!("{SETTINGS_BACKUP_PREFIX}202601006-000000.json"))
+            .exists());
         let _ = std::fs::remove_dir_all(&root);
     }
 
     /// 把文件 mtime/ctime 拨到指定时刻（测试排序稳定性用）
     fn filetime_set(p: &std::path::Path, t: SystemTime) -> std::io::Result<()> {
-        std::fs::File::options().write(true).open(p)?.set_modified(t)
+        std::fs::File::options()
+            .write(true)
+            .open(p)?
+            .set_modified(t)
     }
 }

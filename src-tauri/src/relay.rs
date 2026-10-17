@@ -113,7 +113,11 @@ pub async fn start(st_port: u16) -> std::io::Result<RelayEndpoint> {
     });
 
     println!("[relay] 已启动 127.0.0.1:{port} → http://127.0.0.1:{st_port}（鉴权已启用）");
-    Ok(RelayEndpoint { port, token, handle })
+    Ok(RelayEndpoint {
+        port,
+        token,
+        handle,
+    })
 }
 
 /* ------------------------------------------------------------------ *
@@ -124,19 +128,20 @@ pub async fn start(st_port: u16) -> std::io::Result<RelayEndpoint> {
 fn merge_cookies(jar: &mut Vec<String>, set_cookies: &[HeaderValue]) {
     for sc in set_cookies {
         let Ok(raw) = sc.to_str() else { continue };
-        let Some(pair) = raw.split(';').next() else { continue };
-        let Some((name, _)) = pair.split_once('=') else { continue };
+        let Some(pair) = raw.split(';').next() else {
+            continue;
+        };
+        let Some((name, _)) = pair.split_once('=') else {
+            continue;
+        };
         let name = name.trim();
         if name.is_empty() {
             continue;
         }
-        let expired = raw
-            .split(';')
-            .skip(1)
-            .any(|a| {
-                let a = a.trim().to_ascii_lowercase();
-                a == "max-age=0" || a.starts_with("max-age=-")
-            });
+        let expired = raw.split(';').skip(1).any(|a| {
+            let a = a.trim().to_ascii_lowercase();
+            a == "max-age=0" || a.starts_with("max-age=-")
+        });
         jar.retain(|c| !c.starts_with(&format!("{name}=")));
         if !expired {
             jar.push(pair.trim().to_string());
@@ -193,7 +198,10 @@ async fn proxy(
     body: Body,
 ) -> Response {
     // 非白名单 Origin 直接从 CORS 反射中剔除（origin=None → 不发 ACAO）
-    let origin = headers.get(header::ORIGIN).cloned().filter(|o| origin_allowed(o));
+    let origin = headers
+        .get(header::ORIGIN)
+        .cloned()
+        .filter(|o| origin_allowed(o));
 
     if method == Method::OPTIONS {
         return preflight(origin);
@@ -226,7 +234,8 @@ async fn proxy(
             || name == "origin"
             || name == "referer"
             || name == "cookie"          // 浏览器 Cookie 一律忽略，用中继自己的罐
-            || name == "accept-encoding" // 要求上游给明文，便于原样透传
+            || name == "accept-encoding"
+        // 要求上游给明文，便于原样透传
         {
             continue;
         }
@@ -249,7 +258,11 @@ async fn proxy(
     let body_bytes = match axum::body::to_bytes(body, 32 * 1024 * 1024).await {
         Ok(b) => b,
         Err(e) => {
-            return (StatusCode::BAD_REQUEST, format!("relay: 读取请求体失败: {e}")).into_response()
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("relay: 读取请求体失败: {e}"),
+            )
+                .into_response()
         }
     };
 
@@ -326,9 +339,8 @@ async fn proxy(
             Some(Ok(head)) => {
                 corrected = sniff_image_mime(&head);
                 // 首块要还回去 —— 不能因为嗅探丢字节
-                let head_again = futures_util::stream::once(async move {
-                    Ok::<_, std::io::Error>(head)
-                });
+                let head_again =
+                    futures_util::stream::once(async move { Ok::<_, std::io::Error>(head) });
                 Body::from_stream(head_again.chain(pinned))
             }
             Some(Err(e)) => {

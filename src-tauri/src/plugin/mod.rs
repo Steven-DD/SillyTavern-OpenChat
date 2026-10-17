@@ -297,9 +297,19 @@ impl PluginHost {
         println!(
             "[plugin] 载入系统插件 {} 个（必要 {} / 可选 {}）：{}",
             host.manifests.len(),
-            host.manifests.iter().filter(|m| m.tier == "required").count(),
-            host.manifests.iter().filter(|m| m.tier != "required").count(),
-            host.manifests.iter().map(|m| m.id.as_str()).collect::<Vec<_>>().join(", ")
+            host.manifests
+                .iter()
+                .filter(|m| m.tier == "required")
+                .count(),
+            host.manifests
+                .iter()
+                .filter(|m| m.tier != "required")
+                .count(),
+            host.manifests
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         );
         host
     }
@@ -574,10 +584,9 @@ impl PluginHost {
                         Some(o) if !o.found => (false, format!("{dep_id} 未就绪")),
                         Some(o) if !o.satisfies => (false, format!("{dep_id} 不满足 {constraint}")),
                         Some(o) => match o.version.as_ref() {
-                            Some(v) if !probe::satisfies(v, constraint) => (
-                                false,
-                                format!("{dep_id} {v} 不满足要求 {constraint}"),
-                            ),
+                            Some(v) if !probe::satisfies(v, constraint) => {
+                                (false, format!("{dep_id} {v} 不满足要求 {constraint}"))
+                            }
                             Some(v) => (true, format!("{dep_id} {v}")),
                             None => (true, format!("{dep_id} 已就绪")),
                         },
@@ -624,8 +633,7 @@ impl PluginHost {
     /// 单独抽出 `_of(&reps)` 是为了让 `stack()` 复用同一份探测结果：
     /// 每次探测都要起子进程（约几十毫秒），不能在同一个请求里跑两遍。
     fn capabilities_of(&self, reps: &[PluginReport]) -> Vec<CapabilityReport> {
-        let map: HashMap<&str, &PluginReport> =
-            reps.iter().map(|r| (r.id.as_str(), r)).collect();
+        let map: HashMap<&str, &PluginReport> = reps.iter().map(|r| (r.id.as_str(), r)).collect();
 
         self.capabilities
             .iter()
@@ -728,7 +736,11 @@ impl PluginHost {
             .lock()
             .ok()
             .and_then(|s| s.port_override)
-            .or_else(|| std::env::var("ST_CHAT_ST_PORT").ok().and_then(|v| v.parse().ok()))
+            .or_else(|| {
+                std::env::var("ST_CHAT_ST_PORT")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+            })
             .or(st_m.entry.port)
             .unwrap_or(8000);
 
@@ -809,10 +821,20 @@ impl PluginHost {
             .lock()
             .ok()
             .and_then(|s| s.port_override)
-            .or_else(|| std::env::var("ST_CHAT_ST_PORT").ok().and_then(|v| v.parse().ok()))
+            .or_else(|| {
+                std::env::var("ST_CHAT_ST_PORT")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+            })
             .or_else(|| self.manifest("sillytavern").and_then(|m| m.entry.port))
             .unwrap_or(8000);
-        Ok(st_data::status(&st_dir, &self.config_dir, &root, &cfg, port))
+        Ok(st_data::status(
+            &st_dir,
+            &self.config_dir,
+            &root,
+            &cfg,
+            port,
+        ))
     }
 
     /// 迁移计划（只读预览）
@@ -871,7 +893,11 @@ impl PluginHost {
             .lock()
             .ok()
             .and_then(|s| s.port_override)
-            .or_else(|| std::env::var("ST_CHAT_ST_PORT").ok().and_then(|v| v.parse().ok()))
+            .or_else(|| {
+                std::env::var("ST_CHAT_ST_PORT")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+            })
             .or(m.entry.port)
             .unwrap_or(8000);
         Ok((st_dir, port))
@@ -897,7 +923,9 @@ impl PluginHost {
             }
             "managed" => {
                 if !MANAGED_SUPPORTED {
-                    return Err("宿主安装（managed）尚未提供，请先用「自动探测」或「指定路径」".into());
+                    return Err(
+                        "宿主安装（managed）尚未提供，请先用「自动探测」或「指定路径」".into(),
+                    );
                 }
                 // managed 绑定必须带版本目录路径（node 绑其中的可执行文件）
                 let p = path

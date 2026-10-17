@@ -180,7 +180,11 @@ pub fn pre_rollback_check(data_root: &Path) -> RollbackCheck {
     // worlds：全部 JSON 可解析
     let worlds_dir = du.join("worlds");
     if worlds_dir.is_dir() {
-        for entry in std::fs::read_dir(&worlds_dir).into_iter().flatten().flatten() {
+        for entry in std::fs::read_dir(&worlds_dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
             let p = entry.path();
             if p.extension().and_then(|x| x.to_str()) == Some("json") {
                 if let Err(e) = std::fs::read_to_string(&p)
@@ -197,7 +201,10 @@ pub fn pre_rollback_check(data_root: &Path) -> RollbackCheck {
         }
     }
 
-    RollbackCheck { ok: failures.is_empty(), failures }
+    RollbackCheck {
+        ok: failures.is_empty(),
+        failures,
+    }
 }
 
 fn first_and_last_json_ok(p: &Path) -> Result<(), String> {
@@ -266,11 +273,19 @@ mod tests {
         let tmp = std::env::temp_dir().join(format!("stchat-gate-bad-{}", std::process::id()));
         let du = tmp.join("default-user");
         std::fs::create_dir_all(du.join("chats/char1")).unwrap();
-        std::fs::write(du.join("chats/char1/x.jsonl"), "not-json\n{\"mes\":\"hi\"}\n").unwrap();
+        std::fs::write(
+            du.join("chats/char1/x.jsonl"),
+            "not-json\n{\"mes\":\"hi\"}\n",
+        )
+        .unwrap();
 
         let r = pre_rollback_check(&tmp);
         assert!(!r.ok, "损坏 JSONL 必须拒绝回滚");
-        assert!(r.failures.iter().any(|f| f.contains("首行")), "{:?}", r.failures);
+        assert!(
+            r.failures.iter().any(|f| f.contains("首行")),
+            "{:?}",
+            r.failures
+        );
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
@@ -283,7 +298,11 @@ mod tests {
 
         let r = pre_rollback_check(&tmp);
         assert!(!r.ok, "损坏 PNG 必须拒绝回滚");
-        assert!(r.failures.iter().any(|f| f.contains("PNG 魔数")), "{:?}", r.failures);
+        assert!(
+            r.failures.iter().any(|f| f.contains("PNG 魔数")),
+            "{:?}",
+            r.failures
+        );
         let _ = std::fs::remove_dir_all(&tmp);
     }
 }

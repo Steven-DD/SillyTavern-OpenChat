@@ -43,6 +43,10 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 getrandom = "0.2"
 # custom 源的 custom_include_body / custom_exclude_body 是 YAML 通道（ST mergeObjectWithYaml 同语义）
 serde_yaml = "0.9"
+# T16：NovelAI erato 的 llama3 精确编码（ST WebTokenizer Corresponding wasm 库同格式）
+tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
+# SPM（SentencePiece）NFKC 规格化的 Unicode 面（nerdstash_v2 分段）
+unicode-normalization = "0.1"
 # 应用内自动更新 + 重启（发布线）
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"

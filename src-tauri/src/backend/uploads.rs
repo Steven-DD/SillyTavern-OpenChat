@@ -41,7 +41,11 @@ pub fn check_magic(declared: &str, head: &[u8]) -> Result<(), UploadError> {
     let actual = sniff_image_mime(head);
     let declared = format!("image/{}", declared.trim().to_ascii_lowercase());
     // jpeg/jfif 同族：jfif 是 JPEG 交换格式，声明任一都按 image/jpeg 判
-    let declared = if declared == "image/jfif" { "image/jpeg".to_string() } else { declared };
+    let declared = if declared == "image/jfif" {
+        "image/jpeg".to_string()
+    } else {
+        declared
+    };
     match actual {
         Some(m) if m == declared => Ok(()),
         Some(m) => Err(UploadError(format!(
@@ -98,7 +102,7 @@ pub fn server_filename(
 pub fn static_response_headers(
     sniffed: Option<&'static str>,
     ext_lower: &str,
-) -> Vec<( &'static str, String)> {
+) -> Vec<(&'static str, String)> {
     let ctype = sniffed
         .map(|s| s.to_string())
         .unwrap_or_else(|| ext_to_mime(ext_lower).to_string());
@@ -190,17 +194,26 @@ mod tests {
     #[test]
     fn static_headers_have_nosniff() {
         let h = static_response_headers(Some("image/png"), "png");
-        assert!(h.iter().any(|(k, v)| *k == "content-type" && v == "image/png"));
-        assert!(h.iter().any(|(k, v)| *k == "x-content-type-options" && v == "nosniff"));
+        assert!(h
+            .iter()
+            .any(|(k, v)| *k == "content-type" && v == "image/png"));
+        assert!(h
+            .iter()
+            .any(|(k, v)| *k == "x-content-type-options" && v == "nosniff"));
         // 嗅探失败回落扩展名映射
         let h2 = static_response_headers(None, "gif");
-        assert!(h2.iter().any(|(k, v)| *k == "content-type" && v == "image/gif"));
+        assert!(h2
+            .iter()
+            .any(|(k, v)| *k == "content-type" && v == "image/gif"));
     }
 
     #[test]
     fn sniff_table_matches_relay() {
         // 与 relay.rs 的表互验（评审要求：魔数逻辑单一来源前的双份一致性）
-        assert_eq!(sniff_image_mime(&[0xFF, 0xD8, 0xFF, 0xE0]), Some(crate::relay::SNIFF_JPEG));
+        assert_eq!(
+            sniff_image_mime(&[0xFF, 0xD8, 0xFF, 0xE0]),
+            Some(crate::relay::SNIFF_JPEG)
+        );
         assert_eq!(
             sniff_image_mime(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]),
             Some(crate::relay::SNIFF_PNG)

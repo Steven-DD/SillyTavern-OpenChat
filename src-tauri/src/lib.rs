@@ -1,3 +1,5 @@
+//! 全局：MSVC linker 本地化 stdout 会触发 linker_messages 警告（cargo 2024 起）
+#![allow(linker_messages)]
 //! ST Chat · Tauri 应用入口
 //!
 //! 启动顺序（顺序有依赖，勿随意调换）：
@@ -93,7 +95,8 @@ fn st_relay_base(state: tauri::State<'_, RelayAuth>) -> RelayEndpointInfo {
 /// 查询 SillyTavern 托管状态（未托管时返回 None）
 #[tauri::command]
 fn st_status(app: tauri::AppHandle) -> Option<st_sidecar::StatusDto> {
-    app.try_state::<st_sidecar::SidecarState>().map(|s| s.report())
+    app.try_state::<st_sidecar::SidecarState>()
+        .map(|s| s.report())
 }
 
 /// 前端启动屏的「重试」：ST 启动失败（超时/报错）后重新拉起。
@@ -116,7 +119,9 @@ fn st_retry_start(
     if let Some(r) = app.try_state::<RelayAuth>() {
         r.handle.set_upstream_port(res.st_port);
     }
-    Ok(app.try_state::<st_sidecar::SidecarState>().map(|s| s.report()))
+    Ok(app
+        .try_state::<st_sidecar::SidecarState>()
+        .map(|s| s.report()))
 }
 
 /* ================================================================== *
@@ -198,7 +203,11 @@ fn plugin_set_enabled(
 
 /// 覆盖 ST 端口（None 表示回到清单默认值）
 #[tauri::command]
-fn plugin_set_port(host: Host<'_>, app: tauri::AppHandle, port: Option<u16>) -> Result<plugin::StackReport, String> {
+fn plugin_set_port(
+    host: Host<'_>,
+    app: tauri::AppHandle,
+    port: Option<u16>,
+) -> Result<plugin::StackReport, String> {
     host.set_port(port)?;
     // P1：运行中改端口 → 中继上游同步切换（按新端口重新解析；下次启动生效，
     // 当前会话里中继也不再指向旧端口）
@@ -310,7 +319,10 @@ fn component_versions(host: Host<'_>, id: String) -> Result<ComponentVersions, S
         .manifest(&id)
         .cloned()
         .ok_or_else(|| format!("未知组件：{id}"))?;
-    let install = m.install.as_ref().ok_or_else(|| "该组件不支持安装".to_string())?;
+    let install = m
+        .install
+        .as_ref()
+        .ok_or_else(|| "该组件不支持安装".to_string())?;
 
     let default_version = install
         .get("default_version")
@@ -324,9 +336,7 @@ fn component_versions(host: Host<'_>, id: String) -> Result<ComponentVersions, S
 
     let root = installer::install_root(&host.config_dir);
     let comp_dir = installer::component_root(&root, &id);
-    let bound_path = host
-        .binding_path_of(&id)
-        .map(PathBuf::from);
+    let bound_path = host.binding_path_of(&id).map(PathBuf::from);
 
     let mut versions = Vec::new();
     if let Ok(rd) = std::fs::read_dir(&comp_dir) {
@@ -442,7 +452,9 @@ async fn do_install(
             .and_then(|r| r.path.clone())
             .map(PathBuf::from);
         if p.is_none() {
-            return Err("安装 SillyTavern 需要 node 运行时，请先安装 node（预打包版本则无需）".into());
+            return Err(
+                "安装 SillyTavern 需要 node 运行时，请先安装 node（预打包版本则无需）".into(),
+            );
         }
         p
     } else {
@@ -497,7 +509,11 @@ async fn do_install(
 /// 路径由 Rust 侧裁决（node → 版本目录里的 node.exe；ST → 版本目录本身），
 /// 前端只传版本号 —— 避免前端拼路径产生混合斜杠。
 #[tauri::command]
-fn component_use(host: Host<'_>, id: String, version: String) -> Result<plugin::StackReport, String> {
+fn component_use(
+    host: Host<'_>,
+    id: String,
+    version: String,
+) -> Result<plugin::StackReport, String> {
     ensure_version_slug(&version)?;
     // 只允许绑定"完整"的版本：半成品可能是上次安装中断的残留
     let root = installer::install_root(&host.config_dir);
@@ -517,7 +533,11 @@ fn component_use(host: Host<'_>, id: String, version: String) -> Result<plugin::
     if !incomplete.is_empty() {
         return Err(format!(
             "版本 {version} 不完整（缺少 {}），不能绑定；请删除后重新安装",
-            incomplete.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+            incomplete
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
 
@@ -528,13 +548,21 @@ fn component_use(host: Host<'_>, id: String, version: String) -> Result<plugin::
             st_data::display_path(&bind_path)
         ));
     }
-    host.set_binding(&id, "managed", Some(bind_path.to_string_lossy().into_owned()))?;
+    host.set_binding(
+        &id,
+        "managed",
+        Some(bind_path.to_string_lossy().into_owned()),
+    )?;
     Ok(host.stack())
 }
 
 /// 删除一个已安装的版本。**绑定的版本与正在安装的组件不可删**。
 #[tauri::command]
-fn component_remove(host: Host<'_>, id: String, version: String) -> Result<ComponentVersions, String> {
+fn component_remove(
+    host: Host<'_>,
+    id: String,
+    version: String,
+) -> Result<ComponentVersions, String> {
     ensure_version_slug(&version)?;
     if INSTALL_IN_FLIGHT.load(std::sync::atomic::Ordering::SeqCst) {
         return Err("有安装任务在进行中，稍后再试".into());
@@ -547,7 +575,10 @@ fn component_remove(host: Host<'_>, id: String, version: String) -> Result<Compo
     let root = installer::install_root(&host.config_dir);
     let target = installer::version_dir(&root, &id, &version);
     if !target.is_dir() {
-        return Err(format!("版本目录不存在：{}", st_data::display_path(&target)));
+        return Err(format!(
+            "版本目录不存在：{}",
+            st_data::display_path(&target)
+        ));
     }
 
     // 绑定中的版本不可删 —— 删了应用就跑不起来，这不是"清理"，是"弄坏"
@@ -567,8 +598,7 @@ fn component_remove(host: Host<'_>, id: String, version: String) -> Result<Compo
     if complete {
         // 完整版本删除前留一次确认责任给前端（前端已有二次确认），这里只负责不可逆提示
     }
-    std::fs::remove_dir_all(&target)
-        .map_err(|e| format!("删除失败：{e}"))?;
+    std::fs::remove_dir_all(&target).map_err(|e| format!("删除失败：{e}"))?;
 
     let _ = host.rescan();
     component_versions(host, id)
@@ -718,9 +748,11 @@ async fn st_data_export(host: Host<'_>, dest: String) -> Result<st_data::DataBag
         return Err("导出目标必须是 .zip 文件".into());
     }
     let cfg_ref = cfg.is_file().then_some(cfg);
-    tauri::async_runtime::spawn_blocking(move || st_data::export_bag(&root, cfg_ref.as_deref(), &dest))
-        .await
-        .map_err(|e| format!("导出任务异常：{e}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        st_data::export_bag(&root, cfg_ref.as_deref(), &dest)
+    })
+    .await
+    .map_err(|e| format!("导出任务异常：{e}"))?
 }
 
 /* ================================================================== *
@@ -765,11 +797,7 @@ fn character_png_path(host: &plugin::PluginHost, avatar: &str) -> Result<PathBuf
 
 /// 导出角色卡原文件（PNG/JSON/CHARX，保存对话框选位置）；字节级复制，不做任何转换
 #[tauri::command]
-async fn character_export_png(
-    host: Host<'_>,
-    avatar: String,
-    dest: String,
-) -> Result<(), String> {
+async fn character_export_png(host: Host<'_>, avatar: String, dest: String) -> Result<(), String> {
     let src = character_png_path(&host, &avatar)?;
     if !src.is_file() {
         return Err(format!("角色卡文件不存在：{}", src.display()));
@@ -865,9 +893,11 @@ async fn st_data_import(host: Host<'_>, src: String) -> Result<st_data::DataBagR
         return Err(format!("导入文件不存在：{}", src.display()));
     }
     let cfg_ref = cfg.is_file().then_some(cfg);
-    tauri::async_runtime::spawn_blocking(move || st_data::import_bag(&src, &root, cfg_ref.as_deref()))
-        .await
-        .map_err(|e| format!("导入任务异常：{e}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        st_data::import_bag(&src, &root, cfg_ref.as_deref())
+    })
+    .await
+    .map_err(|e| format!("导入任务异常：{e}"))?
 }
 
 /* ================================================================== *
@@ -1055,7 +1085,11 @@ fn cli_install(config_dir: &Path, component: &str, version: &str) -> i32 {
                 o.bytes as f64 / 1048576.0,
                 o.elapsed_ms as f64 / 1000.0
             );
-            let _ = writeln!(std::io::stdout(), "written: {}", st_data::display_path(&out));
+            let _ = writeln!(
+                std::io::stdout(),
+                "written: {}",
+                st_data::display_path(&out)
+            );
             0
         }
         Err(e) => {
@@ -1206,11 +1240,7 @@ pub fn run() {
                     eprintln!("[setup] 插件解析失败: {e}");
                     // 必须把错误态推给启动屏：否则 SidecarState 未注册，
                     // 前端永远停在「正在启动 SillyTavern…」，用户无从得知要修绑定
-                    st_sidecar::mark_unresolved(
-                        &handle,
-                        st_sidecar::DEFAULT_ST_PORT,
-                        &e,
-                    );
+                    st_sidecar::mark_unresolved(&handle, st_sidecar::DEFAULT_ST_PORT, &e);
                     st_sidecar::DEFAULT_ST_PORT
                 }
             };

@@ -29,8 +29,6 @@ use axum::http::{HeaderValue, StatusCode};
 use axum::response::Response;
 use serde_json::{json, Map, Value};
 
-
-
 const NO_SEARCH_MODELS: &[&str] = &[
     "gemini-2.0-flash-lite",
     "gemini-2.0-flash-lite-001",
@@ -59,15 +57,26 @@ fn vertex_safety() -> Vec<Value> {
     .unwrap_or_default()
 }
 
-pub async fn send_makersuite(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
+pub async fn send_makersuite(
+    st: &BackendState,
+    body: &Value,
+    origin: Option<HeaderValue>,
+) -> Response {
     let is_vertex = body.get("chat_completion_source").and_then(|v| v.as_str()) == Some("vertexai");
-    let api_name = if is_vertex { "Google Vertex AI" } else { "Google AI Studio" };
+    let api_name = if is_vertex {
+        "Google Vertex AI"
+    } else {
+        "Google AI Studio"
+    };
 
     let mut auth_url = String::new();
     let api_key = if is_vertex {
         // express 模式（API key）；full 模式（服务账号）→ Phase 2 尾批实装
         // （ST proxy/full 模式的 auth_url 分支在 express 下未用 → 不走 auth_url）
-        let auth_mode = body.get("vertexai_auth_mode").and_then(|v| v.as_str()).unwrap_or("express");
+        let auth_mode = body
+            .get("vertexai_auth_mode")
+            .and_then(|v| v.as_str())
+            .unwrap_or("express");
         if auth_mode != "express" {
             return super::providers::json_resp(
                 StatusCode::BAD_REQUEST,
@@ -91,19 +100,29 @@ pub async fn send_makersuite(st: &BackendState, body: &Value, origin: Option<Hea
             .map(|s| !s.is_empty())
             .unwrap_or(false);
         let url = if use_rp {
-            body.get("reverse_proxy").and_then(|v| v.as_str()).unwrap_or("").to_string()
+            body.get("reverse_proxy")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string()
         } else {
             super::providers::API_MAKERSUITE.to_string()
         };
         auth_url = url;
         let k = if use_rp {
-            body.get("proxy_password").and_then(|v| v.as_str()).unwrap_or("").to_string()
+            body.get("proxy_password")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string()
         } else {
             super::providers::read_secret(st, "api_key_makersuite").unwrap_or_default()
         };
         if k.is_empty() {
             // ST 字面：缺 key → 400 {error:true}
-            return super::providers::json_resp(StatusCode::BAD_REQUEST, json!({ "error": true }), origin);
+            return super::providers::json_resp(
+                StatusCode::BAD_REQUEST,
+                json!({ "error": true }),
+                origin,
+            );
         }
         k
     };
@@ -114,27 +133,49 @@ pub async fn send_makersuite(st: &BackendState, body: &Value, origin: Option<Hea
         .unwrap_or("")
         .to_string();
     let model = model.as_str();
-    let stream = body.get("stream").and_then(|v| v.as_bool()).unwrap_or(false);
+    let stream = body
+        .get("stream")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let is_gemma3 = model.contains("gemma-3");
     let is_learnlm = model.contains("learnlm");
     let reasoning_effort = body.get("reasoning_effort").and_then(|v| v.as_str());
-    let include_reasoning = body.get("include_reasoning").and_then(|v| v.as_bool()).unwrap_or(false);
+    let include_reasoning = body
+        .get("include_reasoning")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     // generationConfig
     let mut gc = Map::new();
-    if let Some(stop) = body.get("stop").and_then(|s| s.as_array()).filter(|a| !a.is_empty()) {
+    if let Some(stop) = body
+        .get("stop")
+        .and_then(|s| s.as_array())
+        .filter(|a| !a.is_empty())
+    {
         gc.insert("stopSequences".into(), Value::Array(stop.clone()));
     }
     gc.insert("candidateCount".into(), json!(1));
-    gc.insert("maxOutputTokens".into(), body.get("max_tokens").cloned().unwrap_or(Value::Null));
-    gc.insert("temperature".into(), body.get("temperature").cloned().unwrap_or(Value::Null));
-    gc.insert("topP".into(), body.get("top_p").cloned().unwrap_or(Value::Null));
+    gc.insert(
+        "maxOutputTokens".into(),
+        body.get("max_tokens").cloned().unwrap_or(Value::Null),
+    );
+    gc.insert(
+        "temperature".into(),
+        body.get("temperature").cloned().unwrap_or(Value::Null),
+    );
+    gc.insert(
+        "topP".into(),
+        body.get("top_p").cloned().unwrap_or(Value::Null),
+    );
     // topK: 0 或缺失 → undefined（ST `top_undefined||` 语义）
     match body.get("top_k").and_then(|v| v.as_f64()) {
         Some(k) if k != 0.0 => gc.insert("topK".into(), json!(k)),
         _ => None::<Value>,
     };
-    gc.insert("seed".into(), body.get("seed").cloned().unwrap_or(Value::Null));
+    gc.insert(
+        "seed".into(),
+        body.get("seed").cloned().unwrap_or(Value::Null),
+    );
 
     let enable_image_modality = false; // request_images App 不发（ST 需要 true 才启用）
     let _ = enable_image_modality;
@@ -158,35 +199,53 @@ pub async fn send_makersuite(st: &BackendState, body: &Value, origin: Option<Hea
     if is_thinking_config {
         let mut tc = json!({ "includeThoughts": include_reasoning });
         if let Some(b) = conv::calculate_google_budget_tokens(
-            body.get("max_tokens").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            body.get("max_tokens")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0),
             reasoning_effort,
             model,
         ) {
             if let Some(n) = b.as_i64() {
                 if b == json!(0) && is_vertex && include_reasoning {
                     // Vertex：budget 0 与 includeThoughts 混用被禁
-                    tc.as_object_mut().unwrap().insert("includeThoughts".into(), json!(false));
+                    tc.as_object_mut()
+                        .unwrap()
+                        .insert("includeThoughts".into(), json!(false));
                 }
-                tc.as_object_mut().unwrap().insert("thinkingBudget".into(), json!(n));
+                tc.as_object_mut()
+                    .unwrap()
+                    .insert("thinkingBudget".into(), json!(n));
             } else if let Some(s) = b.as_str() {
-                tc.as_object_mut().unwrap().insert("thinkingLevel".into(), json!(s));
+                tc.as_object_mut()
+                    .unwrap()
+                    .insert("thinkingLevel".into(), json!(s));
             }
         }
         gc.insert("thinkingConfig".into(), tc);
     }
 
     // prompt 转换
-    let use_sys_prompt = body.get("use_sysprompt").and_then(|v| v.as_bool()).unwrap_or(false)
+    let use_sys_prompt = body
+        .get("use_sysprompt")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
         && !enable_image_modality
         && !is_gemma3;
-    let use_sys_prompt_for_convert = body.get("use_sysprompt").and_then(|v| v.as_bool()).unwrap_or(false);
+    let use_sys_prompt_for_convert = body
+        .get("use_sysprompt")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let mut msgs = body
         .get("messages")
         .and_then(|m| m.as_array())
         .cloned()
         .unwrap_or_default();
-    let (contents, system_instruction) =
-        conv::convert_google_prompt(&mut msgs, model, use_sys_prompt_for_convert, &conv::PromptNames::from_body(body));
+    let (contents, system_instruction) = conv::convert_google_prompt(
+        &mut msgs,
+        model,
+        use_sys_prompt_for_convert,
+        &conv::PromptNames::from_body(body),
+    );
 
     let mut safety: Vec<Value> = Vec::new();
     if let Some(a) = gemini_safety().as_array() {
@@ -214,7 +273,11 @@ pub async fn send_makersuite(st: &BackendState, body: &Value, origin: Option<Hea
 
     // tools / web search（保留 ST 分支；App 常明面都是空）
     let mut tools: Vec<Value> = Vec::new();
-    if let Some(list) = body.get("tools").and_then(|t| t.as_array()).filter(|a| !a.is_empty()) {
+    if let Some(list) = body
+        .get("tools")
+        .and_then(|t| t.as_array())
+        .filter(|a| !a.is_empty())
+    {
         // tools 分支复用（App 不发，保持 ST 语义以便直连）
         let use_tools = !enable_image_modality && !is_gemma3;
         if use_tools {
@@ -226,14 +289,26 @@ pub async fn send_makersuite(st: &BackendState, body: &Value, origin: Option<Hea
                     if let Some(p) = fnc.get_mut("parameters") {
                         if let Some(pm) = p.as_object_mut() {
                             pm.remove("$schema");
-                            if pm.get("properties").map(|props| props.as_object().map(|o| o.is_empty()).unwrap_or(false)).unwrap_or(false) {
+                            if pm
+                                .get("properties")
+                                .map(|props| {
+                                    props.as_object().map(|o| o.is_empty()).unwrap_or(false)
+                                })
+                                .unwrap_or(false)
+                            {
                                 fnc.as_object_mut().unwrap().remove("parameters");
                             }
                         }
                     }
                     declarations.push(fnc);
-                } else if let Some(t) = tool.get(tool.get("type").and_then(|x| x.as_str()).unwrap_or("")) {
-                    let ttype = tool.get("type").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                } else if let Some(t) =
+                    tool.get(tool.get("type").and_then(|x| x.as_str()).unwrap_or(""))
+                {
+                    let ttype = tool
+                        .get("type")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     let mut o = Map::new();
                     o.insert(ttype, t.clone());
                     custom.push(Value::Object(o));
@@ -247,12 +322,17 @@ pub async fn send_makersuite(st: &BackendState, body: &Value, origin: Option<Hea
             }
         }
     }
-    if body.get("enable_web_search").and_then(|v| v.as_bool()).unwrap_or(false)
+    if body
+        .get("enable_web_search")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
         && !enable_image_modality
         && !is_gemma3
         && !is_learnlm
         && !NO_SEARCH_MODELS.contains(&model)
-        && !tools.iter().any(|t| t.get("function_declarations").is_some())
+        && !tools
+            .iter()
+            .any(|t| t.get("function_declarations").is_some())
     {
         tools.push(json!({ "google_search": {} }));
     }
@@ -261,11 +341,20 @@ pub async fn send_makersuite(st: &BackendState, body: &Value, origin: Option<Hea
     }
 
     // URL
-    let response_type = if stream { "streamGenerateContent" } else { "generateContent" };
+    let response_type = if stream {
+        "streamGenerateContent"
+    } else {
+        "generateContent"
+    };
     let url = if is_vertex {
         // express 模式（key 查询串）；项目/区域分支按 ST 字面
-        let region = body.get("vertexai_region").and_then(|v| v.as_str()).unwrap_or("us-central1");
-        let project = body.get("vertexai_express_project_id").and_then(|v| v.as_str());
+        let region = body
+            .get("vertexai_region")
+            .and_then(|v| v.as_str())
+            .unwrap_or("us-central1");
+        let project = body
+            .get("vertexai_express_project_id")
+            .and_then(|v| v.as_str());
         match project {
             Some(pid) => format!(
                 "https://aiplatform.googleapis.com/v1/projects/{pid}/locations/{region}/publishers/google/models/{model}:{response_type}?key={api_key}{}",
@@ -296,7 +385,11 @@ pub async fn send_makersuite(st: &BackendState, body: &Value, origin: Option<Hea
     let resp = match resp_res {
         Ok(r) => r,
         Err(_) => {
-            return super::providers::json_resp(StatusCode::INTERNAL_SERVER_ERROR, json!({ "error": true }), origin)
+            return super::providers::json_resp(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({ "error": true }),
+                origin,
+            )
         }
     };
 
@@ -312,15 +405,25 @@ pub async fn send_makersuite(st: &BackendState, body: &Value, origin: Option<Hea
         return super::providers::json_resp(StatusCode::INTERNAL_SERVER_ERROR, parsed, origin);
     }
     let v = serde_json::from_str::<Value>(&text).unwrap_or(json!({}));
-    super::providers::json_resp(StatusCode::OK, wrap_makersuite_response(v, api_name), origin)
+    super::providers::json_resp(
+        StatusCode::OK,
+        wrap_makersuite_response(v, api_name),
+        origin,
+    )
 }
 
 /// ST 包装（:758-786）：candidates 检查 / thought 过滤 / join '\n\n'
 pub fn wrap_makersuite_response(v: Value, api_name: &str) -> Value {
-    let candidates_empty = v.get("candidates").map(|c| c.as_array().map(|a| a.is_empty()).unwrap_or(true)).unwrap_or(true);
+    let candidates_empty = v
+        .get("candidates")
+        .map(|c| c.as_array().map(|a| a.is_empty()).unwrap_or(true))
+        .unwrap_or(true);
     if candidates_empty {
         let mut message = format!("{api_name} API returned no candidate");
-        if let Some(br) = v.pointer("/promptFeedback/blockReason").and_then(|b| b.as_str()) {
+        if let Some(br) = v
+            .pointer("/promptFeedback/blockReason")
+            .and_then(|b| b.as_str())
+        {
             message = format!("{message}\nPrompt was blocked due to : {br}");
         }
         return json!({ "error": { "message": message } });
@@ -330,7 +433,11 @@ pub fn wrap_makersuite_response(v: Value, api_name: &str) -> Value {
         .or_else(|| v.pointer("/candidates/0/output"))
         .cloned()
         .unwrap_or(Value::Null);
-    let parts = response_content.get("parts").and_then(|p| p.as_array()).cloned().unwrap_or_default();
+    let parts = response_content
+        .get("parts")
+        .and_then(|p| p.as_array())
+        .cloned()
+        .unwrap_or_default();
     let function_call = parts.iter().any(|p| p.get("functionCall").is_some());
     let inline_data = parts.iter().any(|p| p.get("inlineData").is_some());
     let is_string = response_content.is_string();
@@ -361,11 +468,19 @@ pub fn wrap_makersuite_response(v: Value, api_name: &str) -> Value {
 const GOOGLE_MODELS_PAGE_SIZE: &str = "1000";
 
 /// POST /api/backends/chat-completions/status 的 google 分支（chat-completions.js:1908-1933）
-pub(crate) async fn status(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
+pub(crate) async fn status(
+    st: &BackendState,
+    body: &Value,
+    origin: Option<HeaderValue>,
+) -> Response {
     let is_vertex = body.get("chat_completion_source").and_then(|v| v.as_str()) == Some("vertexai");
     if is_vertex {
         // ST 1.19 /status 无 vertexai 分支（前端走静态模型下拉）→ 字面 else 400
-        return super::providers::json_resp(StatusCode::BAD_REQUEST, json!({ "error": true }), origin);
+        return super::providers::json_resp(
+            StatusCode::BAD_REQUEST,
+            json!({ "error": true }),
+            origin,
+        );
     }
 
     let use_rp = body
@@ -374,13 +489,20 @@ pub(crate) async fn status(st: &BackendState, body: &Value, origin: Option<Heade
         .map(|s| !s.is_empty())
         .unwrap_or(false);
     let api_key = if use_rp {
-        body.get("proxy_password").and_then(|v| v.as_str()).unwrap_or("").to_string()
+        body.get("proxy_password")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
     } else {
         super::providers::read_secret(st, "api_key_makersuite").unwrap_or_default()
     };
     if api_key.is_empty() && !use_rp {
         // ST 字面：缺 key → 400 {error:true}
-        return super::providers::json_resp(StatusCode::BAD_REQUEST, json!({ "error": true }), origin);
+        return super::providers::json_resp(
+            StatusCode::BAD_REQUEST,
+            json!({ "error": true }),
+            origin,
+        );
     }
     let api_root = body
         .get("reverse_proxy")
@@ -397,7 +519,9 @@ pub(crate) async fn status(st: &BackendState, body: &Value, origin: Option<Heade
     };
 
     match fetch_google_models(&models_url).await {
-        Ok(models) => super::providers::json_resp(StatusCode::OK, json!({ "data": models }), origin),
+        Ok(models) => {
+            super::providers::json_resp(StatusCode::OK, json!({ "data": models }), origin)
+        }
         Err(_) => {
             // GoogleModelsHttpError/ResponseError 统一 → {error:true,bypass:true}（api.ts:533）
             super::providers::json_resp(
@@ -412,7 +536,10 @@ pub(crate) async fn status(st: &BackendState, body: &Value, origin: Option<Heade
 /// fetchGoogleModels（google-models.js:36-99）：分页 pageSize=1000 +
 /// supportedGenerationMethods 过滤 + id = name 去掉 models/ 前缀
 pub(crate) async fn fetch_google_models(models_url: &str) -> Result<Vec<Value>, String> {
-    let client = reqwest::Client::builder().no_proxy().build().unwrap_or_default();
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap_or_default();
     let base_sep = if models_url.contains('?') { '&' } else { '?' };
     let mut url = format!("{models_url}{base_sep}pageSize={GOOGLE_MODELS_PAGE_SIZE}");
     let mut page_tokens: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -437,7 +564,9 @@ pub(crate) async fn fetch_google_models(models_url: &str) -> Result<Vec<Value>, 
             .get("models")
             .and_then(|m| m.as_array())
             .cloned()
-            .ok_or_else(|| "Google AI Studio models page has an invalid models field.".to_string())?;
+            .ok_or_else(|| {
+                "Google AI Studio models page has an invalid models field.".to_string()
+            })?;
         models.extend(page);
 
         match data.get("nextPageToken").and_then(|t| t.as_str()) {
@@ -448,7 +577,9 @@ pub(crate) async fn fetch_google_models(models_url: &str) -> Result<Vec<Value>, 
                     return Err("pagination repeated token".into());
                 }
                 page_tokens.insert(token.to_string());
-                url = format!("{models_url}{base_sep}pageSize={GOOGLE_MODELS_PAGE_SIZE}&pageToken={token}");
+                url = format!(
+                    "{models_url}{base_sep}pageSize={GOOGLE_MODELS_PAGE_SIZE}&pageToken={token}"
+                );
             }
         }
     }
@@ -456,7 +587,9 @@ pub(crate) async fn fetch_google_models(models_url: &str) -> Result<Vec<Value>, 
     let out: Vec<Value> = models
         .into_iter()
         .filter(|m| {
-            let methods: Option<&Vec<Value>> = m.get("supportedGenerationMethods").and_then(|x| x.as_array());
+            let methods: Option<&Vec<Value>> = m
+                .get("supportedGenerationMethods")
+                .and_then(|x| x.as_array());
             methods
                 .map(|a| a.iter().any(|x| x.as_str() == Some("generateContent")))
                 .unwrap_or(false)
@@ -464,7 +597,9 @@ pub(crate) async fn fetch_google_models(models_url: &str) -> Result<Vec<Value>, 
         .map(|m| {
             let mut o = m;
             if let Some(name) = o.get("name").and_then(|n| n.as_str()).map(String::from) {
-                o.as_object_mut().unwrap().insert("id".into(), json!(name.replace("models/", "")));
+                o.as_object_mut()
+                    .unwrap()
+                    .insert("id".into(), json!(name.replace("models/", "")));
             }
             o
         })

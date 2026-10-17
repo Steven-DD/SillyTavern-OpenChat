@@ -571,7 +571,10 @@ mod tests {
     fn version_parse_variants() {
         assert_eq!(parse_version("v22.22.2"), Some(vec![22, 22, 2]));
         assert_eq!(parse_version("1.12.10"), Some(vec![1, 12, 10]));
-        assert_eq!(parse_version("git version 2.51.0.windows.1"), Some(vec![2, 51, 0]));
+        assert_eq!(
+            parse_version("git version 2.51.0.windows.1"),
+            Some(vec![2, 51, 0])
+        );
         assert_eq!(parse_version("v20"), Some(vec![20]));
         assert_eq!(parse_version("no digits here"), None);
     }
@@ -604,11 +607,8 @@ mod tests {
     }
 
     fn tmp_root(tag: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!(
-            "stchat-probe-test-{}-{}",
-            tag,
-            std::process::id()
-        ));
+        let d =
+            std::env::temp_dir().join(format!("stchat-probe-test-{}-{}", tag, std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
@@ -617,8 +617,11 @@ mod tests {
     fn make_fake_st(dir: &Path) {
         std::fs::create_dir_all(dir).unwrap();
         std::fs::write(dir.join("server.js"), "// fake").unwrap();
-        std::fs::write(dir.join("package.json"), r#"{"name":"sillytavern","version":"1.19.0"}"#)
-            .unwrap();
+        std::fs::write(
+            dir.join("package.json"),
+            r#"{"name":"sillytavern","version":"1.19.0"}"#,
+        )
+        .unwrap();
     }
 
     #[test]

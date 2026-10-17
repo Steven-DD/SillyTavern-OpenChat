@@ -41,7 +41,8 @@ pub fn extract_chunks(bytes: &[u8]) -> Result<Vec<Chunk>, PngError> {
         if pos + 8 > bytes.len() {
             return Err(PngError("PNG chunk 头被截断".into()));
         }
-        let len = u32::from_be_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]) as usize;
+        let len = u32::from_be_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]])
+            as usize;
         let name: [u8; 4] = bytes[pos + 4..pos + 8].try_into().unwrap();
         let data_start = pos + 8;
         let data_end = data_start + len;
@@ -140,7 +141,10 @@ pub fn write_chara(png: &[u8], data: &str) -> Result<Vec<u8>, PngError> {
         }
     });
     // 找 IEND 位置（正常 PNG 必有；缺失则追加）
-    let iend = chunks.iter().position(|c| c.name == *b"IEND").unwrap_or(chunks.len());
+    let iend = chunks
+        .iter()
+        .position(|c| c.name == *b"IEND")
+        .unwrap_or(chunks.len());
     // v3 chunk：spec 改写失败（非 JSON）时跳过（对齐 ST try/catch）
     if let Ok(mut v) = serde_json::from_str::<serde_json::Value>(data) {
         if let Some(obj) = v.as_object_mut() {
@@ -161,7 +165,11 @@ pub fn crc32(data: &[u8]) -> u32 {
     for i in 0..256u32 {
         let mut c = i;
         for _ in 0..8 {
-            c = if c & 1 != 0 { 0xEDB8_8320 ^ (c >> 1) } else { c >> 1 };
+            c = if c & 1 != 0 {
+                0xEDB8_8320 ^ (c >> 1)
+            } else {
+                c >> 1
+            };
         }
         table[i as usize] = c;
     }
@@ -185,9 +193,18 @@ pub fn minimal_png() -> Vec<u8> {
     ];
     let idat_data = [0x00u8]; // filter byte for one row
     let chunks = vec![
-        Chunk { name: *b"IHDR", data: IHDR.to_vec() },
-        Chunk { name: *b"IDAT", data: zlib_stored(&idat_data) },
-        Chunk { name: *b"IEND", data: Vec::new() },
+        Chunk {
+            name: *b"IHDR",
+            data: IHDR.to_vec(),
+        },
+        Chunk {
+            name: *b"IDAT",
+            data: zlib_stored(&idat_data),
+        },
+        Chunk {
+            name: *b"IEND",
+            data: Vec::new(),
+        },
     ];
     encode_chunks(&chunks)
 }
@@ -269,7 +286,9 @@ mod tests {
             .filter(|c| {
                 c.name == *b"tEXt"
                     && text_chunk_decode(&c.data)
-                        .map(|(k, _)| k.eq_ignore_ascii_case("chara") || k.eq_ignore_ascii_case("ccv3"))
+                        .map(|(k, _)| {
+                            k.eq_ignore_ascii_case("chara") || k.eq_ignore_ascii_case("ccv3")
+                        })
                         .unwrap_or(false)
             })
             .count();

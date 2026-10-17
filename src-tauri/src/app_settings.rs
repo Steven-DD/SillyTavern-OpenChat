@@ -125,7 +125,10 @@ mod tests {
     fn default_is_direct_no_proxy() {
         let d = tmp("default");
         let s = load(&d);
-        assert_eq!(s.proxy, "", "默认必须直连（实测直连可用，乱用代理反而会挂）");
+        assert_eq!(
+            s.proxy, "",
+            "默认必须直连（实测直连可用，乱用代理反而会挂）"
+        );
         assert!(s.proxy_for_npm, "默认让 npm 跟随代理设置");
         assert!(effective_proxy(&d).is_none());
         let _ = std::fs::remove_dir_all(&d);
@@ -170,7 +173,10 @@ mod tests {
 
         // 环境变量为空串时不能压过文件
         std::env::set_var("ST_CHAT_PROXY", "  ");
-        assert_eq!(effective_proxy(&d).as_deref(), Some("http://file-proxy:1111"));
+        assert_eq!(
+            effective_proxy(&d).as_deref(),
+            Some("http://file-proxy:1111")
+        );
         std::env::remove_var("ST_CHAT_PROXY");
 
         let _ = std::fs::remove_dir_all(&d);

@@ -21,21 +21,23 @@
 //! 「迁移中」错误，禁止 200+空结果伪造成功）。
 
 mod api;
-mod auth;
 pub mod assets;
+mod auth;
 pub mod characters;
 pub mod chats;
 pub mod extensions;
 pub mod extras;
 pub mod gate;
 pub mod horde;
+pub mod nai_tokens;
+pub mod novelai;
 pub mod providers;
 pub mod providers_claude;
 pub mod providers_convert;
 pub mod providers_google;
 pub mod providers_misc;
-pub mod providers_textcomp;
 mod providers_text;
+pub mod providers_textcomp;
 pub mod settings;
 pub mod tokenizers_secrets;
 mod uploads;
@@ -136,7 +138,8 @@ fn is_exempt_from_auth(method: &Method, path: &str) -> bool {
     if !(method == Method::GET || method == Method::HEAD) {
         return false;
     }
-    const EXEMPT_PREFIXES: [&str; 4] = ["/thumbnail", "/characters", "/backgrounds", "/user-images"];
+    const EXEMPT_PREFIXES: [&str; 4] =
+        ["/thumbnail", "/characters", "/backgrounds", "/user-images"];
     EXEMPT_PREFIXES.iter().any(|p| {
         path == *p || path.starts_with(&format!("{p}/")) || path.starts_with(&format!("{p}?"))
     })
@@ -144,7 +147,10 @@ fn is_exempt_from_auth(method: &Method, path: &str) -> bool {
 
 /// Builder 版 CORS 注入（构造中响应用；Response 已构造好用 apply_cors_resp）
 #[allow(dead_code)] // api.rs 现走 apply_cors_resp；本函数留给 Phase 1 流式 handler
-fn apply_cors(b: axum::http::response::Builder, origin: Option<HeaderValue>) -> axum::http::response::Builder {
+fn apply_cors(
+    b: axum::http::response::Builder,
+    origin: Option<HeaderValue>,
+) -> axum::http::response::Builder {
     match origin {
         Some(o) => b
             .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, o)
@@ -159,7 +165,10 @@ fn apply_cors_resp(mut resp: Response, origin: Option<HeaderValue>) -> Response 
     if let Some(o) = origin {
         let h = resp.headers_mut();
         h.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, o);
-        h.insert(header::ACCESS_CONTROL_ALLOW_CREDENTIALS, HeaderValue::from_static("true"));
+        h.insert(
+            header::ACCESS_CONTROL_ALLOW_CREDENTIALS,
+            HeaderValue::from_static("true"),
+        );
         h.insert(header::VARY, HeaderValue::from_static("Origin"));
     }
     resp
@@ -188,7 +197,11 @@ fn preflight(origin: Option<HeaderValue>) -> Response {
 
 /// 403 响应（S2：不带任何数据回显）
 fn forbidden() -> Response {
-    (StatusCode::FORBIDDEN, "缺少或错误的鉴权 token（X-Relay-Auth）").into_response()
+    (
+        StatusCode::FORBIDDEN,
+        "缺少或错误的鉴权 token（X-Relay-Auth）",
+    )
+        .into_response()
 }
 
 #[cfg(test)]
@@ -199,7 +212,10 @@ mod tests {
     fn exempt_list_only_four_readonly_prefixes() {
         // S3：豁免集合显式且只含四个只读资产前缀
         let get = Method::GET;
-        assert!(is_exempt_from_auth(&get, "/thumbnail?type=avatar&file=x.png"));
+        assert!(is_exempt_from_auth(
+            &get,
+            "/thumbnail?type=avatar&file=x.png"
+        ));
         assert!(is_exempt_from_auth(&get, "/characters/a.png"));
         assert!(is_exempt_from_auth(&get, "/backgrounds/b.jpg"));
         assert!(is_exempt_from_auth(&get, "/user-images/c.png"));
@@ -331,7 +347,8 @@ mod tests {
     async fn settings_family_roundtrip_with_unknown_keys() {
         // Phase 1 族一验收（评审 A3/D3 + manifest #28/#29）：
         // 200+ 未知键读-改-写零丢失；保存语义为整体覆盖；401/403 面不被打开
-        let root = std::env::temp_dir().join(format!("stchat-backend-settings-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("stchat-backend-settings-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let ep = start(root.clone()).await.expect("启动失败");
         let c = reqwest::Client::builder().no_proxy().build().unwrap();
@@ -339,7 +356,11 @@ mod tests {
         let auth = ("x-relay-auth", ep.token.as_str());
 
         // 无 token 的 settings/get → 403（数据面在鉴权后面）
-        let r = c.post(format!("{base}/api/settings/get")).send().await.unwrap();
+        let r = c
+            .post(format!("{base}/api/settings/get"))
+            .send()
+            .await
+            .unwrap();
         assert_eq!(r.status().as_u16(), 403);
 
         // 构造 200+ 未知键的全量 settings

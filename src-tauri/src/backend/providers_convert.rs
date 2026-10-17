@@ -87,7 +87,10 @@ fn content_in(m: &Map<String, Value>) -> String {
 }
 
 fn role_of(msg: &Value) -> String {
-    msg.get("role").and_then(|r| r.as_str()).unwrap_or("").into()
+    msg.get("role")
+        .and_then(|r| r.as_str())
+        .unwrap_or("")
+        .into()
 }
 
 fn set_role(msg: &mut Value, r: &str) {
@@ -95,7 +98,10 @@ fn set_role(msg: &mut Value, r: &str) {
 }
 
 fn name_of(msg: &Value) -> String {
-    msg.get("name").and_then(|n| n.as_str()).unwrap_or("").into()
+    msg.get("name")
+        .and_then(|n| n.as_str())
+        .unwrap_or("")
+        .into()
 }
 
 fn str_of(v: &Value) -> String {
@@ -352,7 +358,14 @@ pub fn merge_messages(
                 merged.insert(0, json!({ "role": "user", "content": PROMPT_PLACEHOLDER }));
             }
         }
-        return merge_messages(&Value::Array(merged), names, false, placeholders, false, tools);
+        return merge_messages(
+            &Value::Array(merged),
+            names,
+            false,
+            placeholders,
+            false,
+            tools,
+        );
     }
 
     Value::Array(merged)
@@ -432,7 +445,12 @@ pub fn convert_claude_messages(
     for message in messages.iter_mut() {
         let role = role_of(message);
 
-        if role == "assistant" && message.get("tool_calls").map(|t| t.is_array()).unwrap_or(false) {
+        if role == "assistant"
+            && message
+                .get("tool_calls")
+                .map(|t| t.is_array())
+                .unwrap_or(false)
+        {
             let tool_use: Vec<Value> = message
                 .get("tool_calls")
                 .and_then(|t| t.as_array())
@@ -557,7 +575,10 @@ pub fn convert_claude_messages(
         let has_image = messages[i]
             .get("content")
             .and_then(|c| c.as_array())
-            .map(|a| a.iter().any(|p| p.get("type").and_then(|t| t.as_str()) == Some("image")))
+            .map(|a| {
+                a.iter()
+                    .any(|p| p.get("type").and_then(|t| t.as_str()) == Some("image"))
+            })
             .unwrap_or(false);
         if role_of(&messages[i]) != "assistant" || !has_image {
             i += 1;
@@ -681,7 +702,10 @@ pub fn convert_cohere_messages(messages: &mut Vec<Value>, names: &PromptNames) -
             .unwrap_or(false);
         if has_tool_calls {
             if idx > 0 && role_of(&messages[idx - 1]) == "assistant" {
-                let prev_content = messages[idx - 1].get("content").cloned().unwrap_or(Value::Null);
+                let prev_content = messages[idx - 1]
+                    .get("content")
+                    .cloned()
+                    .unwrap_or(Value::Null);
                 obj(&mut messages[idx]).insert("content".into(), prev_content);
                 messages.remove(idx - 1);
                 // JS forEach 移除后不回看：工具消息现在落在 idx-1，下一步继续 idx（已滑动）
@@ -702,7 +726,10 @@ pub fn convert_cohere_messages(messages: &mut Vec<Value>, names: &PromptNames) -
                     .collect();
                 obj(&mut messages[idx]).insert(
                     "content".into(),
-                    json!(format!("I'm going to call a tool for that: {}", list.join(", "))),
+                    json!(format!(
+                        "I'm going to call a tool for that: {}",
+                        list.join(", ")
+                    )),
                 );
             }
         }
@@ -721,14 +748,20 @@ pub fn convert_cohere_messages(messages: &mut Vec<Value>, names: &PromptNames) -
                 && !content.starts_with(&format!("{}: ", names.char_name))
                 && !names.starts_with_group_name(&content)
             {
-                mref.insert("content".into(), json!(format!("{}: {}", names.char_name, content)));
+                mref.insert(
+                    "content".into(),
+                    json!(format!("{}: {}", names.char_name, content)),
+                );
             }
         }
         if role == "system" && name == "example_user" {
             if !names.user_name.is_empty()
                 && !content.starts_with(&format!("{}: ", names.user_name))
             {
-                mref.insert("content".into(), json!(format!("{}: {}", names.user_name, content)));
+                mref.insert(
+                    "content".into(),
+                    json!(format!("{}: {}", names.user_name, content)),
+                );
             }
         }
         let content = str_of(m.get("content").unwrap_or(&json!("")));
@@ -755,14 +788,20 @@ pub fn convert_ai21_messages(messages: &mut Vec<Value>, names: &PromptNames) -> 
         let content = str_of(m.get("content").unwrap_or(&json!("")));
         if !names.user_name.is_empty() && name == "example_user" {
             if !content.starts_with(&format!("{}: ", names.user_name)) {
-                obj(m).insert("content".into(), json!(format!("{}: {}", names.user_name, content)));
+                obj(m).insert(
+                    "content".into(),
+                    json!(format!("{}: {}", names.user_name, content)),
+                );
             }
         }
         if !names.char_name.is_empty() && name == "example_assistant" {
             if !content.starts_with(&format!("{}: ", names.char_name))
                 && !names.starts_with_group_name(&content)
             {
-                obj(m).insert("content".into(), json!(format!("{}: {}", names.char_name, content)));
+                obj(m).insert(
+                    "content".into(),
+                    json!(format!("{}: {}", names.char_name, content)),
+                );
             }
         }
         let content = str_of(m.get("content").unwrap_or(&json!("")));
@@ -827,11 +866,7 @@ pub fn convert_mistral_messages(messages: &mut Vec<Value>, names: &PromptNames) 
     let sanitize = |id: &str| {
         let mut h = Sha512::new();
         h.update(id.as_bytes());
-        let hex: String = h
-            .finalize()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
+        let hex: String = h.finalize().iter().map(|b| format!("{b:02x}")).collect();
         hex.chars().take(9).collect::<String>()
     };
 
@@ -844,7 +879,11 @@ pub fn convert_mistral_messages(messages: &mut Vec<Value>, names: &PromptNames) 
                 .unwrap_or_default()
                 .into_iter()
                 .map(|mut tool| {
-                    let id = tool.get("id").and_then(|i| i.as_str()).unwrap_or("").to_string();
+                    let id = tool
+                        .get("id")
+                        .and_then(|i| i.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     obj(&mut tool).insert("id".into(), json!(sanitize(&id)));
                     tool
                 })
@@ -852,7 +891,11 @@ pub fn convert_mistral_messages(messages: &mut Vec<Value>, names: &PromptNames) 
             obj(m).insert("tool_calls".into(), Value::Array(sanitized));
         }
         if m.get("tool_call_id").is_some() && role_of(m) == "tool" {
-            let id = m.get("tool_call_id").and_then(|i| i.as_str()).unwrap_or("").to_string();
+            let id = m
+                .get("tool_call_id")
+                .and_then(|i| i.as_str())
+                .unwrap_or("")
+                .to_string();
             obj(m).insert("tool_call_id".into(), json!(sanitize(&id)));
         }
         let name = name_of(m);
@@ -955,8 +998,8 @@ pub fn convert_xai_messages(messages: &mut Vec<Value>, names: &PromptNames) -> V
         let char_cond = !names.char_name.is_empty()
             && !content.starts_with(&format!("{}: ", names.char_name))
             && !names.starts_with_group_name(&content);
-        let user_cond = !names.user_name.is_empty()
-            && !content.starts_with(&format!("{}: ", names.user_name));
+        let user_cond =
+            !names.user_name.is_empty() && !content.starts_with(&format!("{}: ", names.user_name));
         let matching = (role == "assistant" && char_cond)
             || (role == "system" && name == "example_assistant" && char_cond)
             || (role == "system" && name == "example_user" && user_cond);
@@ -1023,14 +1066,20 @@ pub fn convert_google_prompt(
             let content = str_of(m.get("content").unwrap_or(&json!("")));
             if !names.user_name.is_empty() && name == "example_user" {
                 if !content.starts_with(&format!("{}: ", names.user_name)) {
-                    obj(m).insert("content".into(), json!(format!("{}: {}", names.user_name, content)));
+                    obj(m).insert(
+                        "content".into(),
+                        json!(format!("{}: {}", names.user_name, content)),
+                    );
                 }
             }
             if !names.char_name.is_empty() && name == "example_assistant" {
                 if !content.starts_with(&format!("{}: ", names.char_name))
                     && !names.starts_with_group_name(&content)
                 {
-                    obj(m).insert("content".into(), json!(format!("{}: {}", names.char_name, content)));
+                    obj(m).insert(
+                        "content".into(),
+                        json!(format!("{}: {}", names.char_name, content)),
+                    );
                 }
             }
             sys_prompt.push(m.get("content").cloned().unwrap_or(json!("")));
@@ -1065,7 +1114,11 @@ pub fn convert_google_prompt(
         }
 
         // content → parts 数组
-        if !message.get("content").map(|c| c.is_array()).unwrap_or(false) {
+        if !message
+            .get("content")
+            .map(|c| c.is_array())
+            .unwrap_or(false)
+        {
             let has_tool_calls = message
                 .get("tool_calls")
                 .and_then(|t| t.as_array())
@@ -1104,7 +1157,11 @@ pub fn convert_google_prompt(
             let mut fixed: Vec<Value> = Vec::new();
             for mut part in parts {
                 if part.get("type").and_then(|t| t.as_str()) == Some("text") {
-                    let text = part.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string();
+                    let text = part
+                        .get("text")
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     if name == "example_user" {
                         if !names.user_name.is_empty()
                             && !text.starts_with(&format!("{}: ", names.user_name))
@@ -1146,9 +1203,14 @@ pub fn convert_google_prompt(
         for part in content_parts {
             let ptype = part.get("type").and_then(|t| t.as_str()).unwrap_or("");
             match ptype {
-                "text" => parts.push(json!({ "text": part.get("text").cloned().unwrap_or(json!("")) })),
+                "text" => {
+                    parts.push(json!({ "text": part.get("text").cloned().unwrap_or(json!("")) }))
+                }
                 "tool_call_id" => {
-                    let call_id = part.get("tool_call_id").and_then(|t| t.as_str()).unwrap_or("unknown");
+                    let call_id = part
+                        .get("tool_call_id")
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("unknown");
                     let tname = tool_name_map
                         .get(call_id)
                         .cloned()
@@ -1178,7 +1240,11 @@ pub fn convert_google_prompt(
                             obj(&mut p).insert("thoughtSignature".into(), json!(sig));
                         }
                         parts.push(p);
-                        let id = tc.get("id").and_then(|i| i.as_str()).unwrap_or("").to_string();
+                        let id = tc
+                            .get("id")
+                            .and_then(|i| i.as_str())
+                            .unwrap_or("")
+                            .to_string();
                         let fnname = tc
                             .get("function")
                             .and_then(|f| f.get("name"))
@@ -1229,7 +1295,10 @@ pub fn convert_google_prompt(
         // thought signature 注入（gemini-3 / gemini-2.5）
         if model.contains("gemini-3") || model.contains("gemini-2.5") {
             const SKIP_MAGIC: &str = "skip_thought_signature_validator";
-            let text_sig = message.get("signature").and_then(|sg| sg.as_str()).map(String::from);
+            let text_sig = message
+                .get("signature")
+                .and_then(|sg| sg.as_str())
+                .map(String::from);
             for part in parts.iter_mut() {
                 let m = obj(part);
                 let has_text = m.get("text").map(|t| t.is_string()).unwrap_or(false);
@@ -1242,7 +1311,8 @@ pub fn convert_google_prompt(
                         if m.get("functionCall").is_some() && !m.contains_key("thoughtSignature") {
                             m.insert("thoughtSignature".into(), json!(SKIP_MAGIC));
                         }
-                        if model.contains("-image") && role == "model"
+                        if model.contains("-image")
+                            && role == "model"
                             && (has_text || m.get("inlineData").is_some())
                         {
                             m.insert("thoughtSignature".into(), json!(SKIP_MAGIC));
@@ -1252,7 +1322,8 @@ pub fn convert_google_prompt(
                     if m.get("functionCall").is_some() && !m.contains_key("thoughtSignature") {
                         m.insert("thoughtSignature".into(), json!(SKIP_MAGIC));
                     }
-                    if model.contains("-image") && role == "model"
+                    if model.contains("-image")
+                        && role == "model"
                         && (has_text || m.get("inlineData").is_some())
                     {
                         m.insert("thoughtSignature".into(), json!(SKIP_MAGIC));
@@ -1322,10 +1393,9 @@ fn add_data_url_part(
     let mut part = json!({ "inlineData": { "mimeType": mime, "data": base64_data } });
     if let Some(level) = media_resolution(detail) {
         if model.contains("gemini-3") {
-            part.as_object_mut().unwrap().insert(
-                "mediaResolution".into(),
-                json!({ "level": level }),
-            );
+            part.as_object_mut()
+                .unwrap()
+                .insert("mediaResolution".into(), json!({ "level": level }));
         }
     }
     parts.push(part);
@@ -1382,7 +1452,11 @@ pub fn calculate_google_budget_tokens(
             ("pro", "medium") => Some(json!("low")),
             ("pro", "high") | ("pro", "max") => Some(json!("high")),
             ("pro", "auto") | ("pro", "") => None,
-            ("flash", "min") => Some(json!(if model.contains("gemini-3.7-flash") { "low" } else { "minimal" })),
+            ("flash", "min") => Some(json!(if model.contains("gemini-3.7-flash") {
+                "low"
+            } else {
+                "minimal"
+            })),
             ("flash", "low") => Some(json!("low")),
             ("flash", "medium") => Some(json!("medium")),
             ("flash", "high") | ("flash", "max") => Some(json!("high")),
@@ -1412,7 +1486,11 @@ pub fn calculate_google_budget_tokens(
         _ => 0.0,
     };
     let budget = budget.min(cap);
-    let budget = if floor_val > 0.0 { budget.max(floor_val) } else { budget };
+    let budget = if floor_val > 0.0 {
+        budget.max(floor_val)
+    } else {
+        budget
+    };
     Some(json!(budget as i64))
 }
 
@@ -1447,7 +1525,11 @@ pub fn embed_openrouter_media(messages: &mut Value, audio: bool, _video: bool) {
         return;
     }
     for message in messages.as_array_mut().unwrap() {
-        if !message.get("content").map(|c| c.is_array()).unwrap_or(false) {
+        if !message
+            .get("content")
+            .map(|c| c.is_array())
+            .unwrap_or(false)
+        {
             continue;
         }
         let parts = message
@@ -1511,7 +1593,8 @@ pub fn add_open_router_signatures(messages: &mut Value, model: &str) {
     }
     for message in messages.as_array_mut().unwrap() {
         let mut details: Vec<Value> = Vec::new();
-        let add_detail = |details: &mut Vec<Value>, data: &str, id: Option<&str>| {            if data.is_empty() {
+        let add_detail = |details: &mut Vec<Value>, data: &str, id: Option<&str>| {
+            if data.is_empty() {
                 return;
             }
             details.push(json!({
@@ -1523,7 +1606,10 @@ pub fn add_open_router_signatures(messages: &mut Value, model: &str) {
                 "format": fmt,
             }));
         };
-        let sig = message.get("signature").and_then(|sg| sg.as_str()).map(String::from);
+        let sig = message
+            .get("signature")
+            .and_then(|sg| sg.as_str())
+            .map(String::from);
         if let Some(data) = sig {
             if ENABLE_THOUGHT_SIGNATURES {
                 add_detail(&mut details, &data, None);
@@ -1532,7 +1618,10 @@ pub fn add_open_router_signatures(messages: &mut Value, model: &str) {
         }
         if let Some(tcs) = message.get_mut("tool_calls").and_then(|t| t.as_array_mut()) {
             for tc in tcs.iter_mut() {
-                let tcsig = tc.get("signature").and_then(|sg| sg.as_str()).map(String::from);
+                let tcsig = tc
+                    .get("signature")
+                    .and_then(|sg| sg.as_str())
+                    .map(String::from);
                 if let Some(data) = tcsig {
                     let id = tc.get("id").and_then(|i| i.as_str()).map(String::from);
                     add_detail(&mut details, &data, id.as_deref());
@@ -1645,7 +1734,10 @@ mod tests {
         ]));
         let (merged, sys) = convert_claude_messages(&mut msgs, None, false, false, &names());
         let a = merged.as_array().unwrap();
-        assert!(sys.as_array().unwrap().is_empty(), "未启用 sysprompt → 空 system");
+        assert!(
+            sys.as_array().unwrap().is_empty(),
+            "未启用 sysprompt → 空 system"
+        );
         assert_eq!(a.len(), 2, "system→user 与连续 user 合并");
         assert_eq!(a[0]["role"], "user");
         assert_eq!(
@@ -1667,7 +1759,8 @@ mod tests {
             { "role": "assistant", "tool_calls": [{ "id": "c1", "function": { "name": "f", "arguments": "{\"a\":1}" } }] },
             { "role": "tool", "tool_call_id": "c1", "content": "result-data" },
         ]));
-        let (merged, _) = convert_claude_messages(&mut msgs, Some(" prefill "), false, true, &names());
+        let (merged, _) =
+            convert_claude_messages(&mut msgs, Some(" prefill "), false, true, &names());
         let a = merged.as_array().unwrap();
         assert_eq!(a[1]["content"][0]["type"], "tool_use");
         assert_eq!(a[1]["content"][0]["input"], json!({ "a": 1 }));
@@ -1696,7 +1789,10 @@ mod tests {
         let mut msgs = vec![json!({ "role": "assistant", "name": "Alice", "content": "hello" })];
         let out = convert_xai_messages(
             &mut msgs,
-            &PromptNames { char_name: "Alice".into(), ..Default::default() },
+            &PromptNames {
+                char_name: "Alice".into(),
+                ..Default::default()
+            },
         );
         assert_eq!(out.as_array().unwrap()[0]["content"], "Alice: hello");
     }
@@ -1720,7 +1816,10 @@ mod tests {
     #[test]
     fn budget_claude_literal_paths() {
         // 'auto' → None（不开 thinking）；high → max*0.5 且 ≥1024；非流式 ≤21333
-        assert_eq!(calculate_claude_budget_tokens(2048.0, Some("auto"), true, false), None);
+        assert_eq!(
+            calculate_claude_budget_tokens(2048.0, Some("auto"), true, false),
+            None
+        );
         assert_eq!(
             calculate_claude_budget_tokens(2048.0, Some("high"), true, false),
             Some(json!(1024u64))
@@ -1766,7 +1865,10 @@ mod tests {
             calculate_google_budget_tokens(1000.0, Some("max"), "gemini-2.5-pro"),
             Some(json!(1000))
         );
-        assert_eq!(calculate_google_budget_tokens(1000.0, Some("min"), "mystery"), None);
+        assert_eq!(
+            calculate_google_budget_tokens(1000.0, Some("min"), "mystery"),
+            None
+        );
     }
 
     #[test]

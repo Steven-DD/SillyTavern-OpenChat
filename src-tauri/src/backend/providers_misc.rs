@@ -36,11 +36,14 @@ fn take(body: &Value, key: &str) -> Option<Value> {
     body.get(key).cloned()
 }
 
-
 /* ---------------------------------------------------------------- *
  * MistralAI（OpenAI 兼容协议 + Mistral 转换 + random_seed 负值剔除）
  * ---------------------------------------------------------------- */
-pub async fn send_mistral(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
+pub async fn send_mistral(
+    st: &BackendState,
+    body: &Value,
+    origin: Option<HeaderValue>,
+) -> Response {
     let (use_rp, api_root) = match body
         .get("reverse_proxy")
         .and_then(|v| v.as_str())
@@ -58,7 +61,11 @@ pub async fn send_mistral(st: &BackendState, body: &Value, origin: Option<Header
         super::providers::read_secret(st, "api_key_mistralai").unwrap_or_default()
     };
     if key.is_empty() {
-        return super::providers::json_resp(StatusCode::BAD_REQUEST, json!({ "error": true }), origin);
+        return super::providers::json_resp(
+            StatusCode::BAD_REQUEST,
+            json!({ "error": true }),
+            origin,
+        );
     }
 
     let mut msgs = take_array_else_empty(body, "messages");
@@ -69,7 +76,11 @@ pub async fn send_mistral(st: &BackendState, body: &Value, origin: Option<Header
     rb.insert("messages".into(), messages);
     put(&mut rb, "temperature", take(body, "temperature"));
     put(&mut rb, "top_p", take(body, "top_p"));
-    put(&mut rb, "frequency_penalty", take(body, "frequency_penalty"));
+    put(
+        &mut rb,
+        "frequency_penalty",
+        take(body, "frequency_penalty"),
+    );
     put(&mut rb, "presence_penalty", take(body, "presence_penalty"));
     put(&mut rb, "max_tokens", take(body, "max_tokens"));
     put(&mut rb, "stream", take(body, "stream"));
@@ -82,14 +93,23 @@ pub async fn send_mistral(st: &BackendState, body: &Value, origin: Option<Header
         }
         None => {}
     };
-    if take(body, "stop").map(|s| s.is_array() && !s.as_array().unwrap().is_empty()).unwrap_or(false) {
+    if take(body, "stop")
+        .map(|s| s.is_array() && !s.as_array().unwrap().is_empty())
+        .unwrap_or(false)
+    {
         put(&mut rb, "stop", take(body, "stop"));
     }
     tools_into(&mut rb, body);
     json_schema_response_format(&mut rb, body, true, true);
 
     super::providers::relay_independent(
-        super::providers::upstream_post(&format!("{api_root}/chat/completions"), &key, Vec::new(), &Value::Object(rb)).await,
+        super::providers::upstream_post(
+            &format!("{api_root}/chat/completions"),
+            &key,
+            Vec::new(),
+            &Value::Object(rb),
+        )
+        .await,
         stream_of(body),
         origin,
         super::providers::OutShape::Pass,
@@ -103,18 +123,25 @@ pub async fn send_mistral(st: &BackendState, body: &Value, origin: Option<Header
 pub async fn send_ai21(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
     let key = super::providers::read_secret(st, "api_key_ai21").unwrap_or_default();
     if key.is_empty() {
-        return super::providers::json_resp(StatusCode::BAD_REQUEST, json!({ "error": true }), origin);
+        return super::providers::json_resp(
+            StatusCode::BAD_REQUEST,
+            json!({ "error": true }),
+            origin,
+        );
     }
 
     let mut body_params = Map::new();
     let mut msgs = take_array_else_empty(body, "messages");
-    if body.get("json_schema").map(|j| j.is_object()).unwrap_or(false) {
-        body_params.insert(
-            "response_format".into(),
-            json!({ "type": "json_object" }),
-        );
+    if body
+        .get("json_schema")
+        .map(|j| j.is_object())
+        .unwrap_or(false)
+    {
+        body_params.insert("response_format".into(), json!({ "type": "json_object" }));
         let schema_text = super::providers::json_pretty4(
-            body.get("json_schema").and_then(|j| j.get("value")).unwrap_or(&json!({})),
+            body.get("json_schema")
+                .and_then(|j| j.get("value"))
+                .unwrap_or(&json!({})),
         );
         msgs.push(json!({
             "role": "user",
@@ -151,7 +178,11 @@ pub async fn send_ai21(st: &BackendState, body: &Value, origin: Option<HeaderVal
 /* ---------------------------------------------------------------- *
  * DeepSeek（OpenAI 兼容 + SEMI_TOOLS 后处理 + thinking + 前缀补丁）
  * ---------------------------------------------------------------- */
-pub async fn send_deepseek(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
+pub async fn send_deepseek(
+    st: &BackendState,
+    body: &Value,
+    origin: Option<HeaderValue>,
+) -> Response {
     let (use_rp, api_root) = match body
         .get("reverse_proxy")
         .and_then(|v| v.as_str())
@@ -161,20 +192,33 @@ pub async fn send_deepseek(st: &BackendState, body: &Value, origin: Option<Heade
         None => (false, super::providers::API_DEEPSEEK.to_string()), // /beta 基线
     };
     let key = if use_rp {
-        body.get("proxy_password").and_then(|v| v.as_str()).unwrap_or("").to_string()
+        body.get("proxy_password")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
     } else {
         super::providers::read_secret(st, "api_key_deepseek").unwrap_or_default()
     };
     if key.is_empty() {
-        return super::providers::json_resp(StatusCode::BAD_REQUEST, json!({ "error": true }), origin);
+        return super::providers::json_resp(
+            StatusCode::BAD_REQUEST,
+            json!({ "error": true }),
+            origin,
+        );
     }
 
     let mut body_params = Map::new();
     let mut msgs = take_array_else_empty(body, "messages");
-    if body.get("json_schema").map(|j| j.is_object()).unwrap_or(false) {
+    if body
+        .get("json_schema")
+        .map(|j| j.is_object())
+        .unwrap_or(false)
+    {
         body_params.insert("response_format".into(), json!({ "type": "json_object" }));
         let schema_text = super::providers::json_pretty4(
-            body.get("json_schema").and_then(|j| j.get("value")).unwrap_or(&json!({})),
+            body.get("json_schema")
+                .and_then(|j| j.get("value"))
+                .unwrap_or(&json!({})),
         );
         msgs.push(json!({
             "role": "user",
@@ -182,12 +226,17 @@ pub async fn send_deepseek(st: &BackendState, body: &Value, origin: Option<Heade
         }));
     }
 
-    let mut processed = conv::post_process_prompt(&Value::Array(msgs), "semi_tools", &names_of(body));
+    let mut processed =
+        conv::post_process_prompt(&Value::Array(msgs), "semi_tools", &names_of(body));
     let processed_arr = processed.as_array_mut().unwrap();
     conv::add_assistant_prefix(processed_arr, body_params.get("tools"), "prefix");
     conv::add_reasoning_content_to_tool_calls(processed_arr);
 
-    if body.get("include_reasoning").and_then(|v| v.as_bool()).unwrap_or(false) {
+    if body
+        .get("include_reasoning")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
         if let Some(effort) = body.get("reasoning_effort").and_then(|v| v.as_str()) {
             body_params.insert("reasoning_effort".into(), json!(effort));
         }
@@ -200,7 +249,11 @@ pub async fn send_deepseek(st: &BackendState, body: &Value, origin: Option<Heade
     put(&mut rb, "max_tokens", take(body, "max_tokens"));
     put(&mut rb, "stream", take(body, "stream"));
     put(&mut rb, "presence_penalty", take(body, "presence_penalty"));
-    put(&mut rb, "frequency_penalty", take(body, "frequency_penalty"));
+    put(
+        &mut rb,
+        "frequency_penalty",
+        take(body, "frequency_penalty"),
+    );
     put(&mut rb, "top_p", take(body, "top_p"));
     put(&mut rb, "stop", take(body, "stop"));
     put(&mut rb, "seed", take(body, "seed"));
@@ -211,7 +264,13 @@ pub async fn send_deepseek(st: &BackendState, body: &Value, origin: Option<Heade
     rb.extend(body_params);
 
     super::providers::relay_independent(
-        super::providers::upstream_post(&format!("{api_root}/chat/completions"), &key, Vec::new(), &Value::Object(rb)).await,
+        super::providers::upstream_post(
+            &format!("{api_root}/chat/completions"),
+            &key,
+            Vec::new(),
+            &Value::Object(rb),
+        )
+        .await,
         stream_of(body),
         origin,
         super::providers::OutShape::Pass,
@@ -232,22 +291,35 @@ pub async fn send_xai(st: &BackendState, body: &Value, origin: Option<HeaderValu
         None => (false, super::providers::API_XAI.to_string()),
     };
     let key = if use_rp {
-        body.get("proxy_password").and_then(|v| v.as_str()).unwrap_or("").to_string()
+        body.get("proxy_password")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
     } else {
         super::providers::read_secret(st, "api_key_xai").unwrap_or_default()
     };
     if key.is_empty() {
-        return super::providers::json_resp(StatusCode::BAD_REQUEST, json!({ "error": true }), origin);
+        return super::providers::json_resp(
+            StatusCode::BAD_REQUEST,
+            json!({ "error": true }),
+            origin,
+        );
     }
 
     let mut body_params = Map::new();
     logprobs_into(&mut body_params, body);
     tools_into(&mut body_params, body);
-    if take(body, "stop").map(|s| s.is_array() && !s.as_array().unwrap().is_empty()).unwrap_or(false) {
+    if take(body, "stop")
+        .map(|s| s.is_array() && !s.as_array().unwrap().is_empty())
+        .unwrap_or(false)
+    {
         body_params.insert("stop".into(), take(body, "stop").unwrap());
     }
     if let Some(effort) = body.get("reasoning_effort").and_then(|v| v.as_str()) {
-        body_params.insert("reasoning_effort".into(), json!(if effort == "high" { "high" } else { "low" }));
+        body_params.insert(
+            "reasoning_effort".into(),
+            json!(if effort == "high" { "high" } else { "low" }),
+        );
     }
     json_schema_response_format(&mut body_params, body, false, false);
 
@@ -259,17 +331,31 @@ pub async fn send_xai(st: &BackendState, body: &Value, origin: Option<HeaderValu
     put(&mut rb, "model", take(body, "model"));
     put(&mut rb, "temperature", take(body, "temperature"));
     put(&mut rb, "max_tokens", take(body, "max_tokens"));
-    put(&mut rb, "max_completion_tokens", take(body, "max_completion_tokens"));
+    put(
+        &mut rb,
+        "max_completion_tokens",
+        take(body, "max_completion_tokens"),
+    );
     put(&mut rb, "stream", take(body, "stream"));
     put(&mut rb, "presence_penalty", take(body, "presence_penalty"));
-    put(&mut rb, "frequency_penalty", take(body, "frequency_penalty"));
+    put(
+        &mut rb,
+        "frequency_penalty",
+        take(body, "frequency_penalty"),
+    );
     put(&mut rb, "top_p", take(body, "top_p"));
     put(&mut rb, "seed", take(body, "seed"));
     put(&mut rb, "n", take(body, "n"));
     rb.extend(body_params);
 
     super::providers::relay_independent(
-        super::providers::upstream_post(&format!("{api_root}/chat/completions"), &key, Vec::new(), &Value::Object(rb)).await,
+        super::providers::upstream_post(
+            &format!("{api_root}/chat/completions"),
+            &key,
+            Vec::new(),
+            &Value::Object(rb),
+        )
+        .await,
         stream_of(body),
         origin,
         super::providers::OutShape::Pass,
@@ -280,19 +366,34 @@ pub async fn send_xai(st: &BackendState, body: &Value, origin: Option<HeaderValu
 /* ---------------------------------------------------------------- *
  * AI/ML API（OpenAI 兼容 + 平台 Referer/X-Title 头）
  * ---------------------------------------------------------------- */
-pub async fn send_aimlapi(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
+pub async fn send_aimlapi(
+    st: &BackendState,
+    body: &Value,
+    origin: Option<HeaderValue>,
+) -> Response {
     let key = super::providers::read_secret(st, "api_key_aimlapi").unwrap_or_default();
     if key.is_empty() {
-        return super::providers::json_resp(StatusCode::BAD_REQUEST, json!({ "error": true }), origin);
+        return super::providers::json_resp(
+            StatusCode::BAD_REQUEST,
+            json!({ "error": true }),
+            origin,
+        );
     }
 
     let mut body_params = Map::new();
     logprobs_into(&mut body_params, body);
     tools_into(&mut body_params, body);
-    if take(body, "stop").map(|s| s.is_array() && !s.as_array().unwrap().is_empty()).unwrap_or(false) {
+    if take(body, "stop")
+        .map(|s| s.is_array() && !s.as_array().unwrap().is_empty())
+        .unwrap_or(false)
+    {
         body_params.insert("stop".into(), take(body, "stop").unwrap());
     }
-    put(&mut body_params, "reasoning_effort", take(body, "reasoning_effort"));
+    put(
+        &mut body_params,
+        "reasoning_effort",
+        take(body, "reasoning_effort"),
+    );
     json_schema_response_format(&mut body_params, body, false, true);
 
     let mut rb = Map::new();
@@ -302,7 +403,11 @@ pub async fn send_aimlapi(st: &BackendState, body: &Value, origin: Option<Header
     put(&mut rb, "max_tokens", take(body, "max_tokens"));
     put(&mut rb, "stream", take(body, "stream"));
     put(&mut rb, "presence_penalty", take(body, "presence_penalty"));
-    put(&mut rb, "frequency_penalty", take(body, "frequency_penalty"));
+    put(
+        &mut rb,
+        "frequency_penalty",
+        take(body, "frequency_penalty"),
+    );
     put(&mut rb, "top_p", take(body, "top_p"));
     put(&mut rb, "seed", take(body, "seed"));
     put(&mut rb, "n", take(body, "n"));
@@ -326,18 +431,34 @@ pub async fn send_aimlapi(st: &BackendState, body: &Value, origin: Option<Header
 /* ---------------------------------------------------------------- *
  * ElectronHub（OpenAI 兼容）
  * ---------------------------------------------------------------- */
-pub async fn send_electronhub(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
+pub async fn send_electronhub(
+    st: &BackendState,
+    body: &Value,
+    origin: Option<HeaderValue>,
+) -> Response {
     let key = super::providers::read_secret(st, "api_key_electronhub").unwrap_or_default();
     if key.is_empty() {
-        return super::providers::json_resp(StatusCode::BAD_REQUEST, json!({ "error": true }), origin);
+        return super::providers::json_resp(
+            StatusCode::BAD_REQUEST,
+            json!({ "error": true }),
+            origin,
+        );
     }
 
     let mut body_params = Map::new();
-    if body.get("enable_web_search").and_then(|v| v.as_bool()).unwrap_or(false) {
+    if body
+        .get("enable_web_search")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
         body_params.insert("web_search".into(), Value::Bool(true));
     }
     tools_into(&mut body_params, body);
-    put(&mut body_params, "reasoning_effort", take(body, "reasoning_effort"));
+    put(
+        &mut body_params,
+        "reasoning_effort",
+        take(body, "reasoning_effort"),
+    );
     json_schema_response_format(&mut body_params, body, false, true);
 
     let mut rb = Map::new();
@@ -347,7 +468,11 @@ pub async fn send_electronhub(st: &BackendState, body: &Value, origin: Option<He
     put(&mut rb, "max_tokens", take(body, "max_tokens"));
     put(&mut rb, "stream", take(body, "stream"));
     put(&mut rb, "presence_penalty", take(body, "presence_penalty"));
-    put(&mut rb, "frequency_penalty", take(body, "frequency_penalty"));
+    put(
+        &mut rb,
+        "frequency_penalty",
+        take(body, "frequency_penalty"),
+    );
     put(&mut rb, "top_p", take(body, "top_p"));
     put(&mut rb, "top_k", take(body, "top_k"));
     put(&mut rb, "logit_bias", take(body, "logit_bias"));
@@ -356,7 +481,11 @@ pub async fn send_electronhub(st: &BackendState, body: &Value, origin: Option<He
 
     super::providers::relay_independent(
         super::providers::upstream_post(
-            &format!("{}{}/chat/completions", super::providers::API_ELECTRONHUB, ""),
+            &format!(
+                "{}{}/chat/completions",
+                super::providers::API_ELECTRONHUB,
+                ""
+            ),
             &key,
             Vec::new(),
             &Value::Object(rb),
@@ -375,7 +504,11 @@ pub async fn send_electronhub(st: &BackendState, body: &Value, origin: Option<He
 pub async fn send_chutes(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
     let key = super::providers::read_secret(st, "api_key_chutes").unwrap_or_default();
     if key.is_empty() {
-        return super::providers::json_resp(StatusCode::BAD_REQUEST, json!({ "error": true }), origin);
+        return super::providers::json_resp(
+            StatusCode::BAD_REQUEST,
+            json!({ "error": true }),
+            origin,
+        );
     }
 
     let mut body_params = Map::new();
@@ -390,8 +523,16 @@ pub async fn send_chutes(st: &BackendState, body: &Value, origin: Option<HeaderV
     put(&mut rb, "max_tokens", take(body, "max_tokens"));
     put(&mut rb, "stream", take(body, "stream"));
     put(&mut rb, "presence_penalty", take(body, "presence_penalty"));
-    put(&mut rb, "frequency_penalty", take(body, "frequency_penalty"));
-    put(&mut rb, "repetition_penalty", take(body, "repetition_penalty"));
+    put(
+        &mut rb,
+        "frequency_penalty",
+        take(body, "frequency_penalty"),
+    );
+    put(
+        &mut rb,
+        "repetition_penalty",
+        take(body, "repetition_penalty"),
+    );
     put(&mut rb, "min_p", take(body, "min_p"));
     put(&mut rb, "top_p", take(body, "top_p"));
     put(&mut rb, "top_k", take(body, "top_k"));
@@ -419,7 +560,11 @@ pub async fn send_chutes(st: &BackendState, body: &Value, origin: Option<HeaderV
 /* ---------------------------------------------------------------- *
  * MiniMax（OpenAI 兼容 + MERGE_TOOLS 合并 + M2-her 上限钳制 + CN 端点分流）
  * ---------------------------------------------------------------- */
-pub async fn send_minimax(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
+pub async fn send_minimax(
+    st: &BackendState,
+    body: &Value,
+    origin: Option<HeaderValue>,
+) -> Response {
     let api_root = if body.get("minimax_endpoint").and_then(|v| v.as_str()) == Some("cn") {
         super::providers::API_MINIMAX_CN
     } else {
@@ -427,7 +572,11 @@ pub async fn send_minimax(st: &BackendState, body: &Value, origin: Option<Header
     };
     let key = super::providers::read_secret(st, "api_key_minimax").unwrap_or_default();
     if key.is_empty() {
-        return super::providers::json_resp(StatusCode::BAD_REQUEST, json!({ "error": true }), origin);
+        return super::providers::json_resp(
+            StatusCode::BAD_REQUEST,
+            json!({ "error": true }),
+            origin,
+        );
     }
 
     let messages = conv::post_process_prompt(
@@ -458,7 +607,13 @@ pub async fn send_minimax(st: &BackendState, body: &Value, origin: Option<Header
     rb.extend(body_params);
 
     super::providers::relay_independent(
-        super::providers::upstream_post(&format!("{api_root}/chat/completions"), &key, Vec::new(), &Value::Object(rb)).await,
+        super::providers::upstream_post(
+            &format!("{api_root}/chat/completions"),
+            &key,
+            Vec::new(),
+            &Value::Object(rb),
+        )
+        .await,
         stream_of(body),
         origin,
         super::providers::OutShape::Pass,
@@ -470,11 +625,24 @@ pub async fn send_minimax(st: &BackendState, body: &Value, origin: Option<Header
  * Azure OpenAI（deployments URL + api-key 头 + OPENAI keys 子集直传）
  * ---------------------------------------------------------------- */
 pub async fn send_azure(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
-    let azure_base_url = body.get("azure_base_url").and_then(|v| v.as_str()).unwrap_or("");
-    let deployment = body.get("azure_deployment_name").and_then(|v| v.as_str()).unwrap_or("");
-    let api_version = body.get("azure_api_version").and_then(|v| v.as_str()).unwrap_or("");
+    let azure_base_url = body
+        .get("azure_base_url")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let deployment = body
+        .get("azure_deployment_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let api_version = body
+        .get("azure_api_version")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let key = super::providers::read_secret(st, "api_key_azure_openai").unwrap_or_default();
-    if azure_base_url.is_empty() || deployment.is_empty() || api_version.is_empty() || key.is_empty() {
+    if azure_base_url.is_empty()
+        || deployment.is_empty()
+        || api_version.is_empty()
+        || key.is_empty()
+    {
         return super::providers::json_resp(
             StatusCode::BAD_REQUEST,
             json!({ "error": { "message": "Azure OpenAI configuration is incomplete. Please provide Base URL, Deployment Name, API Version, and API Key in the connection settings." } }),
@@ -489,14 +657,31 @@ pub async fn send_azure(st: &BackendState, body: &Value, origin: Option<HeaderVa
 
     let mut rb = Map::new();
     for k in [
-        "messages", "temperature", "frequency_penalty", "presence_penalty", "top_p",
-        "max_tokens", "max_completion_tokens", "stream", "logit_bias", "stop",
-        "n", "logprobs", "seed", "tools", "tool_choice", "reasoning_effort",
+        "messages",
+        "temperature",
+        "frequency_penalty",
+        "presence_penalty",
+        "top_p",
+        "max_tokens",
+        "max_completion_tokens",
+        "stream",
+        "logit_bias",
+        "stop",
+        "n",
+        "logprobs",
+        "seed",
+        "tools",
+        "tool_choice",
+        "reasoning_effort",
     ] {
         put(&mut rb, k, take(body, k));
     }
     // logprobs 语义对齐（top_logprobs/logprobs 双写）
-    if rb.get("logprobs").map(|v| v.as_i64().unwrap_or(0) > 0).unwrap_or(false) {
+    if rb
+        .get("logprobs")
+        .map(|v| v.as_i64().unwrap_or(0) > 0)
+        .unwrap_or(false)
+    {
         let n = rb["logprobs"].as_i64().unwrap();
         rb.insert("top_logprobs".into(), json!(n));
         rb.insert("logprobs".into(), Value::Bool(true));
@@ -507,17 +692,17 @@ pub async fn send_azure(st: &BackendState, body: &Value, origin: Option<HeaderVa
         rb.remove("reasoning_effort");
     }
 
-    let resp_res = super::providers::upstream_post_azure(
-        &url, &key, &Value::Object(rb),
-    ).await;
+    let resp_res = super::providers::upstream_post_azure(&url, &key, &Value::Object(rb)).await;
 
     let resp = match resp_res {
         Ok(r) => r,
-        Err(e) => return super::providers::json_resp(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": { "message": e } }),
-            origin,
-        ),
+        Err(e) => {
+            return super::providers::json_resp(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({ "error": { "message": e } }),
+                origin,
+            )
+        }
     };
 
     if stream_of(body) {
@@ -529,9 +714,8 @@ pub async fn send_azure(st: &BackendState, body: &Value, origin: Option<HeaderVa
         let v = serde_json::from_str::<Value>(&text).unwrap_or(json!({}));
         return super::providers::json_resp(StatusCode::OK, v, origin);
     }
-    let parsed = serde_json::from_str::<Value>(&text).unwrap_or_else(|_| {
-        json!({ "error": { "message": "Unknown error occurred" } })
-    });
+    let parsed = serde_json::from_str::<Value>(&text)
+        .unwrap_or_else(|_| json!({ "error": { "message": "Unknown error occurred" } }));
     super::providers::json_resp(StatusCode::INTERNAL_SERVER_ERROR, parsed, origin)
 }
 
@@ -541,7 +725,11 @@ pub async fn send_azure(st: &BackendState, body: &Value, origin: Option<HeaderVa
 pub async fn send_cohere(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
     let key = super::providers::read_secret(st, "api_key_cohere").unwrap_or_default();
     if key.is_empty() {
-        return super::providers::json_resp(StatusCode::BAD_REQUEST, json!({ "error": true }), origin);
+        return super::providers::json_resp(
+            StatusCode::BAD_REQUEST,
+            json!({ "error": true }),
+            origin,
+        );
     }
 
     let mut msgs = take_array_else_empty(body, "messages");
@@ -550,7 +738,10 @@ pub async fn send_cohere(st: &BackendState, body: &Value, origin: Option<HeaderV
     let mut tools: Vec<Value> = Vec::new();
     if let Some(list) = body.get("tools").and_then(|t| t.as_array()) {
         for mut tool in list.clone() {
-            if let Some(p) = tool.get_mut("function").and_then(|f| f.get_mut("parameters")) {
+            if let Some(p) = tool
+                .get_mut("function")
+                .and_then(|f| f.get_mut("parameters"))
+            {
                 if let Some(pm) = p.as_object_mut() {
                     pm.remove("$schema");
                 }
@@ -569,7 +760,11 @@ pub async fn send_cohere(st: &BackendState, body: &Value, origin: Option<HeaderV
     put(&mut rb, "p", take(body, "top_p"));
     put(&mut rb, "seed", take(body, "seed"));
     put(&mut rb, "stop_sequences", take(body, "stop"));
-    put(&mut rb, "frequency_penalty", take(body, "frequency_penalty"));
+    put(
+        &mut rb,
+        "frequency_penalty",
+        take(body, "frequency_penalty"),
+    );
     put(&mut rb, "presence_penalty", take(body, "presence_penalty"));
     rb.insert("documents".into(), json!([]));
     rb.insert("tools".into(), Value::Array(tools));
@@ -582,7 +777,11 @@ pub async fn send_cohere(st: &BackendState, body: &Value, origin: Option<HeaderV
     {
         rb.insert("safety_mode".into(), json!("OFF"));
     }
-    if body.get("json_schema").map(|j| j.is_object()).unwrap_or(false) {
+    if body
+        .get("json_schema")
+        .map(|j| j.is_object())
+        .unwrap_or(false)
+    {
         rb.insert(
             "response_format".into(),
             json!({ "type": "json_schema", "schema": body["json_schema"]["value"].clone() }),
@@ -591,7 +790,8 @@ pub async fn send_cohere(st: &BackendState, body: &Value, origin: Option<HeaderV
 
     let url = format!("{}{}/chat", super::providers::API_COHERE_V2, "");
 
-    let resp_res = super::providers::upstream_post(&url, &key, Vec::new(), &Value::Object(rb)).await;
+    let resp_res =
+        super::providers::upstream_post(&url, &key, Vec::new(), &Value::Object(rb)).await;
     super::providers::relay_independent(
         resp_res,
         stream_of(body),
@@ -604,7 +804,9 @@ pub async fn send_cohere(st: &BackendState, body: &Value, origin: Option<HeaderV
 /* ================= 共享小件 ================= */
 
 fn stream_of(body: &Value) -> bool {
-    body.get("stream").and_then(|v| v.as_bool()).unwrap_or(false)
+    body.get("stream")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
 }
 
 fn put(rb: &mut Map<String, Value>, key: &str, value: Option<Value>) {
@@ -621,7 +823,12 @@ fn take_array_else_empty(body: &Value, key: &str) -> Vec<Value> {
 }
 
 fn logprobs_into(rb: &mut Map<String, Value>, body: &Value) {
-    if body.get("logprobs").and_then(|v| v.as_i64()).map(|n| n > 0).unwrap_or(false) {
+    if body
+        .get("logprobs")
+        .and_then(|v| v.as_i64())
+        .map(|n| n > 0)
+        .unwrap_or(false)
+    {
         let n = body["logprobs"].as_i64().unwrap();
         rb.insert("top_logprobs".into(), json!(n));
         rb.insert("logprobs".into(), Value::Bool(true));
@@ -629,7 +836,12 @@ fn logprobs_into(rb: &mut Map<String, Value>, body: &Value) {
 }
 
 fn tools_into(rb: &mut Map<String, Value>, body: &Value) {
-    if body.get("tools").and_then(|t| t.as_array()).map(|a| !a.is_empty()).unwrap_or(false) {
+    if body
+        .get("tools")
+        .and_then(|t| t.as_array())
+        .map(|a| !a.is_empty())
+        .unwrap_or(false)
+    {
         rb.insert("tools".into(), body["tools"].clone());
         if let Some(tc) = body.get("tool_choice") {
             rb.insert("tool_choice".into(), tc.clone());
@@ -638,20 +850,38 @@ fn tools_into(rb: &mut Map<String, Value>, body: &Value) {
 }
 
 /// json_schema → response_format（openai 形包装；差异点：description 字段开关）
-fn json_schema_response_format(rb: &mut Map<String, Value>, body: &Value, with_description: bool, _strict_default_true: bool) {
+fn json_schema_response_format(
+    rb: &mut Map<String, Value>,
+    body: &Value,
+    with_description: bool,
+    _strict_default_true: bool,
+) {
     let Some(schema) = body.get("json_schema").filter(|j| j.is_object()) else {
         return;
     };
     let mut inner = Map::new();
-    inner.insert("name".into(), schema.get("name").cloned().unwrap_or(json!("")));
+    inner.insert(
+        "name".into(),
+        schema.get("name").cloned().unwrap_or(json!("")),
+    );
     if with_description {
-        inner.insert("description".into(), schema.get("description").cloned().unwrap_or(json!("")));
+        inner.insert(
+            "description".into(),
+            schema.get("description").cloned().unwrap_or(json!("")),
+        );
     }
     inner.insert(
         "strict".into(),
-        schema.get("strict").and_then(|s| s.as_bool()).unwrap_or(true).into(),
+        schema
+            .get("strict")
+            .and_then(|s| s.as_bool())
+            .unwrap_or(true)
+            .into(),
     );
-    inner.insert("schema".into(), schema.get("value").cloned().unwrap_or(json!({})));
+    inner.insert(
+        "schema".into(),
+        schema.get("value").cloned().unwrap_or(json!({})),
+    );
     rb.insert(
         "response_format".into(),
         json!({ "type": "json_schema", "json_schema": Value::Object(inner) }),

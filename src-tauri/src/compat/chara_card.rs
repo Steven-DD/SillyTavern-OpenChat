@@ -60,7 +60,8 @@ pub fn to_v2_response(mut card: Value) -> Value {
                 data.insert(v2path_first.into(), v.clone());
             }
         }
-        card.as_object_mut().map(|o| o.insert("data".into(), Value::Object(data)));
+        card.as_object_mut()
+            .map(|o| o.insert("data".into(), Value::Object(data)));
         if card.get("spec").is_none() {
             card.as_object_mut().map(|o| {
                 o.insert("spec".into(), "chara_card_v2".into());
@@ -132,15 +133,21 @@ pub fn format_for_save(body: &Value) -> Value {
     char.insert("mes_example".into(), s(body.get("mes_example")));
     char.insert("creatorcomment".into(), s(body.get("creator_notes")));
     char.insert("avatar".into(), "none".into());
-    char.insert("talkativeness".into(), match body.get("talkativeness") {
-        Some(Value::Number(n)) => Value::Number(n.clone()),
-        _ => serde_json::json!(0.5),
-    });
-    char.insert("fav".into(), match body.get("fav") {
-        Some(Value::Bool(b)) => Value::Bool(*b),
-        Some(Value::String(st)) => Value::Bool(st == "true"),
-        _ => Value::Bool(false),
-    });
+    char.insert(
+        "talkativeness".into(),
+        match body.get("talkativeness") {
+            Some(Value::Number(n)) => Value::Number(n.clone()),
+            _ => serde_json::json!(0.5),
+        },
+    );
+    char.insert(
+        "fav".into(),
+        match body.get("fav") {
+            Some(Value::Bool(b)) => Value::Bool(*b),
+            Some(Value::String(st)) => Value::Bool(st == "true"),
+            _ => Value::Bool(false),
+        },
+    );
     char.insert("tags".into(), arr_or_empty(body.get("tags")));
     char.insert("spec".into(), "chara_card_v2".into());
     char.insert("spec_version".into(), "2.0".into());
@@ -155,15 +162,21 @@ pub fn format_for_save(body: &Value) -> Value {
     data.insert("mes_example".into(), s(body.get("mes_example")));
     data.insert("creator_notes".into(), s(body.get("creator_notes")));
     data.insert("system_prompt".into(), s(body.get("system_prompt")));
-    data.insert("post_history_instructions".into(), s(body.get("post_history_instructions")));
+    data.insert(
+        "post_history_instructions".into(),
+        s(body.get("post_history_instructions")),
+    );
     data.insert("tags".into(), arr_or_empty(body.get("tags")));
     data.insert("creator".into(), s(body.get("creator")));
     data.insert("character_version".into(), s(body.get("character_version")));
-    data.insert("alternate_greetings".into(), match body.get("alternate_greetings") {
-        Some(Value::Array(a)) => Value::Array(a.clone()),
-        Some(Value::String(st)) => Value::Array(vec![Value::String(st.clone())]),
-        _ => Value::Array(Vec::new()),
-    });
+    data.insert(
+        "alternate_greetings".into(),
+        match body.get("alternate_greetings") {
+            Some(Value::Array(a)) => Value::Array(a.clone()),
+            Some(Value::String(st)) => Value::Array(vec![Value::String(st.clone())]),
+            _ => Value::Array(Vec::new()),
+        },
+    );
     let mut ext = Map::new();
     ext.insert("talkativeness".into(), char["talkativeness"].clone());
     ext.insert("fav".into(), char["fav"].clone());
@@ -200,10 +213,13 @@ pub fn format_for_save(body: &Value) -> Value {
 /// calculateDataSize（characters.js:361-363）：data 各字段字符长度和
 pub fn calculate_data_size(data: &Value) -> u64 {
     match data {
-        Value::Object(o) => o.values().map(|v| match v {
-            Value::String(s) => s.len() as u64,
-            _ => v.to_string().len() as u64,
-        }).sum(),
+        Value::Object(o) => o
+            .values()
+            .map(|v| match v {
+                Value::String(s) => s.len() as u64,
+                _ => v.to_string().len() as u64,
+            })
+            .sum(),
         _ => 0,
     }
 }
@@ -268,7 +284,11 @@ mod tests {
         let out = format_for_save(&body);
         assert_eq!(out["spec"], "chara_card_v2");
         assert_eq!(out["data"]["name"], "新卡");
-        assert_eq!(out["data"]["tags"], serde_json::json!(["a", "b", "c"]), "字符串 tags 拆数组");
+        assert_eq!(
+            out["data"]["tags"],
+            serde_json::json!(["a", "b", "c"]),
+            "字符串 tags 拆数组"
+        );
         assert_eq!(out["fav"], true, "fav='true' → bool");
         assert_eq!(out["data"]["extensions"]["depth_prompt"]["depth"], 4);
         assert_eq!(out["chat"], Value::Null, "chat 不透传时不存在");

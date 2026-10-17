@@ -185,12 +185,7 @@ pub fn spec_from_manifest(
         .and_then(|p| p.get(platform_key))
         .and_then(|p| p.get("sources"))
         .or_else(|| install.get("sources"))
-        .ok_or_else(|| {
-            format!(
-                "插件 {} 没有适用于当前平台（{platform_key}）的下载源",
-                m.id
-            )
-        })?;
+        .ok_or_else(|| format!("插件 {} 没有适用于当前平台（{platform_key}）的下载源", m.id))?;
 
     let urls: Vec<String> = sources_val
         .as_array()
@@ -356,8 +351,8 @@ fn extract_zip(
 ) -> Result<(u64, u64), String> {
     let file = std::fs::File::open(zip_path)
         .map_err(|e| format!("打开压缩包失败 {}：{e}", zip_path.display()))?;
-    let mut archive =
-        zip::ZipArchive::new(std::io::BufReader::new(file)).map_err(|e| format!("非法的 zip：{e}"))?;
+    let mut archive = zip::ZipArchive::new(std::io::BufReader::new(file))
+        .map_err(|e| format!("非法的 zip：{e}"))?;
 
     let total_entries = archive.len() as u64;
     let total_bytes: u64 = (0..archive.len())
@@ -393,7 +388,8 @@ fn extract_zip(
         let out = dest.join(&rel);
 
         if entry.is_dir() {
-            std::fs::create_dir_all(&out).map_err(|e| format!("建目录失败 {}：{e}", out.display()))?;
+            std::fs::create_dir_all(&out)
+                .map_err(|e| format!("建目录失败 {}：{e}", out.display()))?;
             continue;
         }
 
@@ -411,8 +407,10 @@ fn extract_zip(
                 .map_err(|e| format!("建目录失败 {}：{e}", parent.display()))?;
         }
 
-        let mut f = std::fs::File::create(&out).map_err(|e| format!("创建失败 {}：{e}", out.display()))?;
-        let n = std::io::copy(&mut entry, &mut f).map_err(|e| format!("写入失败 {}：{e}", out.display()))?;
+        let mut f =
+            std::fs::File::create(&out).map_err(|e| format!("创建失败 {}：{e}", out.display()))?;
+        let n = std::io::copy(&mut entry, &mut f)
+            .map_err(|e| format!("写入失败 {}：{e}", out.display()))?;
         written += n;
         files += 1;
 
@@ -453,16 +451,17 @@ where
     let started = Instant::now();
     let target = version_dir(install_root, &spec.component, &spec.version);
 
-    let emit = |on: &mut F, phase: &str, percent: f64, message: String, dl: Option<DownloadProgress>| {
-        on(InstallProgress {
-            component: spec.component.clone(),
-            version: spec.version.clone(),
-            phase: phase.to_string(),
-            percent,
-            message,
-            download: dl,
-        })
-    };
+    let emit =
+        |on: &mut F, phase: &str, percent: f64, message: String, dl: Option<DownloadProgress>| {
+            on(InstallProgress {
+                component: spec.component.clone(),
+                version: spec.version.clone(),
+                phase: phase.to_string(),
+                percent,
+                message,
+                download: dl,
+            })
+        };
 
     // ---- 0) 目标已存在且看起来完整 → 直接复用，不重复下载（省流量，也避免把好的装坏）----
     if target.is_dir() && required_ok(&target, &spec.required_files) {
@@ -579,7 +578,10 @@ where
             ),
             None,
         );
-        let registry = spec.npm_registry.clone().unwrap_or_else(|| NPM_MIRROR.to_string());
+        let registry = spec
+            .npm_registry
+            .clone()
+            .unwrap_or_else(|| NPM_MIRROR.to_string());
         npm_install(node, &target, &registry, npm_proxy, &mut on, spec).await?;
     }
     let npm_ms = t_npm.elapsed().as_millis() as u64;
@@ -596,7 +598,11 @@ where
         return Err(format!(
             "[{}] 安装产物不完整，缺少：{}",
             spec.component,
-            missing.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+            missing
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
 
@@ -640,7 +646,9 @@ pub fn dir_stat(dir: &Path) -> (u64, u64) {
     let mut bytes = 0u64;
     let mut stack = vec![dir.to_path_buf()];
     while let Some(d) = stack.pop() {
-        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        let Ok(rd) = std::fs::read_dir(&d) else {
+            continue;
+        };
         for e in rd.flatten() {
             match e.metadata() {
                 Ok(m) if m.is_dir() => stack.push(e.path()),
@@ -696,10 +704,16 @@ where
         node_dir.join("node_modules/npm/bin/npm-cli.js"),
         node_dir.join("../lib/node_modules/npm/bin/npm-cli.js"),
     ];
-    let npm_cli = candidates
-        .iter()
-        .find(|p| p.exists())
-        .ok_or_else(|| format!("找不到 npm-cli.js（已试 {}）", candidates.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(" / ")))?;
+    let npm_cli = candidates.iter().find(|p| p.exists()).ok_or_else(|| {
+        format!(
+            "找不到 npm-cli.js（已试 {}）",
+            candidates
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(" / ")
+        )
+    })?;
 
     let mut cmd = tokio::process::Command::new(node_exe);
     cmd.arg(npm_cli)
@@ -768,7 +782,10 @@ where
             .rev()
             .collect::<Vec<_>>()
             .join("\n");
-        return Err(format!("npm install 失败（退出码 {:?}）：\n{tail}", status.code()));
+        return Err(format!(
+            "npm install 失败（退出码 {:?}）：\n{tail}",
+            status.code()
+        ));
     }
 
     on(InstallProgress {
@@ -847,7 +864,10 @@ mod tests {
         assert!(bytes > 0);
         assert!(dest.join("server.js").is_file(), "顶层已剥离");
         assert!(dest.join("src/x.js").is_file(), "嵌套目录保留");
-        assert!(!dest.join("SillyTavern-1.19.0").exists(), "不该留下原顶层目录");
+        assert!(
+            !dest.join("SillyTavern-1.19.0").exists(),
+            "不该留下原顶层目录"
+        );
         let _ = std::fs::remove_dir_all(&base);
     }
 
@@ -882,7 +902,10 @@ mod tests {
         let base = tmp("req");
         std::fs::write(base.join("server.js"), b"x").unwrap();
         assert!(required_ok(&base, &["server.js".to_string()]));
-        assert!(!required_ok(&base, &["server.js".to_string(), "nope".to_string()]));
+        assert!(!required_ok(
+            &base,
+            &["server.js".to_string(), "nope".to_string()]
+        ));
         let _ = std::fs::remove_dir_all(&base);
     }
 
@@ -890,7 +913,9 @@ mod tests {
     fn version_dir_layout() {
         let cfg = Path::new("C:/cfg");
         assert_eq!(
-            version_dir(cfg, "sillytavern", "1.19.0").to_string_lossy().replace('\\', "/"),
+            version_dir(cfg, "sillytavern", "1.19.0")
+                .to_string_lossy()
+                .replace('\\', "/"),
             "C:/cfg/plugins/sillytavern/1.19.0"
         );
     }
@@ -918,8 +943,15 @@ mod tests {
         let s = choose_spec(&m, "1.19.0", "win-x64").unwrap();
         assert!(s.prebuilt, "应选中预打包计划");
         assert!(!s.npm_install, "预打包必须跳过 npm install");
-        assert_eq!(s.downloads[0].sources[0], "https://prebuilt.example/1.19.0.zip");
-        assert_eq!(s.required_files, vec!["server.js", "node_modules"], "校验清单必须一致");
+        assert_eq!(
+            s.downloads[0].sources[0],
+            "https://prebuilt.example/1.19.0.zip"
+        );
+        assert_eq!(
+            s.required_files,
+            vec!["server.js", "node_modules"],
+            "校验清单必须一致"
+        );
     }
 
     #[test]
@@ -941,7 +973,10 @@ mod tests {
         let s = choose_spec(&m, "1.19.0", "win-x64").unwrap();
         assert!(!s.prebuilt);
         assert!(s.npm_install);
-        assert_eq!(s.downloads[0].sources[0], "https://npm-path.example/1.19.0.zip");
+        assert_eq!(
+            s.downloads[0].sources[0],
+            "https://npm-path.example/1.19.0.zip"
+        );
     }
 
     #[test]

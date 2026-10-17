@@ -43,7 +43,9 @@ pub struct ChatsService {
 
 impl ChatsService {
     pub fn new() -> Self {
-        Self { backup: Mutex::new(ChatBackupState::default()) }
+        Self {
+            backup: Mutex::new(ChatBackupState::default()),
+        }
     }
 }
 
@@ -74,7 +76,13 @@ fn backups_dir(st: &BackendState) -> std::path::PathBuf {
 fn backup_key(name: &str) -> String {
     let sanitized: String = crate::pathguard::sanitize(name)
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
         .collect();
     let has_non_ascii = name.chars().any(|c| !('\u{20}'..='\u{7E}').contains(&c));
     if has_non_ascii {
@@ -89,7 +97,9 @@ fn backup_key(name: &str) -> String {
 
 /// ST util.js generateTimestamp（秒级，备份去重靠 backup_key 前缀比对而非文件名）
 fn generate_timestamp() -> String {
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
     let (y, mth, d, h, mi, s) = super::settings::civil_utc(now.as_secs() as i64);
     format!("{y:04}{mth:02}{d:02}-{h:02}{mi:02}{s:02}")
 }
@@ -99,17 +109,26 @@ fn generate_timestamp() -> String {
 fn is_duplicate(dir: &std::path::Path, prefix: &str, content: &str) -> bool {
     let mut latest: Option<(std::path::PathBuf, SystemTime)> = None;
     for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
-        let name_ok = e.file_name().to_str().map(|n| n.starts_with(prefix)).unwrap_or(false);
+        let name_ok = e
+            .file_name()
+            .to_str()
+            .map(|n| n.starts_with(prefix))
+            .unwrap_or(false);
         if !name_ok {
             continue;
         }
-        let t = e.metadata().and_then(|m| m.modified()).unwrap_or(UNIX_EPOCH);
+        let t = e
+            .metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(UNIX_EPOCH);
         if latest.as_ref().map(|(_, lt)| t > *lt).unwrap_or(true) {
             latest = Some((e.path(), t));
         }
     }
     match latest {
-        Some((p, _)) => std::fs::read_to_string(&p).map(|c| c == content).unwrap_or(false),
+        Some((p, _)) => std::fs::read_to_string(&p)
+            .map(|c| c == content)
+            .unwrap_or(false),
         None => false,
     }
 }
@@ -120,9 +139,17 @@ fn remove_old_backups(dir: &std::path::Path, prefix: &str) {
         .into_iter()
         .flatten()
         .flatten()
-        .filter(|e| e.file_name().to_str().map(|n| n.starts_with(prefix)).unwrap_or(false))
+        .filter(|e| {
+            e.file_name()
+                .to_str()
+                .map(|n| n.starts_with(prefix))
+                .unwrap_or(false)
+        })
         .map(|e| {
-            let mtime = e.metadata().and_then(|m| m.modified()).unwrap_or(UNIX_EPOCH);
+            let mtime = e
+                .metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(UNIX_EPOCH);
             (e.path(), mtime)
         })
         .collect();
@@ -170,16 +197,28 @@ fn check_integrity(file_path: &std::path::Path, slug: &str) -> bool {
     if !file_path.exists() {
         return true;
     }
-    let Ok(text) = std::fs::read_to_string(file_path) else { return false };
+    let Ok(text) = std::fs::read_to_string(file_path) else {
+        return false;
+    };
     if text.is_empty() {
         return true;
     }
-    let first = text.lines().next().unwrap_or("").trim_start_matches('\u{FEFF}');
-    let Ok(head) = serde_json::from_str::<Value>(first) else { return false };
+    let first = text
+        .lines()
+        .next()
+        .unwrap_or("")
+        .trim_start_matches('\u{FEFF}');
+    let Ok(head) = serde_json::from_str::<Value>(first) else {
+        return false;
+    };
     if !head.is_object() {
         return false;
     }
-    match head.get("chat_metadata").and_then(|m| m.get("integrity")).and_then(|i| i.as_str()) {
+    match head
+        .get("chat_metadata")
+        .and_then(|m| m.get("integrity"))
+        .and_then(|i| i.as_str())
+    {
         Some(existing) => existing == slug,
         None => true,
     }
@@ -188,7 +227,11 @@ fn check_integrity(file_path: &std::path::Path, slug: &str) -> bool {
 /// IntegrityMismatchError 的错误响应：`{error:'integrity'}` 400
 fn integrity_conflict(origin: Option<HeaderValue>) -> Response {
     apply_cors_resp(
-        (StatusCode::BAD_REQUEST, Json(json!({ "error": "integrity" }))).into_response(),
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "integrity" })),
+        )
+            .into_response(),
         origin,
     )
 }
@@ -235,8 +278,12 @@ fn try_save_chat(
 
 /// getChatData（chats.js:577-590）：逐行 tryParse 过滤
 fn get_chat_data(file_path: &std::path::Path) -> Vec<Value> {
-    let Ok(text) = std::fs::read_to_string(file_path) else { return Vec::new() };
-    text.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()).collect()
+    let Ok(text) = std::fs::read_to_string(file_path) else {
+        return Vec::new();
+    };
+    text.lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .collect()
 }
 
 /// formatBytes（util.js:197 → bytes.format）：人类可读，1024 进制单字符单位
@@ -280,7 +327,9 @@ fn get_chat_info(
             }
         }
     }
-    let Ok(text) = std::fs::read_to_string(file_path) else { return out };
+    let Ok(text) = std::fs::read_to_string(file_path) else {
+        return out;
+    };
     if text.is_empty() {
         return out;
     }
@@ -299,7 +348,9 @@ fn get_chat_info(
         if with_metadata && idx == 0 {
             if let Ok(head) = serde_json::from_str::<Value>(line) {
                 if let Some(meta) = head.get("chat_metadata") {
-                    out.as_object_mut().unwrap().insert("chat_metadata".into(), meta.clone());
+                    out.as_object_mut()
+                        .unwrap()
+                        .insert("chat_metadata".into(), meta.clone());
                 }
             }
         }
@@ -311,7 +362,9 @@ fn get_chat_info(
                         // matcher（chats.js:1013-1018）：每个片段至少命中任一文本
                         let mut buf: Vec<String> = vec![mes.to_string()];
                         buf.extend(last_mes_lines(&lines, idx));
-                        has_match = frags.iter().all(|f| buf.iter().any(|t| t.to_lowercase().contains(f)));
+                        has_match = frags
+                            .iter()
+                            .all(|f| buf.iter().any(|t| t.to_lowercase().contains(f)));
                     }
                 }
             }
@@ -322,14 +375,23 @@ fn get_chat_info(
     let last_line = lines.last().copied().unwrap_or("");
     let last_ok = serde_json::from_str::<Value>(last_line)
         .map(|v| {
-            v.get("name").is_some() || v.get("character_name").is_some() || v.get("chat_metadata").is_some()
+            v.get("name").is_some()
+                || v.get("character_name").is_some()
+                || v.get("chat_metadata").is_some()
         })
         .unwrap_or(false);
 
     let o = out.as_object_mut().unwrap();
     if last_ok {
         o.insert("chat_items".into(), json!(items.saturating_sub(1)));
-        o.insert("mes".into(), json!(if last_mes.is_empty() { "[The message is empty]" } else { &last_mes }));
+        o.insert(
+            "mes".into(),
+            json!(if last_mes.is_empty() {
+                "[The message is empty]"
+            } else {
+                &last_mes
+            }),
+        );
         // 末行 send_date 或 mtime ISO
         let send_date = serde_json::from_str::<Value>(last_line)
             .ok()
@@ -380,27 +442,51 @@ fn ok_json(origin: Option<HeaderValue>, v: Value) -> Response {
  * ------------------------------------------------------------------ */
 
 /// POST /api/chats/save {avatar_url, file_name, chat[], force}（manifest #10）
-pub fn save(st: &BackendState, svc: &ChatsService, body: &Value, origin: Option<HeaderValue>) -> Response {
+pub fn save(
+    st: &BackendState,
+    svc: &ChatsService,
+    body: &Value,
+    origin: Option<HeaderValue>,
+) -> Response {
     let Some(avatar) = body.get("avatar_url").and_then(|v| v.as_str()) else {
-        return apply_cors_resp(err_json(StatusCode::BAD_REQUEST, "缺少 avatar_url").into_response(), origin);
+        return apply_cors_resp(
+            err_json(StatusCode::BAD_REQUEST, "缺少 avatar_url").into_response(),
+            origin,
+        );
     };
     let Some(file_name) = body.get("file_name").and_then(|v| v.as_str()) else {
-        return apply_cors_resp(err_json(StatusCode::BAD_REQUEST, "缺少 file_name").into_response(), origin);
+        return apply_cors_resp(
+            err_json(StatusCode::BAD_REQUEST, "缺少 file_name").into_response(),
+            origin,
+        );
     };
     let Some(chat) = body.get("chat").and_then(|v| v.as_array()) else {
         return apply_cors_resp(
-            (StatusCode::BAD_REQUEST, Json(json!({ "error": "The request's body.chat is not an array." })))
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": "The request's body.chat is not an array." })),
+            )
                 .into_response(),
             origin,
         );
     };
     let stem = match crate::pathguard::component(avatar.trim_end_matches(".png")) {
         Ok(s) => s,
-        Err(e) => return apply_cors_resp(err_json(StatusCode::FORBIDDEN, &e.to_string()).into_response(), origin),
+        Err(e) => {
+            return apply_cors_resp(
+                err_json(StatusCode::FORBIDDEN, &e.to_string()).into_response(),
+                origin,
+            )
+        }
     };
     let safe_file = match crate::pathguard::component(&format!("{file_name}.jsonl")) {
         Ok(s) => s,
-        Err(e) => return apply_cors_resp(err_json(StatusCode::FORBIDDEN, &e.to_string()).into_response(), origin),
+        Err(e) => {
+            return apply_cors_resp(
+                err_json(StatusCode::FORBIDDEN, &e.to_string()).into_response(),
+                origin,
+            )
+        }
     };
     let path = chats_dir(st).join(&stem).join(safe_file);
     let force = body.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -443,25 +529,44 @@ pub fn rename(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> R
         body.get("original_file").and_then(|v| v.as_str()),
         body.get("renamed_file").and_then(|v| v.as_str()),
     ) else {
-        return apply_cors_resp(err_json(StatusCode::BAD_REQUEST, "缺少 original_file/renamed_file").into_response(), origin);
+        return apply_cors_resp(
+            err_json(StatusCode::BAD_REQUEST, "缺少 original_file/renamed_file").into_response(),
+            origin,
+        );
     };
-    let is_group = body.get("is_group").and_then(|v| v.as_bool()).unwrap_or(false);
+    let is_group = body
+        .get("is_group")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let folder = if is_group {
         group_chats_dir(st)
     } else {
         match body.get("avatar_url").and_then(|v| v.as_str()) {
             Some(a) => match crate::pathguard::component(a.trim_end_matches(".png")) {
                 Ok(s) => chats_dir(st).join(s),
-                Err(e) => return apply_cors_resp(err_json(StatusCode::FORBIDDEN, &e.to_string()).into_response(), origin),
+                Err(e) => {
+                    return apply_cors_resp(
+                        err_json(StatusCode::FORBIDDEN, &e.to_string()).into_response(),
+                        origin,
+                    )
+                }
             },
-            None => return apply_cors_resp(err_json(StatusCode::BAD_REQUEST, "缺少 avatar_url").into_response(), origin),
+            None => {
+                return apply_cors_resp(
+                    err_json(StatusCode::BAD_REQUEST, "缺少 avatar_url").into_response(),
+                    origin,
+                )
+            }
         }
     };
     let (Ok(orig_safe), Ok(new_safe)) = (
         crate::pathguard::component(&format!("{original}.jsonl")),
         crate::pathguard::component(&format!("{renamed}.jsonl")),
     ) else {
-        return apply_cors_resp(err_json(StatusCode::FORBIDDEN, "非法文件名").into_response(), origin);
+        return apply_cors_resp(
+            err_json(StatusCode::FORBIDDEN, "非法文件名").into_response(),
+            origin,
+        );
     };
     let from = folder.join(orig_safe);
     let to = folder.join(new_safe);
@@ -469,7 +574,10 @@ pub fn rename(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> R
         return ok_json(origin, json!({ "error": true }));
     }
     match std::fs::rename(&from, &to) {
-        Ok(()) => ok_json(origin, json!({ "ok": true, "sanitizedFileName": to.file_stem().and_then(|s| s.to_str()).unwrap_or("") })),
+        Ok(()) => ok_json(
+            origin,
+            json!({ "ok": true, "sanitizedFileName": to.file_stem().and_then(|s| s.to_str()).unwrap_or("") }),
+        ),
         Err(_) => ok_json(origin, json!({ "error": true })),
     }
 }
@@ -480,14 +588,27 @@ pub fn delete(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> R
         body.get("avatar_url").and_then(|v| v.as_str()),
         body.get("chatfile").and_then(|v| v.as_str()),
     ) else {
-        return apply_cors_resp(err_json(StatusCode::BAD_REQUEST, "缺少 avatar_url/chatfile").into_response(), origin);
+        return apply_cors_resp(
+            err_json(StatusCode::BAD_REQUEST, "缺少 avatar_url/chatfile").into_response(),
+            origin,
+        );
     };
-    let chatfile = if !chatfile.contains('.') { format!("{chatfile}.jsonl") } else { chatfile.to_string() };
+    let chatfile = if !chatfile.contains('.') {
+        format!("{chatfile}.jsonl")
+    } else {
+        chatfile.to_string()
+    };
     let Ok(stem) = crate::pathguard::component(avatar.trim_end_matches(".png")) else {
-        return apply_cors_resp(err_json(StatusCode::FORBIDDEN, "非法目录名").into_response(), origin);
+        return apply_cors_resp(
+            err_json(StatusCode::FORBIDDEN, "非法目录名").into_response(),
+            origin,
+        );
     };
     let Ok(safe_file) = crate::pathguard::component(&chatfile) else {
-        return apply_cors_resp(err_json(StatusCode::FORBIDDEN, "非法文件名").into_response(), origin);
+        return apply_cors_resp(
+            err_json(StatusCode::FORBIDDEN, "非法文件名").into_response(),
+            origin,
+        );
     };
     let p = chats_dir(st).join(stem).join(safe_file);
     match std::fs::remove_file(&p) {
@@ -498,11 +619,20 @@ pub fn delete(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> R
 
 /// POST /api/chats/search {query, avatar_url, group_id}（manifest #14）
 pub fn search(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
-    let query = body.get("query").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let query = body
+        .get("query")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     let fragments: Vec<String> = if query.trim().is_empty() {
         Vec::new()
     } else {
-        query.trim().to_lowercase().split_whitespace().map(|s| s.to_string()).collect()
+        query
+            .trim()
+            .to_lowercase()
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .collect()
     };
     let group_id = body.get("group_id").and_then(|v| v.as_str());
 
@@ -560,11 +690,17 @@ pub fn search(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> R
     let mut results = Vec::new();
     for f in chat_files {
         let info = get_chat_info(&f, None, false, Some(&fragments));
-        let file_id = info.get("file_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let file_id = info
+            .get("file_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         let items = info.get("chat_items").and_then(|v| v.as_u64()).unwrap_or(0);
         let matched = info.get("match").and_then(|v| v.as_bool()).unwrap_or(false);
         // 文件名命中也算（chats.js:1023）
-        let name_hit = fragments.iter().all(|fr| file_id.to_lowercase().contains(fr));
+        let name_hit = fragments
+            .iter()
+            .all(|fr| file_id.to_lowercase().contains(fr));
         if file_id.is_empty() {
             continue;
         }
@@ -601,11 +737,23 @@ fn preview_message(last: &str) -> String {
 
 /// POST /api/chats/recent {max, metadata, pinned[]}（manifest #13）
 /// 三来源聚合：characters/<stem>/、chats 根 jsonl、groups → group_chats。
-pub fn recent(st: &BackendState, svc: &ChatsService, body: &Value, origin: Option<HeaderValue>) -> Response {
+pub fn recent(
+    st: &BackendState,
+    svc: &ChatsService,
+    body: &Value,
+    origin: Option<HeaderValue>,
+) -> Response {
     let _ = svc; // 备份状态不在 recent 使用；保留签名一致性
-    let with_metadata = body.get("metadata").and_then(|v| v.as_bool()).unwrap_or(false);
+    let with_metadata = body
+        .get("metadata")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let max = body.get("max").and_then(|v| v.as_u64()).unwrap_or(u64::MAX) as usize;
-    let pinned = body.get("pinned").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let pinned = body
+        .get("pinned")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
 
     struct Item {
         path: std::path::PathBuf,
@@ -621,13 +769,27 @@ pub fn recent(st: &BackendState, svc: &ChatsService, body: &Value, origin: Optio
             if !dir.is_dir() {
                 continue;
             }
-            let stem = dir.file_name().and_then(|s| s.to_str()).unwrap_or("").to_string();
+            let stem = dir
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
             if let Ok(files) = std::fs::read_dir(&dir) {
                 for f in files.flatten() {
                     let p = f.path();
                     if p.extension().and_then(|x| x.to_str()) == Some("jsonl") {
-                        let mtime = f.metadata().ok().and_then(|m| m.modified().ok()).and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_millis() as u64).unwrap_or(0);
-                        all.push(Item { path: p, mtime, extra: json!({ "avatar": format!("{stem}.png") }) });
+                        let mtime = f
+                            .metadata()
+                            .ok()
+                            .and_then(|m| m.modified().ok())
+                            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                            .map(|d| d.as_millis() as u64)
+                            .unwrap_or(0);
+                        all.push(Item {
+                            path: p,
+                            mtime,
+                            extra: json!({ "avatar": format!("{stem}.png") }),
+                        });
                     }
                 }
             }
@@ -638,8 +800,18 @@ pub fn recent(st: &BackendState, svc: &ChatsService, body: &Value, origin: Optio
         for e in rd.flatten() {
             let p = e.path();
             if p.is_file() && p.extension().and_then(|x| x.to_str()) == Some("jsonl") {
-                let mtime = e.metadata().ok().and_then(|m| m.modified().ok()).and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_millis() as u64).unwrap_or(0);
-                all.push(Item { path: p, mtime, extra: json!({}) });
+                let mtime = e
+                    .metadata()
+                    .ok()
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0);
+                all.push(Item {
+                    path: p,
+                    mtime,
+                    extra: json!({}),
+                });
             }
         }
     }
@@ -652,14 +824,27 @@ pub fn recent(st: &BackendState, svc: &ChatsService, body: &Value, origin: Optio
             }
             if let Ok(text) = std::fs::read_to_string(&p) {
                 if let Ok(g) = serde_json::from_str::<Value>(&text) {
-                    let gid = g.get("id").and_then(|i| i.as_str()).unwrap_or("").to_string();
+                    let gid = g
+                        .get("id")
+                        .and_then(|i| i.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     if let Some(chats) = g.get("chats").and_then(|c| c.as_array()) {
                         for c in chats {
                             if let Some(id) = c.as_str() {
                                 let f = group_chats_dir(st).join(format!("{id}.jsonl"));
                                 if f.is_file() {
-                                    let mtime = std::fs::metadata(&f).ok().and_then(|m| m.modified().ok()).and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_millis() as u64).unwrap_or(0);
-                                    all.push(Item { path: f, mtime, extra: json!({ "group": gid }) });
+                                    let mtime = std::fs::metadata(&f)
+                                        .ok()
+                                        .and_then(|m| m.modified().ok())
+                                        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                                        .map(|d| d.as_millis() as u64)
+                                        .unwrap_or(0);
+                                    all.push(Item {
+                                        path: f,
+                                        mtime,
+                                        extra: json!({ "group": gid }),
+                                    });
                                 }
                             }
                         }
@@ -674,8 +859,10 @@ pub fn recent(st: &BackendState, svc: &ChatsService, body: &Value, origin: Optio
         let fname = it.path.file_name().and_then(|s| s.to_str()).unwrap_or("");
         pinned.iter().any(|p| {
             p.get("file_name").and_then(|f| f.as_str()) == Some(fname)
-                && (p.get("avatar").and_then(|a| a.as_str()) == it.extra.get("avatar").and_then(|a| a.as_str())
-                    || p.get("group").and_then(|a| a.as_str()) == it.extra.get("group").and_then(|a| a.as_str()))
+                && (p.get("avatar").and_then(|a| a.as_str())
+                    == it.extra.get("avatar").and_then(|a| a.as_str())
+                    || p.get("group").and_then(|a| a.as_str())
+                        == it.extra.get("group").and_then(|a| a.as_str()))
         })
     };
     all.sort_by(|a, b| {
@@ -691,7 +878,12 @@ pub fn recent(st: &BackendState, svc: &ChatsService, body: &Value, origin: Optio
     let mut out = Vec::new();
     for it in all {
         let info = get_chat_info(&it.path, Some(it.extra), with_metadata, None);
-        if info.get("file_name").and_then(|v| v.as_str()).map(|s| !s.is_empty()).unwrap_or(false) {
+        if info
+            .get("file_name")
+            .and_then(|v| v.as_str())
+            .map(|s| !s.is_empty())
+            .unwrap_or(false)
+        {
             out.push(info);
         }
     }
@@ -710,7 +902,10 @@ pub fn group_get(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -
     let Ok(safe) = crate::pathguard::component(&format!("{id}.jsonl")) else {
         return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
     };
-    ok_json(origin, Value::Array(get_chat_data(&group_chats_dir(st).join(safe))))
+    ok_json(
+        origin,
+        Value::Array(get_chat_data(&group_chats_dir(st).join(safe))),
+    )
 }
 
 /// POST /api/chats/group/info {id}（manifest #18）
@@ -721,7 +916,10 @@ pub fn group_info(st: &BackendState, body: &Value, origin: Option<HeaderValue>) 
     let Ok(safe) = crate::pathguard::component(&format!("{id}.jsonl")) else {
         return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
     };
-    ok_json(origin, get_chat_info(&group_chats_dir(st).join(safe), None, true, None))
+    ok_json(
+        origin,
+        get_chat_info(&group_chats_dir(st).join(safe), None, true, None),
+    )
 }
 
 /// POST /api/chats/group/delete {id}（manifest #17）
@@ -739,12 +937,20 @@ pub fn group_delete(st: &BackendState, body: &Value, origin: Option<HeaderValue>
 }
 
 /// POST /api/chats/group/save {id, chat[], force}（manifest #16）
-pub fn group_save(st: &BackendState, svc: &ChatsService, body: &Value, origin: Option<HeaderValue>) -> Response {
+pub fn group_save(
+    st: &BackendState,
+    svc: &ChatsService,
+    body: &Value,
+    origin: Option<HeaderValue>,
+) -> Response {
     let Some(id) = body.get("id").and_then(|v| v.as_str()) else {
         return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
     };
     let Some(chat) = body.get("chat").and_then(|v| v.as_array()) else {
-        return ok_json(origin, json!({ "error": "The request's body.chat is not an array." }));
+        return ok_json(
+            origin,
+            json!({ "error": "The request's body.chat is not an array." }),
+        );
     };
     let Ok(safe) = crate::pathguard::component(&format!("{id}.jsonl")) else {
         return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
@@ -754,7 +960,10 @@ pub fn group_save(st: &BackendState, svc: &ChatsService, body: &Value, origin: O
     match try_save_chat(st, svc, chat, &path, force, id) {
         Ok(()) => ok_json(origin, json!({ "ok": true })),
         Err("integrity") => integrity_conflict(origin),
-        Err(_) => ok_json(origin, json!({ "error": "An error has occurred, see the console logs for more information." })),
+        Err(_) => ok_json(
+            origin,
+            json!({ "error": "An error has occurred, see the console logs for more information." }),
+        ),
     }
 }
 
@@ -802,10 +1011,14 @@ mod tests {
         let r = save(&st, &s, &body, None);
         assert_eq!(r.status().as_u16(), 200);
 
-        let r = get(&st, &json!({ "avatar_url": "chara.png", "file_name": "c1" }), None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let r = get(
+            &st,
+            &json!({ "avatar_url": "chara.png", "file_name": "c1" }),
+            None,
+        );
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         let arr = v.as_array().unwrap();
         assert_eq!(arr.len(), 2);
@@ -822,27 +1035,47 @@ mod tests {
         let chat1 = json!([
             { "name": "U", "is_user": true, "mes": "v1", "chat_metadata": { "integrity": "slug-1" } },
         ]);
-        save(&st, &s, &json!({ "avatar_url": "chara.png", "file_name": "c", "chat": chat1 }), None);
+        save(
+            &st,
+            &s,
+            &json!({ "avatar_url": "chara.png", "file_name": "c", "chat": chat1 }),
+            None,
+        );
 
         // 不同 slug → 400 {error:'integrity'}
         let chat2 = json!([
             { "name": "U", "is_user": true, "mes": "v2", "chat_metadata": { "integrity": "slug-2" } },
         ]);
-        let r = save(&st, &s, &json!({ "avatar_url": "chara.png", "file_name": "c", "chat": chat2 }), None);
+        let r = save(
+            &st,
+            &s,
+            &json!({ "avatar_url": "chara.png", "file_name": "c", "chat": chat2 }),
+            None,
+        );
         assert_eq!(r.status().as_u16(), 400);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["error"], "integrity");
 
         // force=true 覆盖
-        let r = save(&st, &s, &json!({ "avatar_url": "chara.png", "file_name": "c", "chat": chat2, "force": true }), None);
+        let r = save(
+            &st,
+            &s,
+            &json!({ "avatar_url": "chara.png", "file_name": "c", "chat": chat2, "force": true }),
+            None,
+        );
         assert_eq!(r.status().as_u16(), 200);
 
         // 无 integrity 元数据的旧卡 → 通过
         let legacy = json!([{ "chat_metadata": {} }, { "name": "C", "mes": "legacy" }]);
-        let r = save(&st, &s, &json!({ "avatar_url": "chara.png", "file_name": "legacy", "chat": legacy }), None);
+        let r = save(
+            &st,
+            &s,
+            &json!({ "avatar_url": "chara.png", "file_name": "legacy", "chat": legacy }),
+            None,
+        );
         assert_eq!(r.status().as_u16(), 200);
     }
 
@@ -852,7 +1085,10 @@ mod tests {
         let k1 = backup_key("林晚棠");
         let k2 = backup_key("林晚棠2");
         assert_ne!(k1, k2, "不同 CJK 名不得共享配额");
-        assert!(k1.ends_with(|c: char| c.is_ascii_hexdigit()), "带 sha256 后缀");
+        assert!(
+            k1.ends_with(|c: char| c.is_ascii_hexdigit()),
+            "带 sha256 后缀"
+        );
         assert_eq!(backup_key("plain-chat"), "plain_chat");
 
         // 节流：同 key 连续调用只备份一次；内容变化后窗口内也不再备份（简化语义）
@@ -863,7 +1099,11 @@ mod tests {
         let count = std::fs::read_dir(&dir).unwrap().count();
         assert_eq!(count, 1);
         backup_chat(&st, &s, "x", "content-2");
-        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "节流窗口内不重复");
+        assert_eq!(
+            std::fs::read_dir(&dir).unwrap().count(),
+            1,
+            "节流窗口内不重复"
+        );
     }
 
     #[test]
@@ -871,28 +1111,50 @@ mod tests {
         let st = st_with("rd");
         let s = svc();
         let chat = json!([{ "chat_metadata": {} }, { "name": "C", "mes": "x" }]);
-        save(&st, &s, &json!({ "avatar_url": "chara.png", "file_name": "old", "chat": chat }), None);
+        save(
+            &st,
+            &s,
+            &json!({ "avatar_url": "chara.png", "file_name": "old", "chat": chat }),
+            None,
+        );
         let dir = chats_dir(&st).join("chara");
 
         // rename：原文件存在、目标不存在
-        let r = rename(&st, &json!({ "avatar_url": "chara.png", "original_file": "old", "renamed_file": "new" }), None);
+        let r = rename(
+            &st,
+            &json!({ "avatar_url": "chara.png", "original_file": "old", "renamed_file": "new" }),
+            None,
+        );
         assert_eq!(r.status().as_u16(), 200);
         assert!(dir.join("new.jsonl").is_file());
         assert!(!dir.join("old.jsonl").exists());
         // 目标已存在 → {error:true}
-        save(&st, &s, &json!({ "avatar_url": "chara.png", "file_name": "other", "chat": chat }), None);
-        let r = rename(&st, &json!({ "avatar_url": "chara.png", "original_file": "new", "renamed_file": "other" }), None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        save(
+            &st,
+            &s,
+            &json!({ "avatar_url": "chara.png", "file_name": "other", "chat": chat }),
+            None,
+        );
+        let r = rename(
+            &st,
+            &json!({ "avatar_url": "chara.png", "original_file": "new", "renamed_file": "other" }),
+            None,
+        );
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["error"], true);
 
         // delete：不带扩展名自动补 .jsonl
-        let r = delete(&st, &json!({ "avatar_url": "chara.png", "chatfile": "new" }), None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let r = delete(
+            &st,
+            &json!({ "avatar_url": "chara.png", "chatfile": "new" }),
+            None,
+        );
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["ok"], true);
         assert!(!dir.join("new.jsonl").exists());
@@ -902,30 +1164,51 @@ mod tests {
     fn search_matches_messages_and_names() {
         let st = st_with("search");
         let s = svc();
-        save(&st, &s, &json!({ "avatar_url": "chara.png", "file_name": "hit", "chat": json!([
+        save(
+            &st,
+            &s,
+            &json!({ "avatar_url": "chara.png", "file_name": "hit", "chat": json!([
             { "name": "U", "is_user": true, "chat_metadata": {} },
             { "name": "C", "mes": "the quick brown fox" },
-        ]) }), None);
-        save(&st, &s, &json!({ "avatar_url": "chara.png", "file_name": "miss", "chat": json!([
+        ]) }),
+            None,
+        );
+        save(
+            &st,
+            &s,
+            &json!({ "avatar_url": "chara.png", "file_name": "miss", "chat": json!([
             { "name": "U", "is_user": true, "chat_metadata": {} },
             { "name": "C", "mes": "nothing here" },
-        ]) }), None);
+        ]) }),
+            None,
+        );
 
-        let r = search(&st, &json!({ "avatar_url": "chara.png", "query": "QUICK fox" }), None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let r = search(
+            &st,
+            &json!({ "avatar_url": "chara.png", "query": "QUICK fox" }),
+            None,
+        );
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         let arr = v.as_array().unwrap();
         assert_eq!(arr.len(), 1, "大小写不敏感 + 多片段 AND");
         assert_eq!(arr[0]["file_name"], "hit");
-        assert!(arr[0]["preview_message"].as_str().unwrap().contains("quick"));
+        assert!(arr[0]["preview_message"]
+            .as_str()
+            .unwrap()
+            .contains("quick"));
 
         // 文件名命中也算
-        let r = search(&st, &json!({ "avatar_url": "chara.png", "query": "miss" }), None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let r = search(
+            &st,
+            &json!({ "avatar_url": "chara.png", "query": "miss" }),
+            None,
+        );
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v.as_array().unwrap().len(), 1);
     }
@@ -935,33 +1218,47 @@ mod tests {
         let st = st_with("recent");
         let s = svc();
         // 角色会话
-        save(&st, &s, &json!({ "avatar_url": "chara.png", "file_name": "c1", "chat": json!([
+        save(
+            &st,
+            &s,
+            &json!({ "avatar_url": "chara.png", "file_name": "c1", "chat": json!([
             { "name": "U", "is_user": true, "chat_metadata": { "note_prompt": "AN" } },
             { "name": "C", "mes": "char chat" },
-        ]), "metadata": true }), None);
+        ]), "metadata": true }),
+            None,
+        );
         // 群聊：groups/g.json → group_chats/gc1.jsonl
         std::fs::write(
             groups_dir(&st).join("g.json"),
             json!({ "id": "grp-1", "chats": ["gc1"] }).to_string(),
-        ).unwrap();
+        )
+        .unwrap();
         std::fs::write(
             group_chats_dir(&st).join("gc1.jsonl"),
             "{\"chat_metadata\":{}}\n{\"mes\":\"group chat\"}\n",
-        ).unwrap();
+        )
+        .unwrap();
         // 根 jsonl
-        std::fs::write(chats_dir(&st).join("loose.jsonl"), "{\"chat_metadata\":{}}\n{\"mes\":\"loose\"}\n").unwrap();
+        std::fs::write(
+            chats_dir(&st).join("loose.jsonl"),
+            "{\"chat_metadata\":{}}\n{\"mes\":\"loose\"}\n",
+        )
+        .unwrap();
 
         let r = recent(&st, &s, &json!({ "max": 10, "metadata": true }), None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         let arr = v.as_array().unwrap();
         assert_eq!(arr.len(), 3, "三来源聚合");
         // 每项带来源标记（avatar / group）
         assert!(arr.iter().any(|i| i["avatar"] == "chara.png"));
         assert!(arr.iter().any(|i| i["group"] == "grp-1"));
-        assert!(arr.iter().any(|i| i["chat_metadata"].is_object()), "metadata=true 读首行");
+        assert!(
+            arr.iter().any(|i| i["chat_metadata"].is_object()),
+            "metadata=true 读首行"
+        );
     }
 
     #[test]
@@ -973,23 +1270,23 @@ mod tests {
         assert_eq!(r.status().as_u16(), 200);
 
         let r = group_get(&st, &json!({ "id": "gc1" }), None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v.as_array().unwrap().len(), 2);
 
         let r = group_info(&st, &json!({ "id": "gc1" }), None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["chat_items"], 1);
 
         let r = group_delete(&st, &json!({ "id": "gc1" }), None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["ok"], true);
     }

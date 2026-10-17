@@ -58,7 +58,11 @@ pub fn discover(st: &BackendState, origin: Option<HeaderValue>) -> Response {
 /// POST /api/quick-replies/save {name, ...}（manifest #67）
 /// QR 集整文件落盘 QuickReplies/<name>.json；200 空 body（前端 stPostVoid）。
 pub fn qr_save(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
-    let Some(name) = body.get("name").and_then(|v| v.as_str()).filter(|n| !n.trim().is_empty()) else {
+    let Some(name) = body
+        .get("name")
+        .and_then(|v| v.as_str())
+        .filter(|n| !n.trim().is_empty())
+    else {
         return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
     };
     let Ok(safe) = crate::pathguard::component(&format!("{name}.json")) else {
@@ -74,7 +78,10 @@ pub fn qr_save(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> 
     let tmp = p.with_extension("json.tmp");
     match std::fs::write(&tmp, &pretty).and_then(|_| std::fs::rename(&tmp, &p)) {
         Ok(()) => apply_cors_resp(StatusCode::OK.into_response(), origin),
-        Err(e) => err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("QR 写入失败：{e}")),
+        Err(e) => err_json(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("QR 写入失败：{e}"),
+        ),
     }
 }
 
@@ -122,9 +129,9 @@ mod tests {
         std::fs::create_dir_all(dir.join("ghost-ext")).unwrap(); // 无 manifest
 
         let r = discover(&st, None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         let arr = v.as_array().unwrap();
         assert_eq!(arr.len(), 1);
@@ -139,7 +146,10 @@ mod tests {
         let r = qr_save(&st, &body, None);
         assert_eq!(r.status().as_u16(), 200);
         let pretty = std::fs::read_to_string(
-            st.data_root.join("default-user").join("QuickReplies").join("我的集.json"),
+            st.data_root
+                .join("default-user")
+                .join("QuickReplies")
+                .join("我的集.json"),
         )
         .unwrap();
         assert!(pretty.contains("qrList"), "整文件写入");

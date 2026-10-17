@@ -50,10 +50,21 @@ fn process_character(st: &BackendState, file_name: &str) -> Result<Value, String
     let mut character = chara_card::to_v2_response(card);
 
     let stat = std::fs::metadata(&p).map_err(|e| format!("stat 失败：{e}"))?;
-    let created = stat.created().or_else(|_| stat.modified()).unwrap_or(UNIX_EPOCH);
-    let ctime_ms = created.duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+    let created = stat
+        .created()
+        .or_else(|_| stat.modified())
+        .unwrap_or(UNIX_EPOCH);
+    let ctime_ms = created
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
     // create_date：ISO 字符串（characters.js:418）
-    let iso = iso8601_from_unix(created.duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0));
+    let iso = iso8601_from_unix(
+        created
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0),
+    );
 
     // chat 统计（calculateChatSize：chats/<name>/ 字节和 + 最新 mtime）
     let stem = file_name.trim_end_matches(".png");
@@ -88,7 +99,12 @@ fn process_character(st: &BackendState, file_name: &str) -> Result<Value, String
     obj.insert("create_date".into(), json!(iso));
     obj.insert("date_last_chat".into(), json!(date_last_chat));
     obj.insert("chat_size".into(), json!(chat_size));
-    obj.insert("data_size".into(), json!(chara_card::calculate_data_size(obj.get("data").unwrap_or(&Value::Null))));
+    obj.insert(
+        "data_size".into(),
+        json!(chara_card::calculate_data_size(
+            obj.get("data").unwrap_or(&Value::Null)
+        )),
+    );
     Ok(character)
 }
 
@@ -96,7 +112,11 @@ fn process_character(st: &BackendState, file_name: &str) -> Result<Value, String
 fn iso8601_from_unix(secs: i64) -> String {
     let days = secs.div_euclid(86400);
     let rem = secs.rem_euclid(86400);
-    let (h, m, s) = ((rem / 3600) as u32, ((rem % 3600) / 60) as u32, (rem % 60) as u32);
+    let (h, m, s) = (
+        (rem / 3600) as u32,
+        ((rem % 3600) / 60) as u32,
+        (rem % 60) as u32,
+    );
     let z = days + 719468;
     let era = z.div_euclid(146097);
     let doe = z.rem_euclid(146097);
@@ -130,7 +150,11 @@ pub fn all(st: &BackendState, origin: Option<HeaderValue>) -> Response {
                 match process_character(st, &n) {
                     Ok(c) => {
                         // 过滤无名卡（ST .filter(c => c.name)）
-                        if c.get("name").and_then(|v| v.as_str()).map(|s| !s.is_empty()).unwrap_or(false) {
+                        if c.get("name")
+                            .and_then(|v| v.as_str())
+                            .map(|s| !s.is_empty())
+                            .unwrap_or(false)
+                        {
                             out.push(c);
                         }
                     }
@@ -144,7 +168,8 @@ pub fn all(st: &BackendState, origin: Option<HeaderValue>) -> Response {
         Err(_) => {
             // 目录不存在：ST 同语义抛错 → 500 {error:true}
             return apply_cors_resp(
-                err_json(StatusCode::INTERNAL_SERVER_ERROR, "characters 目录读取失败").into_response(),
+                err_json(StatusCode::INTERNAL_SERVER_ERROR, "characters 目录读取失败")
+                    .into_response(),
                 origin,
             );
         }
@@ -155,37 +180,62 @@ pub fn all(st: &BackendState, origin: Option<HeaderValue>) -> Response {
 /// POST /api/characters/get {avatar_url}（manifest #2）
 pub fn get(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
     let Some(avatar) = body.get("avatar_url").and_then(|v| v.as_str()) else {
-        return apply_cors_resp(err_json(StatusCode::BAD_REQUEST, "缺少 avatar_url").into_response(), origin);
+        return apply_cors_resp(
+            err_json(StatusCode::BAD_REQUEST, "缺少 avatar_url").into_response(),
+            origin,
+        );
     };
     let p = match character_path(st, avatar) {
         Ok(p) => p,
-        Err(e) => return apply_cors_resp(err_json(StatusCode::FORBIDDEN, &e).into_response(), origin),
+        Err(e) => {
+            return apply_cors_resp(err_json(StatusCode::FORBIDDEN, &e).into_response(), origin)
+        }
     };
     if !p.is_file() {
-        return apply_cors_resp(err_json(StatusCode::NOT_FOUND, "角色卡不存在").into_response(), origin);
+        return apply_cors_resp(
+            err_json(StatusCode::NOT_FOUND, "角色卡不存在").into_response(),
+            origin,
+        );
     }
     match process_character(st, avatar) {
         Ok(c) => apply_cors_resp(Json(c).into_response(), origin),
-        Err(e) => apply_cors_resp(err_json(StatusCode::INTERNAL_SERVER_ERROR, &e).into_response(), origin),
+        Err(e) => apply_cors_resp(
+            err_json(StatusCode::INTERNAL_SERVER_ERROR, &e).into_response(),
+            origin,
+        ),
     }
 }
 
 /// POST /api/characters/chats {avatar_url, metadata, simple}（manifest #3）
 pub fn chats(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
     let Some(avatar) = body.get("avatar_url").and_then(|v| v.as_str()) else {
-        return apply_cors_resp(err_json(StatusCode::BAD_REQUEST, "缺少 avatar_url").into_response(), origin);
+        return apply_cors_resp(
+            err_json(StatusCode::BAD_REQUEST, "缺少 avatar_url").into_response(),
+            origin,
+        );
     };
     let stem = avatar.trim_end_matches(".png");
     let dir = match crate::pathguard::component(stem) {
         Ok(safe) => chats_dir(st).join(safe),
-        Err(e) => return apply_cors_resp(err_json(StatusCode::FORBIDDEN, &e.to_string()).into_response(), origin),
+        Err(e) => {
+            return apply_cors_resp(
+                err_json(StatusCode::FORBIDDEN, &e.to_string()).into_response(),
+                origin,
+            )
+        }
     };
     if !dir.exists() {
         // ST：无 chats 目录 → {error:true}（前端归一化为 []）
         return apply_cors_resp(Json(json!({ "error": true })).into_response(), origin);
     }
-    let simple = body.get("simple").and_then(|v| v.as_bool()).unwrap_or(false);
-    let with_metadata = body.get("metadata").and_then(|v| v.as_bool()).unwrap_or(false);
+    let simple = body
+        .get("simple")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let with_metadata = body
+        .get("metadata")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     let mut names: Vec<String> = match std::fs::read_dir(&dir) {
         Ok(rd) => rd
@@ -195,7 +245,11 @@ pub fn chats(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Re
             .collect(),
         Err(e) => {
             return apply_cors_resp(
-                err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("读取 chats 失败：{e}")).into_response(),
+                err_json(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    &format!("读取 chats 失败：{e}"),
+                )
+                .into_response(),
                 origin,
             );
         }
@@ -217,7 +271,12 @@ pub fn chats(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Re
             Ok(s) => s,
             Err(_) => continue,
         };
-        let mtime_ms = stat.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_millis() as u64).unwrap_or(0);
+        let mtime_ms = stat
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
         let mut item = json!({
             "file_name": f,
             "file_id": f.trim_end_matches(".jsonl"),
@@ -230,7 +289,9 @@ pub fn chats(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Re
                 if let Some(first) = text.lines().next() {
                     if let Ok(head) = serde_json::from_str::<Value>(first) {
                         if let Some(meta) = head.get("chat_metadata") {
-                            item.as_object_mut().unwrap().insert("chat_metadata".into(), meta.clone());
+                            item.as_object_mut()
+                                .unwrap()
+                                .insert("chat_metadata".into(), meta.clone());
                         }
                     }
                 }
@@ -244,18 +305,29 @@ pub fn chats(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Re
 /// POST /api/characters/delete {avatar_url, delete_chats}（manifest #6）
 pub fn delete(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
     let Some(avatar) = body.get("avatar_url").and_then(|v| v.as_str()) else {
-        return apply_cors_resp(err_json(StatusCode::BAD_REQUEST, "缺少 avatar_url").into_response(), origin);
+        return apply_cors_resp(
+            err_json(StatusCode::BAD_REQUEST, "缺少 avatar_url").into_response(),
+            origin,
+        );
     };
     // ST：avatar_url !== sanitize(avatar_url) → 403（characters.js:1421）
     if avatar != crate::pathguard::sanitize(avatar) {
-        return apply_cors_resp(err_json(StatusCode::FORBIDDEN, "非法文件名").into_response(), origin);
+        return apply_cors_resp(
+            err_json(StatusCode::FORBIDDEN, "非法文件名").into_response(),
+            origin,
+        );
     }
     let p = match character_path(st, avatar) {
         Ok(p) => p,
-        Err(e) => return apply_cors_resp(err_json(StatusCode::FORBIDDEN, &e).into_response(), origin),
+        Err(e) => {
+            return apply_cors_resp(err_json(StatusCode::FORBIDDEN, &e).into_response(), origin)
+        }
     };
     if !p.is_file() {
-        return apply_cors_resp(err_json(StatusCode::BAD_REQUEST, "角色卡不存在").into_response(), origin);
+        return apply_cors_resp(
+            err_json(StatusCode::BAD_REQUEST, "角色卡不存在").into_response(),
+            origin,
+        );
     }
     if let Err(e) = std::fs::remove_file(&p) {
         return apply_cors_resp(
@@ -264,9 +336,16 @@ pub fn delete(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> R
         );
     }
     let stem = avatar.trim_end_matches(".png");
-    if body.get("delete_chats").and_then(|v| v.as_bool()).unwrap_or(false) {
+    if body
+        .get("delete_chats")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
         if stem.is_empty() {
-            return apply_cors_resp(err_json(StatusCode::FORBIDDEN, "非法目录名").into_response(), origin);
+            return apply_cors_resp(
+                err_json(StatusCode::FORBIDDEN, "非法目录名").into_response(),
+                origin,
+            );
         }
         if let Ok(safe) = crate::pathguard::component(stem) {
             let _ = std::fs::remove_dir_all(chats_dir(st).join(safe));
@@ -282,18 +361,29 @@ pub fn rename(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> R
         body.get("avatar_url").and_then(|v| v.as_str()),
         body.get("new_name").and_then(|v| v.as_str()),
     ) else {
-        return apply_cors_resp(err_json(StatusCode::BAD_REQUEST, "缺少 avatar_url 或 new_name").into_response(), origin);
+        return apply_cors_resp(
+            err_json(StatusCode::BAD_REQUEST, "缺少 avatar_url 或 new_name").into_response(),
+            origin,
+        );
     };
     let old_path = match character_path(st, avatar) {
         Ok(p) => p,
-        Err(e) => return apply_cors_resp(err_json(StatusCode::FORBIDDEN, &e).into_response(), origin),
+        Err(e) => {
+            return apply_cors_resp(err_json(StatusCode::FORBIDDEN, &e).into_response(), origin)
+        }
     };
     if !old_path.is_file() {
-        return apply_cors_resp(err_json(StatusCode::INTERNAL_SERVER_ERROR, "角色卡不存在").into_response(), origin);
+        return apply_cors_resp(
+            err_json(StatusCode::INTERNAL_SERVER_ERROR, "角色卡不存在").into_response(),
+            origin,
+        );
     }
     let safe_new = crate::pathguard::sanitize(new_name);
     if safe_new.is_empty() {
-        return apply_cors_resp(err_json(StatusCode::BAD_REQUEST, "新名称净化后为空").into_response(), origin);
+        return apply_cors_resp(
+            err_json(StatusCode::BAD_REQUEST, "新名称净化后为空").into_response(),
+            origin,
+        );
     }
     // getPngName：重名追加序号（characters.js:1543-1547）
     let stem = get_png_name(&characters_dir(st), &safe_new);
@@ -305,15 +395,35 @@ pub fn rename(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> R
     // 读旧卡 → 改 name 两处 → 写新文件
     let raw = match std::fs::read(&old_path) {
         Ok(r) => r,
-        Err(e) => return apply_cors_resp(err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("读取失败：{e}")).into_response(), origin),
+        Err(e) => {
+            return apply_cors_resp(
+                err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("读取失败：{e}"))
+                    .into_response(),
+                origin,
+            )
+        }
     };
     let meta = match png::read_chara(&raw) {
         Ok(m) => m,
-        Err(e) => return apply_cors_resp(err_json(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()).into_response(), origin),
+        Err(e) => {
+            return apply_cors_resp(
+                err_json(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()).into_response(),
+                origin,
+            )
+        }
     };
     let mut card: Value = match serde_json::from_str(&meta) {
         Ok(c) => c,
-        Err(e) => return apply_cors_resp(err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("JSON 失败：{e}")).into_response(), origin),
+        Err(e) => {
+            return apply_cors_resp(
+                err_json(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    &format!("JSON 失败：{e}"),
+                )
+                .into_response(),
+                origin,
+            )
+        }
     };
     if let Some(o) = card.as_object_mut() {
         o.insert("name".into(), json!(safe_new));
@@ -324,11 +434,19 @@ pub fn rename(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> R
     let new_data = serde_json::to_string(&card).unwrap_or(meta.clone());
     let new_png = match png::write_chara(&raw, &new_data) {
         Ok(b) => b,
-        Err(e) => return apply_cors_resp(err_json(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()).into_response(), origin),
+        Err(e) => {
+            return apply_cors_resp(
+                err_json(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()).into_response(),
+                origin,
+            )
+        }
     };
     let new_path = old_path.with_file_name(&new_file);
     if let Err(e) = std::fs::write(&new_path, &new_png) {
-        return apply_cors_resp(err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("写入失败：{e}")).into_response(), origin);
+        return apply_cors_resp(
+            err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("写入失败：{e}")).into_response(),
+            origin,
+        );
     }
     // chats 目录迁移（旧名 → 新名）
     let old_stem = avatar.trim_end_matches(".png");
@@ -343,7 +461,11 @@ pub fn rename(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> R
 /// getPngName（characters.js:1543-1547）：重名时 base + 序号，最多 10000 次
 fn get_png_name(dir: &std::path::Path, base: &str) -> String {
     for i in 0..10_000u32 {
-        let cand = if i == 0 { base.to_string() } else { format!("{base}{i}") };
+        let cand = if i == 0 {
+            base.to_string()
+        } else {
+            format!("{base}{i}")
+        };
         if !dir.join(format!("{cand}.png")).exists() {
             return cand;
         }
@@ -371,12 +493,15 @@ pub async fn parse_multipart(
     content_type: &str,
     body: axum::body::Bytes,
 ) -> Result<MultipartData, String> {
-    let boundary = multer::parse_boundary(content_type).map_err(|e| format!("boundary 解析失败：{e}"))?;
-    let stream = futures_util::stream::once(async move {
-        Ok::<_, std::io::Error>(body)
-    });
+    let boundary =
+        multer::parse_boundary(content_type).map_err(|e| format!("boundary 解析失败：{e}"))?;
+    let stream = futures_util::stream::once(async move { Ok::<_, std::io::Error>(body) });
     let mut m = multer::Multipart::new(stream, boundary);
-    let mut out = MultipartData { avatar: None, avatar_filename: None, fields: Default::default() };
+    let mut out = MultipartData {
+        avatar: None,
+        avatar_filename: None,
+        fields: Default::default(),
+    };
     while let Some(field) = m
         .next_field()
         .await
@@ -385,10 +510,16 @@ pub async fn parse_multipart(
         let name = field.name().unwrap_or("").to_string();
         if name == "avatar" {
             out.avatar_filename = field.file_name().map(|s| s.to_string());
-            let bytes = field.bytes().await.map_err(|e| format!("avatar 读取失败：{e}"))?;
+            let bytes = field
+                .bytes()
+                .await
+                .map_err(|e| format!("avatar 读取失败：{e}"))?;
             out.avatar = Some(bytes.to_vec());
         } else {
-            let v = field.text().await.map_err(|e| format!("字段 {name} 读取失败：{e}"))?;
+            let v = field
+                .text()
+                .await
+                .map_err(|e| format!("字段 {name} 读取失败：{e}"))?;
             out.fields.insert(name, v);
         }
     }
@@ -430,14 +561,22 @@ pub async fn create(
     let fields: std::collections::HashMap<String, String>;
     let avatar: Option<Vec<u8>>;
     let avatar_filename: Option<String>;
-    if content_type.map(|c| c.starts_with("multipart/form-data")).unwrap_or(false) {
+    if content_type
+        .map(|c| c.starts_with("multipart/form-data"))
+        .unwrap_or(false)
+    {
         match parse_multipart(content_type.unwrap(), body).await {
             Ok(m) => {
                 fields = m.fields;
                 avatar = m.avatar;
                 avatar_filename = m.avatar_filename;
             }
-            Err(e) => return apply_cors_resp(err_json(StatusCode::BAD_REQUEST, &e).into_response(), origin),
+            Err(e) => {
+                return apply_cors_resp(
+                    err_json(StatusCode::BAD_REQUEST, &e).into_response(),
+                    origin,
+                )
+            }
         }
     } else {
         match serde_json::from_slice::<Value>(&body) {
@@ -468,7 +607,10 @@ pub async fn create(
     let raw_name = fields.get("ch_name").cloned().unwrap_or_default();
     let safe_name = crate::pathguard::sanitize(&raw_name);
     if safe_name.is_empty() {
-        return apply_cors_resp(err_json(StatusCode::BAD_REQUEST, "ch_name 缺失或净化后为空").into_response(), origin);
+        return apply_cors_resp(
+            err_json(StatusCode::BAD_REQUEST, "ch_name 缺失或净化后为空").into_response(),
+            origin,
+        );
     }
 
     // 上传了头像文件 → 魔数校验（S16：声明 png 内容必须真 PNG；T9 接线点）
@@ -478,13 +620,22 @@ pub async fn create(
             .and_then(|f| f.rsplit('.').next())
             .unwrap_or("png");
         if let Err(e) = super::uploads::check_extension(declared_ext) {
-            return apply_cors_resp(err_json(StatusCode::BAD_REQUEST, &e.to_string()).into_response(), origin);
+            return apply_cors_resp(
+                err_json(StatusCode::BAD_REQUEST, &e.to_string()).into_response(),
+                origin,
+            );
         }
         if let Err(e) = super::uploads::check_magic(declared_ext, bytes) {
-            return apply_cors_resp(err_json(StatusCode::BAD_REQUEST, &e.to_string()).into_response(), origin);
+            return apply_cors_resp(
+                err_json(StatusCode::BAD_REQUEST, &e.to_string()).into_response(),
+                origin,
+            );
         }
         if let Err(e) = super::uploads::check_size(bytes.len(), st.max_body_bytes) {
-            return apply_cors_resp(err_json(StatusCode::BAD_REQUEST, &e.to_string()).into_response(), origin);
+            return apply_cors_resp(
+                err_json(StatusCode::BAD_REQUEST, &e.to_string()).into_response(),
+                origin,
+            );
         }
     }
 
@@ -502,7 +653,10 @@ pub async fn create(
         None => get_png_name(&characters_dir(st), &safe_name),
     };
     if internal.is_empty() {
-        return apply_cors_resp(err_json(StatusCode::BAD_REQUEST, "内部名净化后为空").into_response(), origin);
+        return apply_cors_resp(
+            err_json(StatusCode::BAD_REQUEST, "内部名净化后为空").into_response(),
+            origin,
+        );
     }
     let avatar_name = format!("{internal}.png");
 
@@ -519,7 +673,10 @@ pub async fn create(
             let resp = (StatusCode::OK, avatar_name.clone());
             apply_cors_resp(resp.into_response(), origin)
         }
-        Err(e) => apply_cors_resp(err_json(StatusCode::INTERNAL_SERVER_ERROR, &e).into_response(), origin),
+        Err(e) => apply_cors_resp(
+            err_json(StatusCode::INTERNAL_SERVER_ERROR, &e).into_response(),
+            origin,
+        ),
     }
 }
 
@@ -533,13 +690,21 @@ pub async fn edit(
 ) -> Response {
     let fields: std::collections::HashMap<String, String>;
     let avatar: Option<Vec<u8>>;
-    if content_type.map(|c| c.starts_with("multipart/form-data")).unwrap_or(false) {
+    if content_type
+        .map(|c| c.starts_with("multipart/form-data"))
+        .unwrap_or(false)
+    {
         match parse_multipart(content_type.unwrap(), body).await {
             Ok(m) => {
                 fields = m.fields;
                 avatar = m.avatar;
             }
-            Err(e) => return apply_cors_resp(err_json(StatusCode::BAD_REQUEST, &e).into_response(), origin),
+            Err(e) => {
+                return apply_cors_resp(
+                    err_json(StatusCode::BAD_REQUEST, &e).into_response(),
+                    origin,
+                )
+            }
         }
     } else {
         match serde_json::from_slice::<Value>(&body) {
@@ -569,23 +734,37 @@ pub async fn edit(
     // ch_name 校验（characters.js:1108-1112）
     let ch_name = get("ch_name");
     if ch_name.is_empty() || ch_name == "." {
-        return apply_cors_resp(err_json(StatusCode::BAD_REQUEST, "invalid name").into_response(), origin);
+        return apply_cors_resp(
+            err_json(StatusCode::BAD_REQUEST, "invalid name").into_response(),
+            origin,
+        );
     }
     let avatar_url = get("avatar_url");
     if avatar_url.is_empty() {
-        return apply_cors_resp(err_json(StatusCode::BAD_REQUEST, "缺少 avatar_url").into_response(), origin);
+        return apply_cors_resp(
+            err_json(StatusCode::BAD_REQUEST, "缺少 avatar_url").into_response(),
+            origin,
+        );
     }
     let old_path = match character_path(st, avatar_url) {
         Ok(p) => p,
-        Err(e) => return apply_cors_resp(err_json(StatusCode::FORBIDDEN, &e).into_response(), origin),
+        Err(e) => {
+            return apply_cors_resp(err_json(StatusCode::FORBIDDEN, &e).into_response(), origin)
+        }
     };
     if !old_path.is_file() {
-        return apply_cors_resp(err_json(StatusCode::NOT_FOUND, "角色卡不存在").into_response(), origin);
+        return apply_cors_resp(
+            err_json(StatusCode::NOT_FOUND, "角色卡不存在").into_response(),
+            origin,
+        );
     }
     // 上传了新头像 → 魔数校验
     if let Some(bytes) = &avatar {
         if let Err(e) = super::uploads::check_magic("png", bytes) {
-            return apply_cors_resp(err_json(StatusCode::BAD_REQUEST, &e.to_string()).into_response(), origin);
+            return apply_cors_resp(
+                err_json(StatusCode::BAD_REQUEST, &e.to_string()).into_response(),
+                origin,
+            );
         }
     }
 
@@ -610,16 +789,25 @@ pub async fn edit(
     let char_str = serde_json::to_string(&char).unwrap_or_default();
 
     let target_stem = avatar_url.trim_end_matches(".png");
-    let input = avatar.clone().map(Ok::<Vec<u8>, String>).unwrap_or_else(|| {
-        std::fs::read(&old_path).map_err(|e| format!("读取原卡失败：{e}"))
-    });
+    let input = avatar
+        .clone()
+        .map(Ok::<Vec<u8>, String>)
+        .unwrap_or_else(|| std::fs::read(&old_path).map_err(|e| format!("读取原卡失败：{e}")));
     let image = match input {
         Ok(b) => b,
-        Err(e) => return apply_cors_resp(err_json(StatusCode::INTERNAL_SERVER_ERROR, &e).into_response(), origin),
+        Err(e) => {
+            return apply_cors_resp(
+                err_json(StatusCode::INTERNAL_SERVER_ERROR, &e).into_response(),
+                origin,
+            )
+        }
     };
     match write_character_data(st, &image, &char_str, target_stem) {
         Ok(_) => apply_cors_resp(StatusCode::OK.into_response(), origin),
-        Err(e) => apply_cors_resp(err_json(StatusCode::INTERNAL_SERVER_ERROR, &e).into_response(), origin),
+        Err(e) => apply_cors_resp(
+            err_json(StatusCode::INTERNAL_SERVER_ERROR, &e).into_response(),
+            origin,
+        ),
     }
 }
 
@@ -634,18 +822,33 @@ pub async fn import(
 ) -> Response {
     let origin_ref = origin.clone();
     let error_true = move |code: StatusCode| -> Response {
-        apply_cors_resp((code, Json(json!({ "error": true }))).into_response(), origin_ref.clone())
+        apply_cors_resp(
+            (code, Json(json!({ "error": true }))).into_response(),
+            origin_ref.clone(),
+        )
     };
-    if !content_type.map(|c| c.starts_with("multipart/form-data")).unwrap_or(false) {
+    if !content_type
+        .map(|c| c.starts_with("multipart/form-data"))
+        .unwrap_or(false)
+    {
         return error_true(StatusCode::BAD_REQUEST);
     }
     let m = match parse_multipart(content_type.unwrap(), body).await {
         Ok(m) => m,
         Err(_) => return error_true(StatusCode::BAD_REQUEST),
     };
-    let Some(file_bytes) = m.avatar else { return error_true(StatusCode::BAD_REQUEST) };
-    let Some(_file_name) = m.avatar_filename.clone() else { return error_true(StatusCode::BAD_REQUEST) };
-    let format = m.fields.get("file_type").cloned().unwrap_or_default().to_ascii_lowercase();
+    let Some(file_bytes) = m.avatar else {
+        return error_true(StatusCode::BAD_REQUEST);
+    };
+    let Some(_file_name) = m.avatar_filename.clone() else {
+        return error_true(StatusCode::BAD_REQUEST);
+    };
+    let format = m
+        .fields
+        .get("file_type")
+        .cloned()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
 
     // 大小校验（S15）
     if super::uploads::check_size(file_bytes.len(), st.max_body_bytes).is_err() {
@@ -653,7 +856,10 @@ pub async fn import(
     }
 
     let now_iso = iso8601_from_unix(
-        SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0),
     );
 
     // 统一的落地路径：归一化 JSON → getPngName → write_character_data（默认图兜底）
@@ -672,14 +878,16 @@ pub async fn import(
             o.insert("create_date".into(), json!(now_iso.clone()));
         }
         let char_str = serde_json::to_string(&card).ok()?;
-        let image = if format == "png" { file_bytes.clone() } else { png::minimal_png() };
+        let image = if format == "png" {
+            file_bytes.clone()
+        } else {
+            png::minimal_png()
+        };
         write_character_data(st, &image, &char_str, &png_name).ok()?;
-        Some(
-            apply_cors_resp(
-                Json(json!({ "file_name": format!("{png_name}.png") })).into_response(),
-                origin.clone(),
-            ),
-        )
+        Some(apply_cors_resp(
+            Json(json!({ "file_name": format!("{png_name}.png") })).into_response(),
+            origin.clone(),
+        ))
     };
 
     match format.as_str() {
@@ -761,21 +969,38 @@ pub async fn import(
 /// png → 私有字段清理后的 PNG 字节流（attachment）；json → 归一化 JSON。
 pub fn export(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
     let Some(format) = body.get("format").and_then(|v| v.as_str()) else {
-        return apply_cors_resp(err_json(StatusCode::BAD_REQUEST, "缺少 format").into_response(), origin);
+        return apply_cors_resp(
+            err_json(StatusCode::BAD_REQUEST, "缺少 format").into_response(),
+            origin,
+        );
     };
     let Some(avatar) = body.get("avatar_url").and_then(|v| v.as_str()) else {
-        return apply_cors_resp(err_json(StatusCode::BAD_REQUEST, "缺少 avatar_url").into_response(), origin);
+        return apply_cors_resp(
+            err_json(StatusCode::BAD_REQUEST, "缺少 avatar_url").into_response(),
+            origin,
+        );
     };
     let p = match character_path(st, avatar) {
         Ok(p) => p,
-        Err(e) => return apply_cors_resp(err_json(StatusCode::FORBIDDEN, &e).into_response(), origin),
+        Err(e) => {
+            return apply_cors_resp(err_json(StatusCode::FORBIDDEN, &e).into_response(), origin)
+        }
     };
     if !p.is_file() {
-        return apply_cors_resp(err_json(StatusCode::NOT_FOUND, "角色卡不存在").into_response(), origin);
+        return apply_cors_resp(
+            err_json(StatusCode::NOT_FOUND, "角色卡不存在").into_response(),
+            origin,
+        );
     }
     let raw = match std::fs::read(&p) {
         Ok(r) => r,
-        Err(e) => return apply_cors_resp(err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("读取失败：{e}")).into_response(), origin),
+        Err(e) => {
+            return apply_cors_resp(
+                err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("读取失败：{e}"))
+                    .into_response(),
+                origin,
+            )
+        }
     };
     // unsetPrivateFields（characters.js:498-502）：fav=false + 移除 chat
     let sanitized_card = |meta: &str| -> Option<Value> {
@@ -783,7 +1008,12 @@ pub fn export(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> R
         let o = card.as_object_mut()?;
         o.insert("fav".into(), json!(false));
         o.remove("chat");
-        if let Some(ext) = o.get_mut("data").and_then(|d| d.as_object_mut()).and_then(|d| d.get_mut("extensions")).and_then(|e| e.as_object_mut()) {
+        if let Some(ext) = o
+            .get_mut("data")
+            .and_then(|d| d.as_object_mut())
+            .and_then(|d| d.get_mut("extensions"))
+            .and_then(|e| e.as_object_mut())
+        {
             ext.insert("fav".into(), json!(false));
         }
         Some(card)
@@ -792,7 +1022,12 @@ pub fn export(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> R
         "png" => {
             let meta = match png::read_chara(&raw) {
                 Ok(m) => m,
-                Err(e) => return apply_cors_resp(err_json(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()).into_response(), origin),
+                Err(e) => {
+                    return apply_cors_resp(
+                        err_json(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()).into_response(),
+                        origin,
+                    )
+                }
             };
             let cleaned = match sanitized_card(&meta) {
                 Some(c) => serde_json::to_string(&c).unwrap_or(meta),
@@ -800,7 +1035,12 @@ pub fn export(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> R
             };
             let out = match png::write_chara(&raw, &cleaned) {
                 Ok(b) => b,
-                Err(e) => return apply_cors_resp(err_json(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()).into_response(), origin),
+                Err(e) => {
+                    return apply_cors_resp(
+                        err_json(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()).into_response(),
+                        origin,
+                    )
+                }
             };
             let mut resp = (StatusCode::OK, out).into_response();
             resp.headers_mut().insert(
@@ -817,11 +1057,21 @@ pub fn export(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> R
         "json" => {
             let meta = match png::read_chara(&raw) {
                 Ok(m) => m,
-                Err(_) => return apply_cors_resp(err_json(StatusCode::BAD_REQUEST, "卡读取失败").into_response(), origin),
+                Err(_) => {
+                    return apply_cors_resp(
+                        err_json(StatusCode::BAD_REQUEST, "卡读取失败").into_response(),
+                        origin,
+                    )
+                }
             };
             let v2 = match sanitized_card(&meta).map(chara_card::to_v2_response) {
                 Some(v) => v,
-                None => return apply_cors_resp(err_json(StatusCode::BAD_REQUEST, "卡 JSON 失败").into_response(), origin),
+                None => {
+                    return apply_cors_resp(
+                        err_json(StatusCode::BAD_REQUEST, "卡 JSON 失败").into_response(),
+                        origin,
+                    )
+                }
             };
             let pretty = serde_json::to_string_pretty(&v2).unwrap_or_default();
             let mut resp = (StatusCode::OK, pretty).into_response();
@@ -831,14 +1081,23 @@ pub fn export(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> R
             );
             apply_cors_resp(resp, origin)
         }
-        _ => apply_cors_resp(err_json(StatusCode::BAD_REQUEST, "不支持的导出格式").into_response(), origin),
+        _ => apply_cors_resp(
+            err_json(StatusCode::BAD_REQUEST, "不支持的导出格式").into_response(),
+            origin,
+        ),
     }
 }
 
 /// 文件名 ASCII 化（Content-Disposition 里非 ASCII 用下划线替；对齐 encodeURI 兜底语义）
 fn urlencoding_file_name(name: &str) -> String {
     name.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || "._-()".contains(c) { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || "._-()".contains(c) {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -899,7 +1158,8 @@ mod tests {
         make_card(&chars, "b.png", "乙");
         // 无 name 的坏卡：写入一个没有 name 的 v2 卡
         let png0 = crate::compat::png::minimal_png();
-        let bad = crate::compat::png::write_chara(&png0, r#"{"spec":"chara_card_v2","data":{}}"#).unwrap();
+        let bad = crate::compat::png::write_chara(&png0, r#"{"spec":"chara_card_v2","data":{}}"#)
+            .unwrap();
         std::fs::write(chars.join("c.png"), &bad).unwrap();
         // chats 统计
         std::fs::create_dir_all(chats_dir(&st).join("a")).unwrap();
@@ -907,16 +1167,19 @@ mod tests {
 
         let r = all(&st, None);
         assert_eq!(r.status().as_u16(), 200);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         let arr = v.as_array().unwrap();
         assert_eq!(arr.len(), 2, "无名卡被过滤");
         let a = arr.iter().find(|c| c["avatar"] == "a.png").unwrap();
         assert_eq!(a["name"], "甲");
         assert_eq!(a["chat_size"], 6);
-        assert!(a["create_date"].as_str().unwrap().ends_with('Z'), "ISO 字符串");
+        assert!(
+            a["create_date"].as_str().unwrap().ends_with('Z'),
+            "ISO 字符串"
+        );
         assert!(a["json_data"].as_str().unwrap().contains("甲"));
     }
 
@@ -933,9 +1196,9 @@ mod tests {
     fn chats_error_true_when_dir_missing() {
         let st = st_with("chats");
         let r = chats(&st, &json!({ "avatar_url": "x.png" }), None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["error"], true, "无目录时应返回 error=true");
     }
@@ -948,7 +1211,11 @@ mod tests {
         std::fs::create_dir_all(chats_dir(&st).join("a")).unwrap();
         std::fs::write(chats_dir(&st).join("a").join("c.jsonl"), "{}\n").unwrap();
 
-        let r = delete(&st, &json!({ "avatar_url": "a.png", "delete_chats": true }), None);
+        let r = delete(
+            &st,
+            &json!({ "avatar_url": "a.png", "delete_chats": true }),
+            None,
+        );
         assert_eq!(r.status().as_u16(), 200);
         assert!(!chars.join("a.png").exists());
         assert!(!chats_dir(&st).join("a").exists(), "会话目录连带删除");
@@ -965,11 +1232,15 @@ mod tests {
         std::fs::create_dir_all(chats_dir(&st).join("old")).unwrap();
         std::fs::write(chats_dir(&st).join("old").join("c.jsonl"), "{}\n").unwrap();
 
-        let r = rename(&st, &json!({ "avatar_url": "old.png", "new_name": "新名" }), None);
+        let r = rename(
+            &st,
+            &json!({ "avatar_url": "old.png", "new_name": "新名" }),
+            None,
+        );
         assert_eq!(r.status().as_u16(), 200);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         let new_avatar = v["avatar"].as_str().unwrap();
         assert!(new_avatar.starts_with("新名"), "{new_avatar}");
@@ -981,7 +1252,10 @@ mod tests {
         assert!(meta.contains("新名"));
         // chats 目录迁移
         assert!(!chats_dir(&st).join("old").exists());
-        assert!(chats_dir(&st).join(new_avatar.trim_end_matches(".png")).join("c.jsonl").is_file());
+        assert!(chats_dir(&st)
+            .join(new_avatar.trim_end_matches(".png"))
+            .join("c.jsonl")
+            .is_file());
     }
 
     #[test]
@@ -991,10 +1265,14 @@ mod tests {
         make_card(&chars, "a.png", "A");
         make_card(&chars, "dup.png", "D");
         // 把 a.png 改名成 dup → 应得到 dup1.png（getPngName 语义）
-        let r = rename(&st, &json!({ "avatar_url": "a.png", "new_name": "dup" }), None);
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let r = rename(
+            &st,
+            &json!({ "avatar_url": "a.png", "new_name": "dup" }),
+            None,
+        );
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["avatar"], "dup1.png");
     }
@@ -1002,19 +1280,30 @@ mod tests {
     /* ---- 族三：create / edit / import / export ---- */
 
     /// 构造 multipart/form-data body（测试用，含 avatar 文件字段与文本字段）
-    fn make_multipart(boundary: &str, file_name: Option<&str>, file: Option<&[u8]>, fields: &[(&str, &str)]) -> (String, Vec<u8>) {
+    fn make_multipart(
+        boundary: &str,
+        file_name: Option<&str>,
+        file: Option<&[u8]>,
+        fields: &[(&str, &str)],
+    ) -> (String, Vec<u8>) {
         let mut body = Vec::new();
         let push = |body: &mut Vec<u8>, s: &str| body.extend_from_slice(s.as_bytes());
         if let (Some(fn_), Some(fbytes)) = (file_name, file) {
             push(&mut body, &format!("--{boundary}\r\n"));
-            push(&mut body, &format!("Content-Disposition: form-data; name=\"avatar\"; filename=\"{fn_}\"\r\n"));
+            push(
+                &mut body,
+                &format!("Content-Disposition: form-data; name=\"avatar\"; filename=\"{fn_}\"\r\n"),
+            );
             push(&mut body, "Content-Type: image/png\r\n\r\n");
             body.extend_from_slice(fbytes);
             push(&mut body, "\r\n");
         }
         for (k, v) in fields {
             push(&mut body, &format!("--{boundary}\r\n"));
-            push(&mut body, &format!("Content-Disposition: form-data; name=\"{k}\"\r\n\r\n"));
+            push(
+                &mut body,
+                &format!("Content-Disposition: form-data; name=\"{k}\"\r\n\r\n"),
+            );
             push(&mut body, v);
             push(&mut body, "\r\n");
         }
@@ -1043,10 +1332,12 @@ mod tests {
 
         // multipart 形态 + 真 PNG 头像
         let png0 = crate::compat::png::minimal_png();
-        let (ct, body) = make_multipart("XyZ", Some("avatar.png"), Some(&png0), &[
-            ("ch_name", "乙"),
-            ("description", "multipart 形态"),
-        ]);
+        let (ct, body) = make_multipart(
+            "XyZ",
+            Some("avatar.png"),
+            Some(&png0),
+            &[("ch_name", "乙"), ("description", "multipart 形态")],
+        );
         let r = create(&st, Some(&ct), axum::body::Bytes::from(body), None).await;
         assert_eq!(r.status().as_u16(), 200);
         let bytes = axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap();
@@ -1061,12 +1352,22 @@ mod tests {
     async fn create_rejects_fake_png_magic() {
         // S16 核心场景：声明 png 实为 HTML/SVG → 400
         let st = st_with("fakemagic");
-        let (ct, body) = make_multipart("XyZ", Some("evil.png"), Some(b"<svg onload=alert(1)>"), &[
-            ("ch_name", "恶意卡"),
-        ]);
+        let (ct, body) = make_multipart(
+            "XyZ",
+            Some("evil.png"),
+            Some(b"<svg onload=alert(1)>"),
+            &[("ch_name", "恶意卡")],
+        );
         let r = create(&st, Some(&ct), axum::body::Bytes::from(body), None).await;
         assert_eq!(r.status().as_u16(), 400, "魔数不符必须拒绝");
-        assert!(characters_dir(&st).read_dir().map(|d| d.count()).unwrap_or(0) == 0, "未落盘");
+        assert!(
+            characters_dir(&st)
+                .read_dir()
+                .map(|d| d.count())
+                .unwrap_or(0)
+                == 0,
+            "未落盘"
+        );
     }
 
     #[tokio::test]
@@ -1101,11 +1402,14 @@ mod tests {
         let r = edit(
             &st,
             Some("application/json"),
-            axum::body::Bytes::from(json!({
-                "avatar_url": "a.png",
-                "ch_name": "A",
-                "description": "改过的描述",
-            }).to_string()),
+            axum::body::Bytes::from(
+                json!({
+                    "avatar_url": "a.png",
+                    "ch_name": "A",
+                    "description": "改过的描述",
+                })
+                .to_string(),
+            ),
             None,
         )
         .await;
@@ -1117,7 +1421,10 @@ mod tests {
         let card: Value = serde_json::from_str(&meta).unwrap();
         assert_eq!(card["description"], "改过的描述");
         assert_eq!(card["chat"], "A - 20260101-000000", "chat 原样带过");
-        assert_eq!(card["create_date"], "2026-01-01T00:00:00.000Z", "create_date 原样带过");
+        assert_eq!(
+            card["create_date"], "2026-01-01T00:00:00.000Z",
+            "create_date 原样带过"
+        );
     }
 
     #[tokio::test]
@@ -1131,9 +1438,12 @@ mod tests {
                 "data": { "name": "导入卡", "description": "d" },
             })
             .to_string();
-        let (ct, body) = make_multipart("BnD", Some("card.json"), Some(card_json.as_bytes()), &[
-            ("file_type", "json"),
-        ]);
+        let (ct, body) = make_multipart(
+            "BnD",
+            Some("card.json"),
+            Some(card_json.as_bytes()),
+            &[("file_type", "json")],
+        );
         let r = import(&st, Some(&ct), axum::body::Bytes::from(body), None).await;
         assert_eq!(r.status().as_u16(), 200);
         let bytes = axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap();
@@ -1143,16 +1453,22 @@ mod tests {
 
         // V1 JSON → 收敛为 v2
         let v1 = serde_json::json!({ "name": "v1卡", "description": "旧格式" }).to_string();
-        let (ct, body) = make_multipart("BnD2", Some("v1.json"), Some(v1.as_bytes()), &[
-            ("file_type", "json"),
-        ]);
+        let (ct, body) = make_multipart(
+            "BnD2",
+            Some("v1.json"),
+            Some(v1.as_bytes()),
+            &[("file_type", "json")],
+        );
         let r = import(&st, Some(&ct), axum::body::Bytes::from(body), None).await;
         assert_eq!(r.status().as_u16(), 200);
 
         // 重名导入 → getPngName 加序号
-        let (ct, body) = make_multipart("BnD3", Some("card2.json"), Some(card_json.as_bytes()), &[
-            ("file_type", "json"),
-        ]);
+        let (ct, body) = make_multipart(
+            "BnD3",
+            Some("card2.json"),
+            Some(card_json.as_bytes()),
+            &[("file_type", "json")],
+        );
         let r = import(&st, Some(&ct), axum::body::Bytes::from(body), None).await;
         let bytes = axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap();
         let v: Value = serde_json::from_slice(&bytes).unwrap();
@@ -1171,23 +1487,32 @@ mod tests {
         })
         .to_string();
         let card_png = crate::compat::png::write_chara(&src, &data).unwrap();
-        let (ct, body) = make_multipart("PnD", Some("card.png"), Some(&card_png), &[
-            ("file_type", "png"),
-        ]);
+        let (ct, body) = make_multipart(
+            "PnD",
+            Some("card.png"),
+            Some(&card_png),
+            &[("file_type", "png")],
+        );
         let r = import(&st, Some(&ct), axum::body::Bytes::from(body), None).await;
         assert_eq!(r.status().as_u16(), 200);
 
         // 伪 PNG（无 chara chunk）→ 400
-        let (ct, body) = make_multipart("PnD2", Some("fake.png"), Some(&crate::compat::png::minimal_png()), &[
-            ("file_type", "png"),
-        ]);
+        let (ct, body) = make_multipart(
+            "PnD2",
+            Some("fake.png"),
+            Some(&crate::compat::png::minimal_png()),
+            &[("file_type", "png")],
+        );
         let r = import(&st, Some(&ct), axum::body::Bytes::from(body), None).await;
         assert_eq!(r.status().as_u16(), 400);
 
         // charx（族四）→ 501 NOT_MIGRATED（S20 降级）
-        let (ct, body) = make_multipart("PnD3", Some("x.charx"), Some(b"PK\x03\x04"), &[
-            ("file_type", "charx"),
-        ]);
+        let (ct, body) = make_multipart(
+            "PnD3",
+            Some("x.charx"),
+            Some(b"PK\x03\x04"),
+            &[("file_type", "charx")],
+        );
         let r = import(&st, Some(&ct), axum::body::Bytes::from(body), None).await;
         assert_eq!(r.status().as_u16(), 501);
         let bytes = axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap();
@@ -1212,11 +1537,17 @@ mod tests {
         let png = crate::compat::png::write_chara(&src, &data).unwrap();
         std::fs::write(chars.join("e.png"), &png).unwrap();
 
-        let r = export(&st, &json!({ "avatar_url": "e.png", "format": "png" }), None);
+        let r = export(
+            &st,
+            &json!({ "avatar_url": "e.png", "format": "png" }),
+            None,
+        );
         assert_eq!(r.status().as_u16(), 200);
         // 响应头：image/png + attachment（S18）
         assert_eq!(
-            r.headers().get("content-type").and_then(|v| v.to_str().ok()),
+            r.headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok()),
             Some("image/png")
         );
         assert!(
@@ -1229,9 +1560,9 @@ mod tests {
         );
 
         // 导出的卡无 chat、fav=false
-        let bytes = tokio::runtime::Runtime::new().unwrap().block_on(async {
-            axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()
-        });
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let meta = crate::compat::png::read_chara(&bytes).unwrap();
         let card: Value = serde_json::from_str(&meta).unwrap();
         assert!(card.get("chat").is_none(), "chat 已剥离");
@@ -1244,17 +1575,31 @@ mod tests {
         let st = st_with("exportjson");
         let chars = characters_dir(&st);
         make_card(&chars, "j.png", "J");
-        let r = export(&st, &json!({ "avatar_url": "j.png", "format": "json" }), None);
+        let r = export(
+            &st,
+            &json!({ "avatar_url": "j.png", "format": "json" }),
+            None,
+        );
         assert_eq!(r.status().as_u16(), 200);
         assert_eq!(
-            r.headers().get("content-type").and_then(|v| v.to_str().ok()),
+            r.headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok()),
             Some("application/json")
         );
         // 不存在 → 404
-        let r = export(&st, &json!({ "avatar_url": "nope.png", "format": "json" }), None);
+        let r = export(
+            &st,
+            &json!({ "avatar_url": "nope.png", "format": "json" }),
+            None,
+        );
         assert_eq!(r.status().as_u16(), 404);
         // 非法格式 → 400
-        let r = export(&st, &json!({ "avatar_url": "j.png", "format": "xml" }), None);
+        let r = export(
+            &st,
+            &json!({ "avatar_url": "j.png", "format": "xml" }),
+            None,
+        );
         assert_eq!(r.status().as_u16(), 400);
     }
 }

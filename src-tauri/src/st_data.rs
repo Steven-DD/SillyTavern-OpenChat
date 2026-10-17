@@ -42,7 +42,11 @@ const KEY_ITEMS: &[(&str, &str, &str)] = &[
     ("group_chats", "群聊记录", "default-user/group chats"),
     ("groups", "群组", "default-user/groups"),
     ("worlds", "世界书", "default-user/worlds"),
-    ("personas", "用户角色（Persona）", "default-user/User Avatars"),
+    (
+        "personas",
+        "用户角色（Persona）",
+        "default-user/User Avatars",
+    ),
     ("backgrounds", "背景图", "default-user/backgrounds"),
     ("themes", "主题", "default-user/themes"),
     ("quickreplies", "快捷回复", "default-user/QuickReplies"),
@@ -160,13 +164,8 @@ fn copy_tree(
         if md.is_dir() {
             copy_tree(&from, &to, total, done, on_progress)?;
         } else {
-            fs::copy(&from, &to).map_err(|e| {
-                format!(
-                    "复制失败 {} → {}: {e}",
-                    from.display(),
-                    to.display()
-                )
-            })?;
+            fs::copy(&from, &to)
+                .map_err(|e| format!("复制失败 {} → {}: {e}", from.display(), to.display()))?;
             *done += md.len();
             on_progress(*done, total);
         }
@@ -351,7 +350,8 @@ pub fn status(
         residual_writable: vec![
             "<ST 目录>/config.yaml —— 保存 ST 设置时改写；已由 --configPath 一并外移".into(),
             "<ST 目录>/plugins/ —— 仅当你安装「服务器插件」时才写入".into(),
-            "<ST 目录>/public/scripts/extensions/third-party/ —— 仅当你安装「ST 扩展」时才写入".into(),
+            "<ST 目录>/public/scripts/extensions/third-party/ —— 仅当你安装「ST 扩展」时才写入"
+                .into(),
         ],
     }
 }
@@ -409,7 +409,10 @@ pub fn plan(st_dir: &Path, config_dir: &Path, st_port: u16) -> MigrationPlan {
                 dst.display()
             ));
         } else {
-            warnings.push(format!("目标目录已存在但为空，将直接使用：{}", dst.display()));
+            warnings.push(format!(
+                "目标目录已存在但为空，将直接使用：{}",
+                dst.display()
+            ));
         }
     }
     if is_st_running(st_port) {
@@ -492,7 +495,11 @@ pub fn execute(
         phase: "copying".into(),
         done_bytes: 0,
         total_bytes: p.bytes,
-        message: format!("正在复制 {} 个文件（{:.1} MB）…", p.files, p.bytes as f64 / 1048576.0),
+        message: format!(
+            "正在复制 {} 个文件（{:.1} MB）…",
+            p.files,
+            p.bytes as f64 / 1048576.0
+        ),
     });
 
     let mut done = 0u64;
@@ -572,7 +579,10 @@ fn cleanup_partial(dst: &Path, preexisting: bool) {
         return;
     }
     if let Err(e) = remove_tree(dst) {
-        eprintln!("[st_data] 清理未完成的目标目录失败（需手工删除）{}: {e}", dst.display());
+        eprintln!(
+            "[st_data] 清理未完成的目标目录失败（需手工删除）{}: {e}",
+            dst.display()
+        );
     }
 }
 
@@ -610,7 +620,11 @@ pub struct DataBagResult {
 
 /// 导出：把数据目录内容 + config.yaml 打成一个 zip（zip 布局 = data 内容在根 + config.yaml）。
 /// 同步实现，调用方放阻塞线程执行。
-pub fn export_bag(data_root: &Path, config_path: Option<&Path>, dest: &Path) -> Result<DataBagResult, String> {
+pub fn export_bag(
+    data_root: &Path,
+    config_path: Option<&Path>,
+    dest: &Path,
+) -> Result<DataBagResult, String> {
     if !data_root.is_dir() {
         return Err(format!("数据目录不存在：{}", display_path(data_root)));
     }
@@ -662,7 +676,10 @@ pub fn export_bag(data_root: &Path, config_path: Option<&Path>, dest: &Path) -> 
         path: display_path(dest),
         files,
         bytes,
-        message: format!("已导出 {files} 个文件（{:.1} MB）", bytes as f64 / 1048576.0),
+        message: format!(
+            "已导出 {files} 个文件（{:.1} MB）",
+            bytes as f64 / 1048576.0
+        ),
     })
 }
 
@@ -684,7 +701,12 @@ pub fn import_bag(
     for i in 0..archive.len() {
         let Ok(e) = archive.by_index(i) else { continue };
         if let Some(name) = e.enclosed_name() {
-            if name.components().next().map(|c| c.as_os_str() == "data").unwrap_or(false) {
+            if name
+                .components()
+                .next()
+                .map(|c| c.as_os_str() == "data")
+                .unwrap_or(false)
+            {
                 has_data_prefix = true;
                 break;
             }
@@ -701,7 +723,11 @@ pub fn import_bag(
                 .unwrap_or(0);
             let bak = data_root.with_extension(format!("bak-{ts}"));
             fs::rename(data_root, &bak).map_err(|e| format!("备份现有数据失败：{e}"))?;
-            println!("[st_data] 导入前备份 → {}（{} 文件）", display_path(&bak), st.files);
+            println!(
+                "[st_data] 导入前备份 → {}（{} 文件）",
+                display_path(&bak),
+                st.files
+            );
         } else {
             let _ = fs::remove_dir_all(data_root);
         }
@@ -712,19 +738,27 @@ pub fn import_bag(
     let mut files = 0u64;
     let mut bytes = 0u64;
     for i in 0..archive.len() {
-        let mut entry = archive.by_index(i).map_err(|e| format!("读取条目失败：{e}"))?;
-        let Some(rel) = entry.enclosed_name() else { continue };
+        let mut entry = archive
+            .by_index(i)
+            .map_err(|e| format!("读取条目失败：{e}"))?;
+        let Some(rel) = entry.enclosed_name() else {
+            continue;
+        };
         let rel = rel.to_path_buf();
 
         // config.yaml 单独处理（放 st-runtime 根，不放 data 目录）
         let is_config = rel.file_name().map(|f| f == "config.yaml").unwrap_or(false)
-            && rel.parent().map(|p| p.as_os_str().is_empty()).unwrap_or(true);
+            && rel
+                .parent()
+                .map(|p| p.as_os_str().is_empty())
+                .unwrap_or(true);
         if is_config {
             let Some(cp) = config_path else { continue };
             if let Some(parent) = cp.parent() {
                 fs::create_dir_all(parent).map_err(|e| format!("建目录失败：{e}"))?;
             }
-            let mut out = fs::File::create(cp).map_err(|e| format!("写入 config.yaml 失败：{e}"))?;
+            let mut out =
+                fs::File::create(cp).map_err(|e| format!("写入 config.yaml 失败：{e}"))?;
             let n = std::io::copy(&mut entry, &mut out).map_err(|e| format!("解压失败：{e}"))?;
             files += 1;
             bytes += n;
@@ -750,7 +784,8 @@ pub fn import_bag(
         if let Some(parent) = out.parent() {
             fs::create_dir_all(parent).map_err(|e| format!("建目录失败：{e}"))?;
         }
-        let mut outf = fs::File::create(&out).map_err(|e| format!("写入失败 {}: {e}", out.display()))?;
+        let mut outf =
+            fs::File::create(&out).map_err(|e| format!("写入失败 {}: {e}", out.display()))?;
         let n = std::io::copy(&mut entry, &mut outf).map_err(|e| format!("解压失败：{e}"))?;
         files += 1;
         bytes += n;
@@ -760,7 +795,10 @@ pub fn import_bag(
         path: display_path(data_root),
         files,
         bytes,
-        message: format!("已导入 {files} 个文件（{:.1} MB）。重启应用后生效。", bytes as f64 / 1048576.0),
+        message: format!(
+            "已导入 {files} 个文件（{:.1} MB）。重启应用后生效。",
+            bytes as f64 / 1048576.0
+        ),
     })
 }
 
@@ -829,7 +867,11 @@ mod tests {
         fs::write(dst.join("existing.txt"), b"x").unwrap();
         let p2 = plan(&st, &cfg, 0);
         assert!(!p2.can_proceed, "must block when target has data");
-        assert!(p2.blockers.iter().any(|b| b.contains("已有数据")), "{:?}", p2.blockers);
+        assert!(
+            p2.blockers.iter().any(|b| b.contains("已有数据")),
+            "{:?}",
+            p2.blockers
+        );
 
         let _ = fs::remove_dir_all(&base);
     }
@@ -840,7 +882,11 @@ mod tests {
         let st = base.join("st");
         let cfg = base.join("cfg");
         fs::create_dir_all(st.join("data/default-user/characters")).unwrap();
-        fs::write(st.join("data/default-user/characters/c1.png"), vec![7u8; 1024]).unwrap();
+        fs::write(
+            st.join("data/default-user/characters/c1.png"),
+            vec![7u8; 1024],
+        )
+        .unwrap();
         fs::write(st.join("data/cookie-secret.txt"), b"k").unwrap();
         fs::write(st.join("config.yaml"), b"port: 8000\n").unwrap();
         fs::create_dir_all(&cfg).unwrap();
@@ -857,13 +903,28 @@ mod tests {
         assert!(r.verify.ok(), "verify: {:?}", r.verify);
         assert_eq!(r.files, 2, "files");
         // 源必须原样保留
-        assert!(st.join("data/default-user/characters/c1.png").is_file(), "source kept");
+        assert!(
+            st.join("data/default-user/characters/c1.png").is_file(),
+            "source kept"
+        );
         assert!(st.join("config.yaml").is_file(), "source config kept");
         // 目标必须齐备
-        assert!(cfg.join("st-runtime/data/cookie-secret.txt").is_file(), "target secret");
-        assert!(cfg.join("st-runtime/config.yaml").is_file(), "target config");
-        assert!(phases.contains(&"copying".to_string()), "phases: {phases:?}");
-        assert!(phases.contains(&"verifying".to_string()), "phases: {phases:?}");
+        assert!(
+            cfg.join("st-runtime/data/cookie-secret.txt").is_file(),
+            "target secret"
+        );
+        assert!(
+            cfg.join("st-runtime/config.yaml").is_file(),
+            "target config"
+        );
+        assert!(
+            phases.contains(&"copying".to_string()),
+            "phases: {phases:?}"
+        );
+        assert!(
+            phases.contains(&"verifying".to_string()),
+            "phases: {phases:?}"
+        );
 
         let _ = fs::remove_dir_all(&base);
     }
@@ -893,7 +954,11 @@ mod tests {
             b"png1"
         );
         assert_eq!(fs::read(data.join("cookie-secret.txt")).unwrap(), b"secret");
-        assert_eq!(fs::read(&config).unwrap(), b"port: 8000\n", "config 回到 st-runtime 根");
+        assert_eq!(
+            fs::read(&config).unwrap(),
+            b"port: 8000\n",
+            "config 回到 st-runtime 根"
+        );
 
         // 导入前备份目录存在（第一次导入时 data 目录已被删空，不应有备份；
         // 再造点数据导入第二次 → 必须出现 .bak-*）

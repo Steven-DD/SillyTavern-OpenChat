@@ -38,7 +38,8 @@ fn auto_probe_finds_host_installed_st_via_install_root() {
     assert_eq!(st.status, "ready", "探测失败：{}", st.message);
     let got = st.path.as_deref().unwrap().replace('/', "\\");
     assert!(
-        got.to_lowercase().ends_with(r"st chat\plugins\sillytavern\1.19.0"),
+        got.to_lowercase()
+            .ends_with(r"st chat\plugins\sillytavern\1.19.0"),
         "路径不符：{got}"
     );
     assert!(

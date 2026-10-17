@@ -99,8 +99,8 @@ pub fn ensure_under(base: &Path, candidate: &Path) -> Result<(), PathGuardError>
         }
     }
     // candidate 必须以 base 开头（组件级前缀比较，不做字符串前缀 —— 防止 `base2` 伪装 `base`）
-    let ok = candidate.starts_with(base)
-        && candidate.components().count() > base.components().count();
+    let ok =
+        candidate.starts_with(base) && candidate.components().count() > base.components().count();
     if !ok {
         return Err(PathGuardError(format!(
             "路径越界：{} 不在 {} 之下",
@@ -134,7 +134,11 @@ mod tests {
 
     fn rejects(input: &str) {
         let r = component(input);
-        assert!(r.is_err(), "应拒绝 {input:?}，实际 {:?}", r.map(|s| s.to_string()));
+        assert!(
+            r.is_err(),
+            "应拒绝 {input:?}，实际 {:?}",
+            r.map(|s| s.to_string())
+        );
     }
 
     #[test]
