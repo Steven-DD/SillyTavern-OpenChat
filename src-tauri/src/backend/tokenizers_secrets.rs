@@ -21,9 +21,28 @@ use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde_json::{json, Value};
+use std::sync::OnceLock;
 
 /// ST BYTES_PER_TOKEN（tokenizers.js:59）
 const BYTES_PER_TOKEN: f64 = 3.35;
+
+/// tiktoken CoreBPE 进程级缓存（OnceLock）：
+/// `o200k_base()`/`cl100k_base()` 每次调用都重载内嵌词表并重建合并秩表
+/// （数十 ms 级），/openai/count 是热路径 —— 构造一次，全局复用。
+/// Err 同样缓存（内嵌数据损坏属永久态，与 nai_tokens::llama3_tokenizer 同模式）。
+fn o200k_bpe() -> Option<&'static tiktoken_rs::CoreBPE> {
+    static BPE: OnceLock<Result<tiktoken_rs::CoreBPE, String>> = OnceLock::new();
+    BPE.get_or_init(|| tiktoken_rs::o200k_base().map_err(|e| e.to_string()))
+        .as_ref()
+        .ok()
+}
+
+fn cl100k_bpe() -> Option<&'static tiktoken_rs::CoreBPE> {
+    static BPE: OnceLock<Result<tiktoken_rs::CoreBPE, String>> = OnceLock::new();
+    BPE.get_or_init(|| tiktoken_rs::cl100k_base().map_err(|e| e.to_string()))
+        .as_ref()
+        .ok()
+}
 
 fn err_json(status: StatusCode, msg: &str) -> Response {
     (status, Json(json!({ "error": { "message": msg } }))).into_response()
@@ -81,7 +100,7 @@ pub fn count_with_model(
     }
     let body_text = String::from_utf8_lossy(body_bytes);
     if is_o200k_model(&model) {
-        if let Ok(bpe) = tiktoken_rs::o200k_base() {
+        if let Some(bpe) = o200k_bpe() {
             return ok_json(
                 origin,
                 json!({ "token_count": bpe.encode_ordinary(body_text.as_ref()).len() }),
@@ -89,7 +108,7 @@ pub fn count_with_model(
         }
     }
     if is_cl100k_model(&model) {
-        if let Ok(bpe) = tiktoken_rs::cl100k_base() {
+        if let Some(bpe) = cl100k_bpe() {
             return ok_json(
                 origin,
                 json!({ "token_count": bpe.encode_ordinary(body_text.as_ref()).len() }),
@@ -208,8 +227,8 @@ fn deactivate_all(arr: &mut Vec<Value>) {
 }
 
 /// POST /api/secrets/write {key, value, label?}（manifest #50）
-/// 多值结构：active �ertos 标志 + 新条目激活、旧条目全部失活。
-/// 返回 `{id}`。⚠ T12（keychain vault）落地前仍为明文 JSON 北斗形态 ——
+/// 多值结构：active 布尔激活标志 + 新条目激活、旧条目全部失活。
+/// 返回 `{id}`。⚠ T12（keychain vault）落地前仍为明文 JSON 兜底形态 ——
 /// 这是与 ST 当前一致的已知基线（清单 T1 已纠正文档口径）。
 pub fn secrets_write(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
     let Some(key) = body
@@ -372,6 +391,33 @@ mod tests {
     fn encode_unregistered_family_is_501() {
         let r = encode_with_body("claude", b"{}", None);
         assert_eq!(r.status().as_u16(), 501);
+    }
+
+    /// 从 token_count 响应体提取计数（测试辅助）
+    fn token_count_of(r: Response) -> u64 {
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
+        serde_json::from_slice::<Value>(&bytes).unwrap()["token_count"]
+            .as_u64()
+            .unwrap()
+    }
+
+    #[test]
+    fn count_with_model_tiktoken_exact_and_cached() {
+        // 黄金基准（tiktoken-rs 0.6 内嵌词表实跑捕获）：
+        // "Certainly! Here's" → cl100k=4 / o200k=3（两词表计数分化，分支走错即失配）
+        let st = st_with("tik");
+        let body = b"Certainly! Here's";
+        let n1 = token_count_of(count_with_model(&st, Some("gpt-4"), body, None));
+        assert_eq!(n1, 4, "cl100k 家族（gpt-4）精确计数");
+        let n2 = token_count_of(count_with_model(&st, Some("gpt-4"), body, None));
+        assert_eq!(n2, 4, "第二次调用命中 OnceLock 缓存，结果不变");
+        let n3 = token_count_of(count_with_model(&st, Some("o1"), body, None));
+        assert_eq!(n3, 3, "o200k 家族（o1）精确计数（与 cl100k 分化）");
+        // cl100k/o200k 均不可识别的模型 → guesstimate 回落
+        let n4 = token_count_of(count_with_model(&st, Some("gemini-pro"), body, None));
+        assert_eq!(n4, guesstimate(std::str::from_utf8(body).unwrap()));
     }
 
     #[test]

@@ -122,7 +122,12 @@ fn parse_spm_proto(b: &[u8]) -> Result<SpmModel, String> {
                                 ptype = v as i64;
                             }
                         }
-                        1 => break, // fixed64
+                        1 => {
+                            // fixed64：SPM SentencePiece 无该 wire 形（piece=2/score=5/type=0）。
+                            // 出现即 proto 形态越出预期 —— 报错而非静默 break
+                            // （break 会丢弃其后可能存在的 piece/type 字段 → 分段错位）。
+                            return Err(format!("proto: piece 子消息 wire {w2}（fixed64）未支持"));
+                        }
                         2 => {
                             let l = read_varint(sub, &mut j)? as usize;
                             if f2 == 1 {
@@ -260,6 +265,23 @@ mod tests {
         assert!(
             m.pieces.iter().any(|p| p.contains("<")),
             "词表应包含 SPM 片形"
+        );
+    }
+
+    #[test]
+    fn llama3_golden_ids() {
+        // 黄金断言：内嵌 llama3.json 词表基准下固定输入 → 固定 ids
+        //（实际运行捕获，非实现拷贝；回归即词表或编码行为漂移）
+        assert_eq!(encode_llama3("Hello world").unwrap(), vec![9906, 1917]);
+    }
+
+    #[test]
+    fn nerdstash_v2_golden_ids() {
+        // 黄金断言：SPM proto 精确词表 + 贪心分段在本输入上的固定输出
+        //（实际运行捕获；词表解析或分段算法变动即失配）
+        assert_eq!(
+            encode_nerdstash_v2("The quick brown fox").unwrap(),
+            vec![448, 1939, 6573, 22820]
         );
     }
 }

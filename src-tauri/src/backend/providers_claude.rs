@@ -9,6 +9,12 @@
 //! thinking_delta→reasoning_content、message_delta.stop_reason→finish_reason、
 //! message_stop→[DONE]）。请求面保持 ST 字面（含 key 缺失 400 {error:true}、
 //! 连接失败 500 {error:true}、非流式包装 {choices,message}+content 原样）。
+//!
+//! HIGH-2：流式分支上游非 2xx → passthrough 错误透传（401→400 降级），
+//! 不再落 200+空SSE+[DONE]（ST forwardFetchResponse:748-761 字面）。
+//! HIGH-3：出站头对齐 ST :414-419 —— x-api-key（非 Bearer）+ anthropic-version
+//! + 无条件 anthropic-beta（reverse_proxy 分支同形；caching/verbosity 条件
+//! beta 因 native 无对应配置/请求面而保持基线，与 body 装配现状一致）。
 
 use super::providers_convert as conv;
 use super::BackendState;
@@ -26,20 +32,32 @@ fn model_starts_any(model: &str, alts: &[&str]) -> bool {
 
 /// 发送 Claude 请求（/messages）
 pub async fn send_claude(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
-    let api_url = match body
-        .get("reverse_proxy")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-    {
-        Some(rp) => rp.to_string(),
-        None => super::providers::API_CLAUDE.to_string(),
-    };
-    let key = if body
+    let use_rp = body
         .get("reverse_proxy")
         .and_then(|v| v.as_str())
         .map(|s| !s.is_empty())
-        .unwrap_or(false)
-    {
+        .unwrap_or(false);
+    let api_url = if use_rp {
+        // HIGH-5：reverse_proxy 出站网关（ProxyUrl 面）
+        match super::providers::validate_egress_url(
+            body.get("reverse_proxy")
+                .and_then(|v| v.as_str())
+                .unwrap_or(""),
+            super::providers::EgressPolicy::ProxyUrl,
+        ) {
+            Ok(u) => u,
+            Err(e) => {
+                return super::providers::err_json(
+                    StatusCode::BAD_REQUEST,
+                    &format!("reverse_proxy 被出站网关拒绝: {e}"),
+                )
+            }
+        }
+    } else {
+        super::providers::API_CLAUDE.to_string()
+    };
+    // ST :232 字面：rp 时取 proxy_password，直连取 secret（头形态两分支一致）
+    let key = if use_rp {
         body.get("proxy_password")
             .and_then(|v| v.as_str())
             .unwrap_or("")
@@ -334,13 +352,8 @@ pub async fn send_claude(st: &BackendState, body: &Value, origin: Option<HeaderV
     }
 
     let url = format!("{api_url}/messages");
-    let resp_res = super::providers::upstream_post(
-        &url,
-        &key,
-        super::providers::claude_headers(),
-        &Value::Object(rb),
-    )
-    .await;
+    let resp_res =
+        super::providers::upstream_post_claude(&url, &key, use_tools, &Value::Object(rb)).await;
     let resp = match resp_res {
         Ok(r) => r,
         Err(_) => {
@@ -353,6 +366,11 @@ pub async fn send_claude(st: &BackendState, body: &Value, origin: Option<HeaderV
     };
 
     if stream_flag {
+        // HIGH-2：上游非 2xx 走错误透传（ST util.js forwardFetchResponse:748-761
+        // 与 generic/cohere 既有保护面同构）—— 不得落 200+空SSE+[DONE]
+        if !resp.status().is_success() {
+            return super::providers::passthrough(resp, origin).await;
+        }
         // 流式：Anthropic SSE → OpenAI chunk（App 解析器约束，见模块头偏差登记）
         return super::providers::transform_sse_reply(resp, origin, anthropic_to_openai).await;
     }
@@ -460,13 +478,18 @@ mod tests {
         ));
         assert!(model_starts_any("claude-opus-4-5", &["3-7", "opus-4"]));
         assert!(!model_starts_any("claude-2.1", &["3-7", "opus-4"]));
-        assert!(contains_any("claude-fable-x", &["claude-opus-5", "claude-sonnet-5"]) || true);
-        assert!(model_ref_contains_fable("claude-fable-y"));
-        assert!(!model_ref_contains_fable("claude-sonnet-4"));
-    }
-
-    fn model_ref_contains_fable(m: &str) -> bool {
-        model_starts_any(m, &[]) || m.contains("claude-fable")
+        // contains_any（isClaude5Model 面）：真负例 + 真正例
+        assert!(!contains_any(
+            "claude-fable-x",
+            &["claude-opus-5", "claude-sonnet-5"]
+        ));
+        assert!(contains_any(
+            "claude-sonnet-5-20250129",
+            &["claude-opus-5", "claude-sonnet-5"]
+        ));
+        // isFableModel 面（ST :252 /claude-fable/ 无锚 contains 字面）
+        assert!("claude-fable-y".contains("claude-fable"));
+        assert!(!"claude-sonnet-4".contains("claude-fable"));
     }
 
     #[test]

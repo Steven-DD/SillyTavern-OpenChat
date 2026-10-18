@@ -11,9 +11,16 @@
 //!   openrouter/featherless 附 Referer/X-Title）
 //!
 //! 错误语义（ST 字面）：上游非 ok → **200** `{error:true,status,response}`
-//! （连接失败 → 200 `{error:true,status:'UNKNOWN',response}`）。
+//! （连接失败 → 200 `{error:true,status:'UNKNOWN',response}`，S13 已剥 URL）。
 //! 流式 → 原样透传（401→400 降级）；ollama 流式 → 裸 JSON 流包装成
 //! SSE `data: {choices:[{text,thinking}]}` + [DONE]。
+//!
+//! HIGH-5/S12：api_server 出站走 `validate_egress_url`（LocalTextgen 自建
+//! 服务通道 —— 环回 http 放行，其余 https-only；网关拒绝 → 400，登记偏差：
+//! ST 无对应面，ST 对任意失败都是 200 {error:true,...}）。
+//! koboldcpp 流式挂 Drop abort guard：客户端断连 / 上游错误终止且流未完成
+//! → POST {base}/api/extra/abort（ST text-completions.js:284-292/:80-97）；
+//! 正常完成不触发。
 //!
 //! 兼容面（登记）：App textgen.ts 曾把「server+端点路径」发进 api_server
 //! （ST 语义 api_server=base，服务端再拼路径会叠路径）；native 按 ST 字面拼
@@ -361,8 +368,20 @@ pub async fn generate(st: &BackendState, body: &Value, origin: Option<HeaderValu
 
     // localhost → 127.0.0.1（ST 字面）
     let base_raw = api_server.replace("localhost", "127.0.0.1");
-    let base = &base_raw;
-    let url = format!("{}{}", trim_v1(base), gen_path(api_type));
+    // HIGH-5：api_server 出站网关（LocalTextgen 自建服务通道：环回 http 放行）
+    let base = match super::providers::validate_egress_url(
+        &base_raw,
+        super::providers::EgressPolicy::LocalTextgen,
+    ) {
+        Ok(u) => u,
+        Err(e) => {
+            return super::providers::err_json(
+                StatusCode::BAD_REQUEST,
+                &format!("api_server 被出站网关拒绝: {e}"),
+            )
+        }
+    };
+    let url = format!("{}{}", trim_v1(&base), gen_path(api_type));
 
     let mut out_body = body.clone();
     match api_type {
@@ -449,8 +468,8 @@ pub async fn generate(st: &BackendState, body: &Value, origin: Option<HeaderValu
         return send_ollama_stream(&url, &out_body, typed_headers(st, api_type), origin).await;
     }
 
-    let resp_res =
-        super::providers::upstream_post(&url, "", typed_headers(st, api_type), &out_body).await;
+    let headers = typed_headers(st, api_type);
+    let resp_res = super::providers::upstream_post(&url, "", headers.clone(), &out_body).await;
     let resp = match resp_res {
         Ok(r) => r,
         Err(e) => {
@@ -466,6 +485,11 @@ pub async fn generate(st: &BackendState, body: &Value, origin: Option<HeaderValu
     let status_ok = resp.status().is_success();
     let status_num = resp.status().as_u16();
     if want_stream {
+        // koboldcpp：SSE 流包 Drop abort guard（客户端断连且未完成 →
+        // POST {base}/api/extra/abort，ST text-completions.js:284-292/:80-97）
+        if api_type == T::KoboldCpp {
+            return koboldcpp_passthrough(resp, trim_v1(&base), headers, origin).await;
+        }
         return super::providers::passthrough(resp, origin).await;
     }
 
@@ -526,7 +550,7 @@ async fn send_ollama_stream(
         Err(e) => {
             return super::providers::json_resp(
                 StatusCode::OK,
-                json!({ "error": true, "status": "UNKNOWN", "response": e.to_string() }),
+                json!({ "error": true, "status": "UNKNOWN", "response": super::providers::fmt_upstream_err(&e) }),
                 origin,
             )
         }
@@ -627,6 +651,118 @@ struct NdjState {
 }
 
 /* ============================================================ *
+ * koboldcpp 断连 abort（ST text-completions.js:284-292 + :80-97）
+ * ============================================================ */
+
+/// abort 触发面（Drop guard）：流被丢弃（客户端断连 / 上游错误终止）且
+/// finished 未置位 → best-effort POST {base}/api/extra/abort；正常完成
+/// （上游自然结束）先置位 finished，Drop 不再触发。
+struct KoboldAbortGuard {
+    abort_url: String,
+    headers: Vec<(String, String)>,
+    finished: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl Drop for KoboldAbortGuard {
+    fn drop(&mut self) {
+        if self.finished.load(std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        // ST abortKoboldCppRequest 字面：POST + setAdditionalHeaders，失败仅记日志
+        let url = self.abort_url.clone();
+        let headers = self.headers.clone();
+        tokio::spawn(async move {
+            let client = reqwest::Client::builder()
+                .no_proxy()
+                .build()
+                .unwrap_or_default();
+            let mut req = client
+                .post(&url)
+                .header("accept-encoding", "identity")
+                .timeout(std::time::Duration::from_secs(30));
+            for (k, v) in headers {
+                req = req.header(k.as_str(), v.as_str());
+            }
+            let _ = req.send().await; // best-effort（ST catch 分支字面）
+        });
+    }
+}
+
+/// SSE 透传 + 完成标记：上游自然结束（未见错误的 None）置位 finished；
+/// 错误终止不置位（等价 ST：上游中途死亡时 writableEnded=false，socket
+/// close 仍会 abort）
+struct KoboldAbortStream {
+    inner: std::pin::Pin<
+        Box<dyn futures_util::Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Send>,
+    >,
+    finished: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    errored: bool,
+    _guard: KoboldAbortGuard,
+}
+
+impl futures_util::Stream for KoboldAbortStream {
+    type Item = Result<bytes::Bytes, std::io::Error>;
+
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        match this.inner.poll_next_unpin(cx) {
+            std::task::Poll::Ready(Some(Ok(chunk))) => std::task::Poll::Ready(Some(Ok(chunk))),
+            std::task::Poll::Ready(Some(Err(e))) => {
+                this.errored = true;
+                std::task::Poll::Ready(Some(Err(std::io::Error::new(std::io::ErrorKind::Other, e))))
+            }
+            std::task::Poll::Ready(None) => {
+                if !this.errored {
+                    this.finished
+                        .store(true, std::sync::atomic::Ordering::SeqCst);
+                }
+                std::task::Poll::Ready(None)
+            }
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    }
+}
+
+/// koboldcpp SSE 透传（401→400 降级 + identity 不缓冲）+ 断连 abort guard
+async fn koboldcpp_passthrough(
+    resp: reqwest::Response,
+    abort_base: String,
+    abort_headers: Vec<(String, String)>,
+    origin: Option<HeaderValue>,
+) -> Response {
+    let finished = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let guard = KoboldAbortGuard {
+        abort_url: format!("{abort_base}/api/extra/abort"),
+        headers: abort_headers,
+        finished: finished.clone(),
+    };
+    let status = super::providers::downgrade_status(resp.status());
+    let ct = resp
+        .headers()
+        .get("content-type")
+        .cloned()
+        .unwrap_or_else(|| HeaderValue::from_static("application/octet-stream"));
+    let stream = KoboldAbortStream {
+        inner: Box::pin(resp.bytes_stream()),
+        finished,
+        errored: false,
+        _guard: guard,
+    };
+    super::apply_cors_resp(
+        Response::builder()
+            .status(status)
+            .header("content-type", ct)
+            .body(Body::from_stream(stream))
+            .unwrap()
+            .into_response(),
+        origin,
+    )
+}
+
+/* ============================================================ *
  * /status（manifest #49）
  * ============================================================ */
 pub async fn status(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
@@ -641,8 +777,20 @@ pub async fn status(st: &BackendState, body: &Value, origin: Option<HeaderValue>
         return json_resp(StatusCode::BAD_REQUEST, json!({ "error": true }), origin);
     };
     let base_raw = api_server.replace("localhost", "127.0.0.1");
-    let base = &base_raw;
-    let url = format!("{}{}", trim_v1(base), status_path(api_type));
+    // HIGH-5：api_server 出站网关（LocalTextgen 自建服务通道：环回 http 放行）
+    let base = match super::providers::validate_egress_url(
+        &base_raw,
+        super::providers::EgressPolicy::LocalTextgen,
+    ) {
+        Ok(u) => u,
+        Err(e) => {
+            return super::providers::err_json(
+                StatusCode::BAD_REQUEST,
+                &format!("api_server 被出站网关拒绝: {e}"),
+            )
+        }
+    };
+    let url = format!("{}{}", trim_v1(&base), status_path(api_type));
 
     let headers = typed_headers(st, api_type);
     let client = reqwest::Client::builder()
@@ -728,7 +876,7 @@ pub async fn status(st: &BackendState, body: &Value, origin: Option<HeaderValue>
     let mut supports_tokenization = false;
 
     if api_type == T::Ooba && !is_possibly_lm_studio {
-        let info_url = format!("{}{}/v1/internal/model/info", trim_v1(base), "");
+        let info_url = format!("{}{}/v1/internal/model/info", trim_v1(&base), "");
         let info = client
             .get(&info_url)
             .header("accept-encoding", "identity")
@@ -748,7 +896,7 @@ pub async fn status(st: &BackendState, body: &Value, origin: Option<HeaderValue>
             }
         }
     } else if api_type == T::Tabby {
-        let info_url = format!("{}{}/v1/model", trim_v1(base), "");
+        let info_url = format!("{}{}/v1/model", trim_v1(&base), "");
         let info = client
             .get(&info_url)
             .header("accept-encoding", "identity")
@@ -846,5 +994,114 @@ mod tests {
         assert_eq!(secret_of(T::Mancer).unwrap(), "api_key_mancer");
         assert_eq!(secret_of(T::Tabby).unwrap(), "api_key_tabby");
         assert_eq!(secret_of(T::Ollama), None);
+    }
+
+    #[tokio::test]
+    async fn kobold_abort_stream_marks_finished_on_natural_end() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        let finished = Arc::new(AtomicBool::new(false));
+        let inner = futures_util::stream::iter(vec![
+            Ok::<_, reqwest::Error>(bytes::Bytes::from("data: x\n\n")),
+            Ok(bytes::Bytes::new()),
+        ]);
+        let mut s = KoboldAbortStream {
+            inner: Box::pin(inner),
+            finished: finished.clone(),
+            errored: false,
+            _guard: KoboldAbortGuard {
+                abort_url: "http://127.0.0.1:1/api/extra/abort".into(),
+                headers: Vec::new(),
+                finished: finished.clone(),
+            },
+        };
+        while let Some(item) = s.next().await {
+            assert!(item.is_ok(), "自然结束不应产生错误帧");
+        }
+        assert!(
+            finished.load(Ordering::SeqCst),
+            "上游自然结束应置位 finished"
+        );
+    }
+
+    #[tokio::test]
+    async fn kobold_abort_stream_error_end_leaves_unfinished() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        let finished = Arc::new(AtomicBool::new(false));
+        // 真实 reqwest 错误（环回 :1 连接拒绝，离线可复现）
+        let err = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap()
+            .post("http://127.0.0.1:1/x")
+            .send()
+            .await
+            .expect_err("环回 :1 应连接失败");
+        let inner = futures_util::stream::iter(vec![
+            Ok::<_, reqwest::Error>(bytes::Bytes::from("data: x\n\n")),
+            Err(err),
+        ]);
+        let mut s = KoboldAbortStream {
+            inner: Box::pin(inner),
+            finished: finished.clone(),
+            errored: false,
+            _guard: KoboldAbortGuard {
+                abort_url: "http://127.0.0.1:1/api/extra/abort".into(),
+                headers: Vec::new(),
+                finished: finished.clone(),
+            },
+        };
+        let mut saw_err = false;
+        while let Some(item) = s.next().await {
+            saw_err |= item.is_err();
+        }
+        assert!(saw_err, "错误帧应透传");
+        assert!(
+            !finished.load(Ordering::SeqCst),
+            "错误终止不置位 finished（ST writableEnded=false → close 仍 abort）"
+        );
+    }
+
+    #[tokio::test]
+    async fn kobold_guard_aborts_only_when_unfinished() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        // 未完成 drop → abort POST 到环回 listener（真实接收验证）
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let finished = Arc::new(AtomicBool::new(false));
+        drop(KoboldAbortGuard {
+            abort_url: format!("http://127.0.0.1:{port}/api/extra/abort"),
+            headers: Vec::new(),
+            finished: finished.clone(),
+        });
+        listener.set_nonblocking(true).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            match listener.accept() {
+                Ok((_sock, _)) => break,
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "未完成 drop 应发出 abort 请求"
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
+                Err(e) => panic!("{e}"),
+            }
+        }
+        assert!(!finished.load(Ordering::SeqCst));
+        // 正常完成（finished=true）drop → 不发 abort
+        let listener2 = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port2 = listener2.local_addr().unwrap().port();
+        drop(KoboldAbortGuard {
+            abort_url: format!("http://127.0.0.1:{port2}/api/extra/abort"),
+            headers: Vec::new(),
+            finished: Arc::new(AtomicBool::new(true)),
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        listener2.set_nonblocking(true).unwrap();
+        assert!(listener2.accept().is_err(), "正常完成不应发出 abort 请求");
     }
 }

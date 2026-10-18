@@ -49,7 +49,18 @@ pub async fn send_mistral(
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
     {
-        Some(rp) => (true, rp.to_string()),
+        Some(rp) => match super::providers::validate_egress_url(
+            rp,
+            super::providers::EgressPolicy::ProxyUrl,
+        ) {
+            Ok(u) => (true, u),
+            Err(e) => {
+                return super::providers::err_json(
+                    StatusCode::BAD_REQUEST,
+                    &format!("reverse_proxy 被出站网关拒绝: {e}"),
+                )
+            }
+        },
         None => (false, super::providers::API_MISTRAL.to_string()),
     };
     let key = if use_rp {
@@ -188,7 +199,18 @@ pub async fn send_deepseek(
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
     {
-        Some(rp) => (true, rp.to_string()),
+        Some(rp) => match super::providers::validate_egress_url(
+            rp,
+            super::providers::EgressPolicy::ProxyUrl,
+        ) {
+            Ok(u) => (true, u),
+            Err(e) => {
+                return super::providers::err_json(
+                    StatusCode::BAD_REQUEST,
+                    &format!("reverse_proxy 被出站网关拒绝: {e}"),
+                )
+            }
+        },
         None => (false, super::providers::API_DEEPSEEK.to_string()), // /beta 基线
     };
     let key = if use_rp {
@@ -259,7 +281,9 @@ pub async fn send_deepseek(
     put(&mut rb, "seed", take(body, "seed"));
     rb.insert(
         "thinking".into(),
-        json!({ "type": if body.get("include_reasoning").and_then(|v| v.as_bool()).unwrap_or(false) { "enabled" } else { "disabled" } }),
+        json!({ "type": deepseek_thinking_type(
+            body.get("include_reasoning").and_then(|v| v.as_bool()).unwrap_or(false),
+        ) }),
     );
     rb.extend(body_params);
 
@@ -287,7 +311,18 @@ pub async fn send_xai(st: &BackendState, body: &Value, origin: Option<HeaderValu
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
     {
-        Some(rp) => (true, rp.to_string()),
+        Some(rp) => match super::providers::validate_egress_url(
+            rp,
+            super::providers::EgressPolicy::ProxyUrl,
+        ) {
+            Ok(u) => (true, u),
+            Err(e) => {
+                return super::providers::err_json(
+                    StatusCode::BAD_REQUEST,
+                    &format!("reverse_proxy 被出站网关拒绝: {e}"),
+                )
+            }
+        },
         None => (false, super::providers::API_XAI.to_string()),
     };
     let key = if use_rp {
@@ -318,7 +353,7 @@ pub async fn send_xai(st: &BackendState, body: &Value, origin: Option<HeaderValu
     if let Some(effort) = body.get("reasoning_effort").and_then(|v| v.as_str()) {
         body_params.insert(
             "reasoning_effort".into(),
-            json!(if effort == "high" { "high" } else { "low" }),
+            json!(xai_reasoning_effort(effort)),
         );
     }
     json_schema_response_format(&mut body_params, body, false, false);
@@ -592,14 +627,10 @@ pub async fn send_minimax(
     rb.insert("messages".into(), messages);
     put(&mut rb, "model", take(body, "model"));
     put(&mut rb, "temperature", take(body, "temperature"));
-    // M2-her 模型 max_tokens 钳制 2048（ST 字面：max_tokens = model === 'M2-her' ? min(maxTokens, 2048) : maxTokens）
-    if let Some(mut t) = take(body, "max_tokens") {
-        if body.get("model").and_then(|m| m.as_str()) == Some("M2-her") {
-            if let Some(n) = t.as_i64() {
-                t = json!(n.min(2048));
-            }
-        }
-        rb.insert("max_tokens".into(), t);
+    // M2-her 模型 max_tokens 钳制 2048（ST 字面）
+    if let Some(t) = take(body, "max_tokens") {
+        let model = body.get("model").and_then(|m| m.as_str());
+        rb.insert("max_tokens".into(), minimax_max_tokens_clamped(model, t));
     }
     put(&mut rb, "stream", take(body, "stream"));
     put(&mut rb, "top_p", take(body, "top_p"));
@@ -650,9 +681,22 @@ pub async fn send_azure(st: &BackendState, body: &Value, origin: Option<HeaderVa
         );
     }
 
+    let base_url = match super::providers::validate_egress_url(
+        azure_base_url.trim_end_matches('/'),
+        super::providers::EgressPolicy::ProxyUrl,
+    ) {
+        Ok(u) => u,
+        Err(e) => {
+            return super::providers::err_json(
+                StatusCode::BAD_REQUEST,
+                &format!("Azure Base URL 被出站网关拒绝: {e}"),
+            )
+        }
+    };
+
     let url = format!(
         "{}/openai/deployments/{deployment}/chat/completions?api-version={api_version}",
-        azure_base_url.trim_end_matches('/')
+        base_url
     );
 
     let mut rb = Map::new();
@@ -815,6 +859,35 @@ fn put(rb: &mut Map<String, Value>, key: &str, value: Option<Value>) {
     }
 }
 
+/// M2-her 模型 max_tokens 钳制 2048（ST 字面 `model === 'M2-her' ?
+/// min(maxTokens, 2048) : maxTokens`；非数值 token 原样）
+fn minimax_max_tokens_clamped(model: Option<&str>, max_tokens: Value) -> Value {
+    if model == Some("M2-her") {
+        if let Some(n) = max_tokens.as_i64() {
+            return json!(n.min(2048));
+        }
+    }
+    max_tokens
+}
+
+/// xAI reasoning_effort 二值化（ST 字面 high→high，其余一律 low）
+fn xai_reasoning_effort(effort: &str) -> &'static str {
+    if effort == "high" {
+        "high"
+    } else {
+        "low"
+    }
+}
+
+/// deepseek thinking 开关（include_reasoning ? enabled : disabled，ST 字面）
+fn deepseek_thinking_type(include_reasoning: bool) -> &'static str {
+    if include_reasoning {
+        "enabled"
+    } else {
+        "disabled"
+    }
+}
+
 fn take_array_else_empty(body: &Value, key: &str) -> Vec<Value> {
     body.get(key)
         .and_then(|m| m.as_array())
@@ -886,4 +959,119 @@ fn json_schema_response_format(
         "response_format".into(),
         json!({ "type": "json_schema", "json_schema": Value::Object(inner) }),
     );
+}
+
+/* ============================ tests ============================ */
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn logprobs_double_writes_top_logprobs() {
+        // logprobs>0 → top_logprobs 数值 + logprobs 布尔双写（ST 字面）
+        let mut rb = Map::new();
+        logprobs_into(&mut rb, &json!({ "logprobs": 5 }));
+        assert_eq!(rb["top_logprobs"], 5);
+        assert_eq!(rb["logprobs"], true);
+        // 0 / 缺失 → 不写
+        let mut rb_zero = Map::new();
+        logprobs_into(&mut rb_zero, &json!({ "logprobs": 0 }));
+        assert!(rb_zero.is_empty());
+        let mut rb_missing = Map::new();
+        logprobs_into(&mut rb_missing, &json!({}));
+        assert!(rb_missing.is_empty());
+    }
+
+    #[test]
+    fn tools_into_passes_tool_choice() {
+        let body = json!({
+            "tools": [{ "type": "function", "function": { "name": "f" } }],
+            "tool_choice": "auto",
+        });
+        let mut rb = Map::new();
+        tools_into(&mut rb, &body);
+        assert_eq!(rb["tools"][0]["function"]["name"], "f");
+        assert_eq!(rb["tool_choice"], "auto");
+        // 空 tools → 不写入（ST Array.isArray && length 字面）
+        let mut rb_empty = Map::new();
+        tools_into(&mut rb_empty, &json!({ "tools": [] }));
+        assert!(rb_empty.get("tools").is_none());
+        assert!(rb_empty.get("tool_choice").is_none());
+    }
+
+    #[test]
+    fn json_schema_response_format_description_toggle() {
+        let body = json!({
+            "json_schema": { "name": "out", "value": { "type": "object" }, "strict": false },
+        });
+        // mistral 面：带 description（缺省空串）+ strict 透传
+        let mut with_desc = Map::new();
+        json_schema_response_format(&mut with_desc, &body, true, true);
+        assert_eq!(with_desc["response_format"]["type"], "json_schema");
+        assert_eq!(with_desc["response_format"]["json_schema"]["name"], "out");
+        assert_eq!(
+            with_desc["response_format"]["json_schema"]["description"],
+            ""
+        );
+        assert_eq!(with_desc["response_format"]["json_schema"]["strict"], false);
+        assert_eq!(
+            with_desc["response_format"]["json_schema"]["schema"]["type"],
+            "object"
+        );
+        // xai/aimlapi/chutes 面：无 description 键
+        let mut no_desc = Map::new();
+        json_schema_response_format(&mut no_desc, &body, false, true);
+        assert!(no_desc["response_format"]["json_schema"]
+            .get("description")
+            .is_none());
+        // 无 json_schema → no-op
+        let mut noop = Map::new();
+        json_schema_response_format(&mut noop, &json!({}), true, true);
+        assert!(noop.is_empty());
+    }
+
+    #[test]
+    fn take_takes_present_fields_including_null() {
+        // ST 字面：字段存在即取（含 null —— JSON.stringify 保留 null），缺失才跳过
+        assert_eq!(take(&json!({ "k": null }), "k"), Some(Value::Null));
+        assert_eq!(take(&json!({ "k": 1 }), "k"), Some(json!(1)));
+        assert_eq!(take(&json!({}), "k"), None);
+    }
+
+    #[test]
+    fn minimax_sender_clamps_m2her_max_tokens() {
+        // M2-her：钳制 2048
+        assert_eq!(
+            minimax_max_tokens_clamped(Some("M2-her"), json!(8192)),
+            json!(2048)
+        );
+        assert_eq!(
+            minimax_max_tokens_clamped(Some("M2-her"), json!(1024)),
+            json!(1024)
+        );
+        // 其他模型不钳制
+        assert_eq!(
+            minimax_max_tokens_clamped(Some("abab6.5s-chat"), json!(8192)),
+            json!(8192)
+        );
+        // 非数值 token 原样
+        assert_eq!(
+            minimax_max_tokens_clamped(Some("M2-her"), json!("auto")),
+            json!("auto")
+        );
+    }
+
+    #[test]
+    fn xai_sender_binarizes_effort() {
+        assert_eq!(xai_reasoning_effort("high"), "high");
+        assert_eq!(xai_reasoning_effort("medium"), "low");
+        assert_eq!(xai_reasoning_effort(""), "low");
+    }
+
+    #[test]
+    fn deepseek_sender_thinking_toggle() {
+        assert_eq!(deepseek_thinking_type(true), "enabled");
+        assert_eq!(deepseek_thinking_type(false), "disabled");
+    }
 }

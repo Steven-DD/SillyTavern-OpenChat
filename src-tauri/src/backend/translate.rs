@@ -16,6 +16,12 @@
 //! - onering：oneringtranslator_url（默认环回 4990）；GET query 传参
 //!   → **App 期望 {data:{result}}**（ST 裸字符串面 App 无法读取 —— 登记偏差）
 //! - deeplx：deeplx_url（默认环回 1188）；zh→ZH → `data`
+ //!
+ //! 出站网关（HIGH-5）：libre_url / deeplx_url / oneringtranslator_url 三家
+ //! 用户可控 URL 过统一网关 `validate_egress_url(…, LocalTextgen)`（自建服务
+ //! 通道：环回 http 放行，私网/link-local 一律拒；lead 裁决偏离任务书
+ //! ProxyUrl 字面 —— DeepLX/OneRing 典型部署即本机，出厂默认必须可用；
+ //! 网关拒绝 → 400 可读错误面，亦无 ST 字面）。
 //! - bing：edge.microsoft.com/translate/auth 取 JWT →
 //!   cognitive.microsofttranslator.com/translate?api-version=3.0&to
 //!   （zh-CN→zh-Hans、zh-TW→zh-Hant、pt-BR→pt）
@@ -24,7 +30,7 @@
 //! typeof string 判定兼容 —— ST 裸 text/plain 面 App 同样无法 json 解析，
 //! 属登记的同源偏差修正）。非 ok/异常 → 500（sendStatus 字面）。
 
-use super::providers::read_secret;
+use super::providers::{read_secret, EgressPolicy, validate_egress_url};
 use super::BackendState;
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -52,6 +58,16 @@ fn status500(origin: Option<HeaderValue>) -> Response {
 
 fn status400(origin: Option<HeaderValue>) -> Response {
     super::apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin)
+}
+
+/// 出站网关拒绝（HIGH-5 接线，无 ST 字面对应 —— 登记偏差）：
+/// 400 + 可读错误（json_resp 面，与未知供应商错误同形、CORS 一致）。
+fn egress_reject(what: &str, why: &str, origin: Option<HeaderValue>) -> Response {
+    super::providers::json_resp(
+        StatusCode::BAD_REQUEST,
+        json!({ "error": { "message": format!("{what} 被出站网关拒绝: {why}") } }),
+        origin,
+    )
 }
 
 async fn client() -> reqwest::Client {
@@ -99,6 +115,12 @@ pub async fn libre(st: &BackendState, body: &Value, origin: Option<HeaderValue>)
     let url = match read_secret(st, "libre_url") {
         Some(u) => u,
         None => return status400(origin),
+    };
+    // HIGH-5：libre_url 用户可控出站 → 统一网关（LocalTextgen 自建服务通道：
+    // 环回 http 放行；lead 裁决偏离任务书 ProxyUrl 字面 —— 汇报已登记）
+    let url = match validate_egress_url(&url, EgressPolicy::LocalTextgen) {
+        Ok(u) => u,
+        Err(e) => return egress_reject("libre_url", &e, origin),
     };
     let mut lang = get_lang_field(body);
     match lang.as_str() {
@@ -198,7 +220,7 @@ pub async fn yandex(_st: &BackendState, body: &Value, origin: Option<HeaderValue
         form.push_str(&format!("text={}&", query_escape(chunk)));
     }
     form.push_str(&format!("lang={}", query_escape(&lang)));
-    let ucid: String = uuid_hex().chars().take(32).collect();
+    let ucid: String = uuid_hex();
     let resp = client().await
         .post(format!("https://translate.yandex.net/api/v1/tr.json/translate?ucid={ucid}&srv=android&format=text"))
         .header("Content-Type", "application/x-www-form-urlencoded")
@@ -289,6 +311,12 @@ pub async fn deepl(st: &BackendState, body: &Value, origin: Option<HeaderValue>)
 /* ---------------- onering ---------------- */
 pub async fn onering(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
     let url = read_secret(st, "oneringtranslator_url").unwrap_or_else(|| ONERING_URL_DEFAULT.to_string());
+    // HIGH-5：oneringtranslator_url 用户可控出站 → 统一网关（LocalTextgen：
+    // 出厂默认 127.0.0.1:4990 环回 http 放行；lead 裁决偏离任务书 ProxyUrl 字面）
+    let url = match validate_egress_url(&url, EgressPolicy::LocalTextgen) {
+        Ok(u) => u,
+        Err(e) => return egress_reject("oneringtranslator_url", &e, origin),
+    };
     let mut to_lang = body.sfield("to_lang");
     if ["pt-BR", "pt-PT"].contains(&body.sfield("to_lang").as_str()) {
         to_lang = "pt".into();
@@ -320,6 +348,12 @@ pub async fn onering(st: &BackendState, body: &Value, origin: Option<HeaderValue
 /* ---------------- deeplx ---------------- */
 pub async fn deeplx(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
     let url = read_secret(st, "deeplx_url").unwrap_or_else(|| DEEPLX_URL_DEFAULT.to_string());
+    // HIGH-5：deeplx_url 用户可控出站 → 统一网关（LocalTextgen：
+    // 出厂默认 127.0.0.1:1188 环回 http 放行；lead 裁决偏离任务书 ProxyUrl 字面）
+    let url = match validate_egress_url(&url, EgressPolicy::LocalTextgen) {
+        Ok(u) => u,
+        Err(e) => return egress_reject("deeplx_url", &e, origin),
+    };
     let mut lang = get_lang_field(body);
     if ["zh-CN", "zh-TW"].contains(&lang.as_str()) {
         lang = "ZH".into();
@@ -422,23 +456,11 @@ fn query_escape(s: &str) -> String {
 }
 
 fn uuid_hex() -> String {
-    use std::cell::Cell;
-    use std::time::{SystemTime, UNIX_EPOCH};
-    thread_local! {
-        static STATE: Cell<u64> = const { Cell::new(0) };
-    }
-    STATE.with(|st| {
-        let mut x = st.get();
-        if x == 0 {
-            x = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(7777) | 1;
-        }
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        st.set(x);
-        let hex: String = (0..16).map(|_| format!("{:01x}", (x >> 8) as u8 & 0xF)).collect();
-        hex
-    })
+    // ST yandex ucid（translate.js:129）= uuidv4().replaceAll('-', '')
+    // —— v4 随机（crypto.randomUUID：每 nibble 来自 CSPRNG，仅 version/variant
+    // 位固定）。复用 vault::uuid_v4（getrandom OS CSPRNG 同源），去连字符
+    // 即 32 hex 小写；修复前实现把循环外同一 xored 值重复 16 次 → 恒重复串。
+    super::vault::uuid_v4().replace('-', "")
 }
 
 #[cfg(test)]
@@ -457,5 +479,22 @@ mod tests {
         let mut lang = "zh-CN".to_string();
         if lang == "zh-CN" { lang = "zh-Hans".into(); }
         assert_eq!(lang, "zh-Hans");
+    }
+
+    #[test]
+    fn uuid_hex_is_random_v4_shape() {
+        let a = uuid_hex();
+        let b = uuid_hex();
+        assert_eq!(a.len(), 32, "uuid v4 无连字符 = 32 hex（ST ucid 字面长度）");
+        assert!(
+            a.chars().all(|c| c.is_ascii_hexdigit()) && a.chars().all(|c| !c.is_ascii_uppercase()),
+            "全小写 hex"
+        );
+        assert_eq!(&a[12..13], "4", "version 位 = 4（uuidv4 语义）");
+        assert!(
+            matches!(&a[16..17], "8" | "9" | "a" | "b"),
+            "variant 位 = 10xx（uuidv4 语义）"
+        );
+        assert_ne!(a, b, "两次生成必须不同（每 nibble 随机，CSPRNG 源）");
     }
 }

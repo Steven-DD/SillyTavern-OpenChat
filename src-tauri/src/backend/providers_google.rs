@@ -120,10 +120,22 @@ pub async fn send_makersuite(
             .map(|s| !s.is_empty())
             .unwrap_or(false);
         let url = if use_rp {
-            body.get("reverse_proxy")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string()
+            // HIGH-5：reverse_proxy 出站网关（ProxyUrl 面）
+            match super::providers::validate_egress_url(
+                body.get("reverse_proxy")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(""),
+                super::providers::EgressPolicy::ProxyUrl,
+            ) {
+                Ok(u) => u,
+                Err(e) => {
+                    return super::providers::json_resp(
+                        StatusCode::BAD_REQUEST,
+                        json!({ "error": { "message": format!("reverse_proxy 被出站网关拒绝: {e}") } }),
+                        origin,
+                    )
+                }
+            }
         } else {
             super::providers::API_MAKERSUITE.to_string()
         };
@@ -212,10 +224,7 @@ pub async fn send_makersuite(
     }
 
     // thinkingConfig
-    let is_thinking_config = (starts_with_prefixes(model, &["gemini-2.5-flash", "gemini-2.5-pro"])
-        && !model.ends_with("-image")
-        && !model.ends_with("-image-preview"))
-        || starts_with_any_regex3(model);
+    let is_thinking_config = is_thinking_config_model(model);
     if is_thinking_config {
         let mut tc = json!({ "includeThoughts": include_reasoning });
         if let Some(b) = conv::calculate_google_budget_tokens(
@@ -409,7 +418,8 @@ pub async fn send_makersuite(
     };
 
     // 请求发出（full 模式走 Bearer 头；express/Google AI 仍 query key）
-    let resp_res = super::providers::upstream_post(&url, "", extra_headers, &Value::Object(rb)).await;
+    let resp_res =
+        super::providers::upstream_post(&url, "", extra_headers, &Value::Object(rb)).await;
     let resp = match resp_res {
         Ok(r) => r,
         Err(_) => {
@@ -532,13 +542,28 @@ pub(crate) async fn status(
             origin,
         );
     }
-    let api_root = body
+    let api_root = match body
         .get("reverse_proxy")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
-        .unwrap_or(super::providers::API_MAKERSUITE)
-        .trim_end_matches('/')
-        .to_string();
+    {
+        // HIGH-5：reverse_proxy 出站网关（ProxyUrl 面）
+        Some(rp) => match super::providers::validate_egress_url(
+            rp,
+            super::providers::EgressPolicy::ProxyUrl,
+        ) {
+            Ok(u) => u,
+            Err(_) => {
+                return super::providers::json_resp(
+                    StatusCode::BAD_REQUEST,
+                    json!({ "error": true }),
+                    origin,
+                )
+            }
+        },
+        None => super::providers::API_MAKERSUITE.to_string(),
+    };
+    let api_root = api_root.trim_end_matches('/').to_string();
     let models_url = if api_key.is_empty() {
         // rp 路径：不带 key 查询串（ST 字面）
         format!("{api_root}/v1beta/models")
@@ -580,7 +605,12 @@ pub(crate) async fn fetch_google_models(models_url: &str) -> Result<Vec<Value>, 
             .timeout(std::time::Duration::from_secs(60))
             .send()
             .await
-            .map_err(|e| format!("Failed to fetch models page: {e}"))?;
+            .map_err(|e| {
+                format!(
+                    "Failed to fetch models page: {}",
+                    super::providers::fmt_upstream_err(&e)
+                )
+            })?;
         if !resp.status().is_success() {
             return Err(format!("Google models endpoint returned {}", resp.status()));
         }
@@ -641,10 +671,21 @@ fn starts_with_prefixes(model: &str, prefixes: &[&str]) -> bool {
     prefixes.iter().any(|p| model.starts_with(p))
 }
 
-/// ^gemini-3[.\d]*-(flash|pro)（thinking config 档判别）
+/// isThinkingConfigModel（ST :526 字面）：
+/// `/^gemini-2.5-(flash|pro)/ && !/-image(-preview)?$/` 或
+/// `/^gemini-3[.\d]*-(flash|pro)/`
+fn is_thinking_config_model(model: &str) -> bool {
+    (starts_with_prefixes(model, &["gemini-2.5-flash", "gemini-2.5-pro"])
+        && !model.ends_with("-image")
+        && !model.ends_with("-image-preview"))
+        || starts_with_any_regex3(model)
+}
+
+/// ^gemini-3[.\d]*-(flash|pro)（thinking config 档判别；锚定 model 起始，
+/// 不再子串命中 —— ST 同款正则本就 ^ 锚定）
 fn starts_with_any_regex3(model: &str) -> bool {
-    let rest = match model.find("gemini-3") {
-        Some(i) => &model[i + 8..],
+    let rest = match model.strip_prefix("gemini-3") {
+        Some(rest) => rest,
         None => return false,
     };
     let mut idx = 0usize;
@@ -665,8 +706,27 @@ mod tests {
 
     #[test]
     fn no_sampling_and_thinking_gates() {
-        // noSampling 家族名（供参照；生成器内联 contains 检查）
+        // noSampling 家族（generate 内联 contains 判别）
         assert!("gemini-3.7-flash".contains("gemini-3.7-flash"));
+        assert!(!"gemini-2.5-flash".contains("gemini-3.7-flash"));
+        // thinkingConfig 档：2.5 前缀族（-image/-image-preview 排除）
+        assert!(is_thinking_config_model("gemini-2.5-flash"));
+        assert!(is_thinking_config_model("gemini-2.5-pro"));
+        assert!(!is_thinking_config_model("gemini-2.0-flash"));
+        assert!(!is_thinking_config_model("gemini-2.5-flash-image"));
+        assert!(!is_thinking_config_model("gemini-2.5-pro-image-preview"));
+        // gemini-3 档：^ 锚定判定（gemini-3 前缀 + [.\d]* 段 + -flash/-pro）
+        assert!(is_thinking_config_model("gemini-3-pro"));
+        assert!(is_thinking_config_model("gemini-3.7-flash"));
+        assert!(is_thinking_config_model("gemini-3.5-flash-lite"));
+        // 加锚后：前缀伪装不再命中
+        assert!(!is_thinking_config_model("claude-gemini-3-pro"));
+        assert!(!is_thinking_config_model("my-gemini-3-flash"));
+        // -image / -image-preview 排除（ST !/-image(-preview)?$/）
+        assert!(!is_thinking_config_model("gemini-3-flash-image"));
+        assert!(!is_thinking_config_model("gemini-3-pro-image-preview"));
+        // 非 flash/pro 后缀
+        assert!(!is_thinking_config_model("gemini-3-lite"));
     }
 
     #[test]

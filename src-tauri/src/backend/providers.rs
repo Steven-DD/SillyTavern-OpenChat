@@ -17,7 +17,9 @@
 //!   accept-encoding identity）；401 流式降级 400（forwardFetchResponse
 //!   字面）；非流式：generic 族 = E1 上游错误原样注释透传（Phase 1 定档），
 //!   独立 sender = 500 + tryParse ?? {error:true}
-//! - S12：custom_url 仅 https 或环回 http（原样保留）
+//! - S12/HIGH-5：用户可控出站 URL 全走 `validate_egress_url` 网关
+//!   （custom_url=CustomSource 仅 https；reverse_proxy/azure_base_url=ProxyUrl
+//!   仅 https；textcomp api_server=LocalTextgen 环回 http 放行）
 //! - 密钥只从服务端 secrets 读（api_key_<source>；S8 面）
 //! - 输出面偏差登记：claude 流（Anthropic SSE→OpenAI chunk）、cohere 流/非流
 //!   （Cohere v2→OpenAI 形）—— App 前端 stStream/stGenerateBlocking 双解析器
@@ -101,27 +103,114 @@ pub(crate) fn json_pretty4(v: &Value) -> String {
     String::from_utf8_lossy(&ser.into_inner()).to_string()
 }
 
-/// S12 一期版：custom_url 必须 https（环回 http 放行给本地推理服务器）
-pub(crate) fn validate_custom_url(raw: &str) -> Result<String, String> {
-    let is_local = |host: &str| host == "127.0.0.1" || host == "localhost" || host == "::1";
-    if raw.starts_with("https://") {
-        return Ok(raw.trim_end_matches('/').to_string());
+/* ================================================================ *
+ * S12/HIGH-5 统一出站网关（SSRF 面）
+ * ================================================================ */
+
+/// 出站 URL 策略（HIGH-5）
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum EgressPolicy {
+    /// 云端兼容源（custom_url）：仅 https，环回 http 一并拒绝
+    CustomSource,
+    /// 自建服务通道：环回 http 放行。覆盖 textcomp api_server 与
+    /// translate 三家自建 URL（libre_url / deeplx_url / oneringtranslator_url，
+    /// nlp-fix 同批接线）
+    LocalTextgen,
+    /// reverse_proxy / azure_base_url 代理面：仅 https
+    ProxyUrl,
+}
+
+/// 环回主机判定（127.0.0.0/8、::1、localhost）
+fn is_loopback_host(host: &str) -> bool {
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
     }
-    if raw.starts_with("http://") {
-        let host = raw
-            .trim_start_matches("http://")
-            .split('/')
-            .next()
-            .unwrap_or("")
-            .split(':')
-            .next()
-            .unwrap_or("");
-        if is_local(host) {
-            return Ok(raw.trim_end_matches('/').to_string());
+    match host.parse::<std::net::IpAddr>() {
+        Ok(ip) => ip.is_loopback(),
+        Err(_) => false,
+    }
+}
+
+/// 禁用网段（字面与解析后同判）：10/8、172.16/12、192.168/16、169.254/16、
+/// 0.0.0.0、fc00::/7、fe80::/10
+fn ip_banned(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            let [a, b, _, _] = v4.octets();
+            a == 10
+                || (a == 172 && (16..=31).contains(&b))
+                || (a == 192 && b == 168)
+                || (a == 169 && b == 254)
+                || v4.is_unspecified()
         }
-        return Err("custom_url 仅允许 https（或环回 http 端点）".into());
+        std::net::IpAddr::V6(v6) => {
+            let seg = v6.segments();
+            (seg[0] & 0xfe00) == 0xfc00 // fc00::/7
+                || (seg[0] & 0xffc0) == 0xfe80 // fe80::/10
+        }
     }
-    Err("custom_url 协议不合法".into())
+}
+
+/// 真实解析器（ToSocketAddrs；由调用方在 async 语境自行权衡阻塞成本）
+fn resolve_host_ips(host: &str, port: u16) -> std::io::Result<Vec<std::net::IpAddr>> {
+    use std::net::ToSocketAddrs;
+    Ok((host, port).to_socket_addrs()?.map(|s| s.ip()).collect())
+}
+
+/// 统一出站网关（HIGH-5/S12）：
+/// - scheme 必须 https；http 仅当 policy=LocalTextgen（自建服务通道：
+///   textcomp api_server / translate 自建 URL）且 host 为环回；
+///   CustomSource（云端兼容源 custom_url）对环回 http 一并拒绝；
+/// - 任何 policy 拒绝字面私网/link-local（含 https 指向私网）；
+/// - hostname 非字面 IP 时解析（ToSocketAddrs），任一 IP 落禁用段即拒
+///   （解析失败 fail-closed：无法核验的出站一律不放行）。
+/// 成功返回规范化 URL（去尾斜杠，可直接作 api_root 拼 path）。
+pub(crate) fn validate_egress_url(raw: &str, policy: EgressPolicy) -> Result<String, String> {
+    validate_egress_url_with(raw, policy, resolve_host_ips)
+}
+
+/// 可注入解析器的网关本体（单测用假解析器，不打真实 DNS）
+pub(crate) fn validate_egress_url_with<F>(
+    raw: &str,
+    policy: EgressPolicy,
+    resolve: F,
+) -> Result<String, String>
+where
+    F: Fn(&str, u16) -> std::io::Result<Vec<std::net::IpAddr>>,
+{
+    let url = reqwest::Url::parse(raw.trim())
+        .map_err(|_| "URL 解析失败（需 http/https 绝对地址）".to_string())?;
+    let scheme = url.scheme();
+    if scheme != "https" && scheme != "http" {
+        return Err(format!("出站 URL 协议不合法: {scheme}"));
+    }
+    let host_raw = url
+        .host_str()
+        .filter(|h| !h.is_empty())
+        .ok_or_else(|| "出站 URL 缺少主机名".to_string())?;
+    // url crate 对 IPv6 字面量 host_str 带 方括号（"[::1]"）→ 剥掉再判
+    let host = host_raw.trim_start_matches('[').trim_end_matches(']');
+    if scheme == "http" && !(policy == EgressPolicy::LocalTextgen && is_loopback_host(host)) {
+        return Err("出站 URL 仅允许 https（本地文本推理服务器可用环回 http）".into());
+    }
+    let port = url.port_or_known_default().unwrap_or(0);
+    match host.parse::<std::net::IpAddr>() {
+        Ok(ip) => {
+            if ip_banned(ip) {
+                return Err(format!("出站 URL 指向禁用网段: {ip}"));
+            }
+        }
+        Err(_) => {
+            let ips = resolve(host, port).map_err(|e| format!("出站 URL 域名解析失败: {e}"))?;
+            if ips.is_empty() {
+                return Err("出站 URL 域名解析结果为空".into());
+            }
+            if ips.iter().any(|ip| ip_banned(*ip)) {
+                return Err("出站 URL 域名解析到禁用网段".into());
+            }
+        }
+    }
+    Ok(url.to_string().trim_end_matches('/').to_string())
 }
 
 /// flattenSchema（util.js:1459 收敛面）—— App 全源不发 tools/json_schema 时为
@@ -163,8 +252,20 @@ pub(crate) fn zai_headers() -> Vec<(String, String)> {
     vec![("Accept-Language".into(), "en-US,en".into())]
 }
 
-pub(crate) fn claude_headers() -> Vec<(String, String)> {
-    vec![("anthropic-version".into(), "2023-06-01".into())]
+/// Claude 出站头构造（HIGH-3，ST chat-completions.js:246-247/:404-406/:414-419
+/// 字面）：x-api-key（非 Bearer）+ anthropic-version + 无条件 anthropic-beta
+/// 基线（output-128k/context-1m）；useTools 追加 tools-2024-05-16（ST :290）。
+/// reverse_proxy 分支同形 —— ST :232 仅换 key 来源，fetch 头共用一套（:410-420）。
+pub(crate) fn claude_outbound_headers(key: &str, use_tools: bool) -> Vec<(String, String)> {
+    let mut beta: Vec<&str> = vec!["output-128k-2025-02-19", "context-1m-2025-08-07"];
+    if use_tools {
+        beta.push("tools-2024-05-16");
+    }
+    vec![
+        ("anthropic-version".into(), "2023-06-01".into()),
+        ("x-api-key".into(), key.to_string()),
+        ("anthropic-beta".into(), beta.join(",")),
+    ]
 }
 
 pub(crate) fn gemini_safety() -> Value {
@@ -188,6 +289,22 @@ async fn post_client() -> reqwest::Client {
         .unwrap_or_default()
 }
 
+/// S13：reqwest 错误 Display 内嵌完整上游 URL（可含 key 查询串，如 gemini
+/// ?key=… / vertexai express）→ 统一剥除 URL，保留状态码与错误描述。
+pub(crate) fn fmt_upstream_err(e: &reqwest::Error) -> String {
+    let display = e.to_string();
+    let Some(u) = e.url() else {
+        return display;
+    };
+    let raw = u.as_str();
+    let tail = format!(" for url ({raw})");
+    if display.contains(&tail) {
+        display.replace(&tail, "")
+    } else {
+        display.replace(raw, "[URL 已剥除]")
+    }
+}
+
 /// 通用 POST（Bearer 鉴权；key 为空不带头 —— custom 源匿名放行 ST 字面）+
 /// S14 identity + 300s 出站保护。
 pub(crate) async fn upstream_post(
@@ -208,7 +325,33 @@ pub(crate) async fn upstream_post(
     for (k, v) in headers {
         req = req.header(k.as_str(), v.as_str());
     }
-    req.json(body).send().await.map_err(|e| e.to_string())
+    req.json(body)
+        .send()
+        .await
+        .map_err(|e| fmt_upstream_err(&e))
+}
+
+/// Claude 专用出站（HIGH-3，ST chat-completions.js:410-420 字面）：
+/// x-api-key 头（非 Bearer）+ anthropic-version + 无条件 anthropic-beta。
+pub(crate) async fn upstream_post_claude(
+    url: &str,
+    key: &str,
+    use_tools: bool,
+    body: &Value,
+) -> Result<reqwest::Response, String> {
+    let client = post_client().await;
+    let mut req = client
+        .post(url)
+        .header("Content-Type", "application/json")
+        .header("accept-encoding", "identity")
+        .timeout(std::time::Duration::from_secs(300));
+    for (k, v) in claude_outbound_headers(key, use_tools) {
+        req = req.header(k.as_str(), v.as_str());
+    }
+    req.json(body)
+        .send()
+        .await
+        .map_err(|e| fmt_upstream_err(&e))
 }
 
 /// Azure：`api-key` 头（非 Bearer）
@@ -227,7 +370,7 @@ pub(crate) async fn upstream_post_azure(
         .json(body)
         .send()
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| fmt_upstream_err(&e))
 }
 
 /// 401 → 400 降级（forwardFetchResponse 防 Basic-Auth 重置字面）
@@ -621,6 +764,16 @@ fn reverse_proxy_on(body: &Value) -> bool {
         .unwrap_or(false)
 }
 
+/// reverse_proxy URL 出站校验（HIGH-5 ProxyUrl 面）——Err 为 400 文案
+fn rp_validated(body: &Value) -> Result<String, String> {
+    let raw = body
+        .get("reverse_proxy")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    validate_egress_url(raw, EgressPolicy::ProxyUrl)
+        .map_err(|e| format!("reverse_proxy 被出站网关拒绝: {e}"))
+}
+
 fn proxy_password(body: &Value) -> String {
     body.get("proxy_password")
         .and_then(|v| v.as_str())
@@ -656,7 +809,10 @@ async fn generic_generate(
         "openai" => {
             let use_rp = reverse_proxy_on(body);
             api_root = if use_rp {
-                body["reverse_proxy"].as_str().unwrap_or("").to_string()
+                match rp_validated(body) {
+                    Ok(u) => u,
+                    Err(e) => return err_json(StatusCode::BAD_REQUEST, &e),
+                }
             } else {
                 API_OPENAI.to_string()
             };
@@ -710,7 +866,9 @@ async fn generic_generate(
             }
         }
         "custom" => {
-            let url = match s_field(body, "custom_url").map(|u| validate_custom_url(&u)) {
+            let url = match s_field(body, "custom_url")
+                .map(|u| validate_egress_url(&u, EgressPolicy::CustomSource))
+            {
                 Some(Ok(u)) => u,
                 Some(Err(e)) => return err_json(StatusCode::BAD_REQUEST, &e),
                 None => return err_json(StatusCode::BAD_REQUEST, "缺少 custom_url"),
@@ -836,7 +994,10 @@ async fn generic_generate(
         "moonshot" => {
             let use_rp = reverse_proxy_on(body);
             api_root = if use_rp {
-                body["reverse_proxy"].as_str().unwrap_or("").to_string()
+                match rp_validated(body) {
+                    Ok(u) => u,
+                    Err(e) => return err_json(StatusCode::BAD_REQUEST, &e),
+                }
             } else {
                 API_MOONSHOT.to_string()
             };
@@ -870,7 +1031,10 @@ async fn generic_generate(
             };
             let use_rp = reverse_proxy_on(body);
             api_root = if use_rp {
-                body["reverse_proxy"].as_str().unwrap_or("").to_string()
+                match rp_validated(body) {
+                    Ok(u) => u,
+                    Err(e) => return err_json(StatusCode::BAD_REQUEST, &e),
+                }
             } else {
                 default.to_string()
             };
@@ -1245,10 +1409,16 @@ pub async fn status(st: &BackendState, body: &Value, origin: Option<HeaderValue>
             } else {
                 read_secret(st, "api_key_openai").unwrap_or_default()
             };
-            fetch_models_common(st, &rp_or(body, API_OPENAI), &key, Vec::new(), &[], origin).await
+            let api_root = match rp_or(body, API_OPENAI) {
+                Ok(u) => u,
+                Err(e) => return err_json(StatusCode::BAD_REQUEST, &e),
+            };
+            fetch_models_common(st, &api_root, &key, Vec::new(), &[], origin).await
         }
         "custom" => {
-            let url = match s_field(body, "custom_url").map(|u| validate_custom_url(&u)) {
+            let url = match s_field(body, "custom_url")
+                .map(|u| validate_egress_url(&u, EgressPolicy::CustomSource))
+            {
                 Some(Ok(u)) => u,
                 Some(Err(e)) => return err_json(StatusCode::BAD_REQUEST, &e),
                 None => return err_json(StatusCode::BAD_REQUEST, "缺少 custom_url"),
@@ -1279,7 +1449,10 @@ pub async fn status(st: &BackendState, body: &Value, origin: Option<HeaderValue>
             .await
         }
         "mistralai" => {
-            let (use_rp, url) = rp_or_pair(body, API_MISTRAL);
+            let (use_rp, url) = match rp_or_pair(body, API_MISTRAL) {
+                Ok(p) => p,
+                Err(e) => return err_json(StatusCode::BAD_REQUEST, &e),
+            };
             let key = if use_rp {
                 proxy_password(body)
             } else {
@@ -1288,7 +1461,10 @@ pub async fn status(st: &BackendState, body: &Value, origin: Option<HeaderValue>
             fetch_models_common(st, &url, &key, Vec::new(), &[], origin).await
         }
         "deepseek" => {
-            let (use_rp, url) = rp_or_pair(body, API_DEEPSEEK_STATUS);
+            let (use_rp, url) = match rp_or_pair(body, API_DEEPSEEK_STATUS) {
+                Ok(p) => p,
+                Err(e) => return err_json(StatusCode::BAD_REQUEST, &e),
+            };
             let key = if use_rp {
                 proxy_password(body)
             } else {
@@ -1297,7 +1473,10 @@ pub async fn status(st: &BackendState, body: &Value, origin: Option<HeaderValue>
             fetch_models_common(st, &url, &key, Vec::new(), &[], origin).await
         }
         "xai" => {
-            let (use_rp, url) = rp_or_pair(body, API_XAI);
+            let (use_rp, url) = match rp_or_pair(body, API_XAI) {
+                Ok(p) => p,
+                Err(e) => return err_json(StatusCode::BAD_REQUEST, &e),
+            };
             let key = if use_rp {
                 proxy_password(body)
             } else {
@@ -1306,7 +1485,10 @@ pub async fn status(st: &BackendState, body: &Value, origin: Option<HeaderValue>
             fetch_models_common(st, &url, &key, Vec::new(), &[], origin).await
         }
         "moonshot" => {
-            let (use_rp, url) = rp_or_pair(body, API_MOONSHOT);
+            let (use_rp, url) = match rp_or_pair(body, API_MOONSHOT) {
+                Ok(p) => p,
+                Err(e) => return err_json(StatusCode::BAD_REQUEST, &e),
+            };
             let key = if use_rp {
                 proxy_password(body)
             } else {
@@ -1409,22 +1591,25 @@ pub async fn status(st: &BackendState, body: &Value, origin: Option<HeaderValue>
     }
 }
 
-fn rp_or(body: &Value, base: &str) -> String {
-    body.get("reverse_proxy")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .unwrap_or(base)
-        .to_string()
-}
-
-fn rp_or_pair(body: &Value, base: &str) -> (bool, String) {
+fn rp_or(body: &Value, base: &str) -> Result<String, String> {
     match body
         .get("reverse_proxy")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
     {
-        Some(rp) => (true, rp.to_string()),
-        None => (false, base.to_string()),
+        Some(rp) => validate_egress_url(rp, EgressPolicy::ProxyUrl),
+        None => Ok(base.to_string()),
+    }
+}
+
+fn rp_or_pair(body: &Value, base: &str) -> Result<(bool, String), String> {
+    match body
+        .get("reverse_proxy")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+    {
+        Some(rp) => Ok((true, validate_egress_url(rp, EgressPolicy::ProxyUrl)?)),
+        None => Ok((false, base.to_string())),
     }
 }
 
@@ -1576,6 +1761,16 @@ async fn azure_status(st: &BackendState, body: &Value, origin: Option<HeaderValu
         return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
     }
     let base = base.trim_end_matches('/');
+    let base = match validate_egress_url(base, EgressPolicy::ProxyUrl) {
+        Ok(b) => b,
+        Err(e) => {
+            return json_resp(
+                StatusCode::BAD_REQUEST,
+                json!({ "error": true, "message": format!("Azure Base URL 被出站网关拒绝: {e}") }),
+                origin,
+            )
+        }
+    };
     let client = post_client().await;
 
     let models_url = format!("{base}/openai/models?api-version={ver}");
@@ -1765,19 +1960,143 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn custom_url_validation() {
-        assert!(validate_custom_url("https://api.x.com/v1").is_ok());
+    fn egress_gateway_rules() {
+        use EgressPolicy::*;
+        // 字面私网 / link-local（含 https 指向）—— 任何 policy 拒
+        for policy in [CustomSource, LocalTextgen, ProxyUrl] {
+            assert!(
+                validate_egress_url("http://169.254.169.254/latest", policy).is_err(),
+                "metadata http 拒"
+            );
+            assert!(
+                validate_egress_url("https://169.254.169.254/latest", policy).is_err(),
+                "metadata https 拒"
+            );
+            assert!(
+                validate_egress_url("https://10.0.0.5/v1", policy).is_err(),
+                "私网 https 拒"
+            );
+            assert!(validate_egress_url("https://172.16.1.5/v1", policy).is_err());
+            assert!(validate_egress_url("https://192.168.1.5/v1", policy).is_err());
+            assert!(validate_egress_url("https://0.0.0.0/v1", policy).is_err());
+            assert!(validate_egress_url("https://[fe80::1]/v1", policy).is_err());
+            assert!(validate_egress_url("https://[fc00::5]/v1", policy).is_err());
+        }
+        // custom（云端兼容源）：环回 http 必拒，仅 https
         assert!(
-            validate_custom_url("http://127.0.0.1:5001/v1").is_ok(),
-            "环回 http 放行"
+            validate_egress_url("http://127.0.0.1:5001/v1", CustomSource).is_err(),
+            "custom 环回 http 拒"
         );
-        assert!(validate_custom_url("http://localhost:8008").is_ok());
+        assert!(validate_egress_url("http://localhost:8008", CustomSource).is_err());
+        assert!(validate_egress_url("https://api.x.com/v1", CustomSource).is_ok());
+        // LocalTextgen（自建服务通道）：环回 http 放行（localhost 走真实解析路径）
+        assert!(validate_egress_url("http://127.0.0.1:5001/v1", LocalTextgen).is_ok());
+        assert!(validate_egress_url("http://[::1]:8080", LocalTextgen).is_ok());
+        assert!(validate_egress_url("http://localhost:5000", LocalTextgen).is_ok());
         assert!(
-            validate_custom_url("http://10.0.0.5/v1").is_err(),
-            "非环回 http 拒"
+            validate_egress_url("http://10.0.0.5:5001", LocalTextgen).is_err(),
+            "自建通道非环回 http 拒"
         );
-        assert!(validate_custom_url("ftp://x").is_err());
-        assert!(validate_custom_url("127.0.0.1:5001").is_err(), "无协议拒");
+        // ProxyUrl（reverse_proxy / azure_base_url）：http 一律拒
+        assert!(validate_egress_url("http://10.0.0.5:9000", ProxyUrl).is_err());
+        // scheme 白名单 / 无协议
+        assert!(validate_egress_url("ftp://x", CustomSource).is_err());
+        assert!(
+            validate_egress_url("127.0.0.1:5001", CustomSource).is_err(),
+            "无协议拒"
+        );
+    }
+
+    #[test]
+    fn egress_dns_pin_with_injected_resolver() {
+        // 解析后任一 IP 落禁用段 → 拒（注入解析器，不打真实 DNS）
+        let resolve_private = |_host: &str, _port: u16| -> std::io::Result<Vec<std::net::IpAddr>> {
+            Ok(vec!["10.1.2.3".parse().unwrap()])
+        };
+        assert!(validate_egress_url_with(
+            "https://rebind.example.com/v1",
+            EgressPolicy::ProxyUrl,
+            resolve_private
+        )
+        .is_err());
+        // 解析失败 → fail-closed
+        let resolve_fail = |_host: &str, _port: u16| -> std::io::Result<Vec<std::net::IpAddr>> {
+            Err(std::io::Error::new(std::io::ErrorKind::Other, "dns down"))
+        };
+        assert!(validate_egress_url_with(
+            "https://api.openai.com/v1",
+            EgressPolicy::ProxyUrl,
+            resolve_fail
+        )
+        .is_err());
+        // 解析为公网 IP → 放行
+        let resolve_public = |_host: &str, _port: u16| -> std::io::Result<Vec<std::net::IpAddr>> {
+            Ok(vec!["93.184.216.34".parse().unwrap()])
+        };
+        assert!(validate_egress_url_with(
+            "https://api.openai.com/v1",
+            EgressPolicy::ProxyUrl,
+            resolve_public
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn claude_outbound_header_shape() {
+        fn header<'a>(hs: &'a [(String, String)], k: &str) -> &'a str {
+            hs.iter()
+                .find(|(key, _)| key == k)
+                .map(|(_, v)| v.as_str())
+                .unwrap_or("")
+        }
+        let hs = claude_outbound_headers("sk-ant-key", false);
+        // x-api-key（非 Bearer）+ anthropic-version + 无条件 anthropic-beta（ST:247）
+        assert_eq!(header(&hs, "x-api-key"), "sk-ant-key");
+        assert!(
+            !hs.iter().any(|(k, _)| k == "Authorization"),
+            "claude 不发 Bearer"
+        );
+        assert_eq!(header(&hs, "anthropic-version"), "2023-06-01");
+        assert_eq!(
+            header(&hs, "anthropic-beta"),
+            "output-128k-2025-02-19,context-1m-2025-08-07"
+        );
+        // useTools 追加 tools beta（ST:290）
+        let hs_tools = claude_outbound_headers("k", true);
+        assert_eq!(
+            header(&hs_tools, "anthropic-beta"),
+            "output-128k-2025-02-19,context-1m-2025-08-07,tools-2024-05-16"
+        );
+    }
+
+    #[test]
+    fn upstream_err_display_strips_url() {
+        // 真实 reqwest 连接错误（环回拒绝连接，离线可复现）→ Display 剥 URL
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let err = rt.block_on(async {
+            reqwest::Client::builder()
+                .no_proxy()
+                .build()
+                .unwrap()
+                .post("http://127.0.0.1:1/v1/chat/completions?key=sk-secret")
+                .send()
+                .await
+                .expect_err("环回 :1 应连接失败")
+        });
+        let scrubbed = fmt_upstream_err(&err);
+        assert!(
+            !scrubbed.contains("127.0.0.1:1"),
+            "URL 应被剥除: {scrubbed}"
+        );
+        assert!(
+            !scrubbed.contains("sk-secret"),
+            "查询串不应残留: {scrubbed}"
+        );
+        assert!(!scrubbed.is_empty(), "错误描述应保留");
+        assert!(!err.to_string().is_empty());
     }
 
     #[test]
