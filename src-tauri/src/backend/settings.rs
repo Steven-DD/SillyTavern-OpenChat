@@ -219,6 +219,19 @@ pub fn get(st: &BackendState, origin: Option<HeaderValue>) -> Response {
     let p = settings_path(&st.data_root);
     let settings = match std::fs::read_to_string(&p) {
         Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // ST getUserSettings 语义：用户 settings.json 缺失 = 首次运行 →
+            // 落地默认模板并照常返回（裸 500 会让干净机器首启全页设置读写 500）
+            if let Err(e) = seed_default_settings(&st.data_root) {
+                let resp = (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": { "message": format!("settings.json 初始化失败：{e}") } })),
+                )
+                    .into_response();
+                return super::apply_cors_resp(resp, origin);
+            }
+            DEFAULT_SETTINGS_TEMPLATE.to_string()
+        }
         Err(e) => {
             // ST 对读失败回 500（settings.js:225）
             let resp = (
@@ -232,6 +245,25 @@ pub fn get(st: &BackendState, origin: Option<HeaderValue>) -> Response {
     // 前端只消费 settings 字段；presets 聚合字段占位空数组（App 形态无多预设目录）
     let body = Json(json!({ "settings": settings }));
     super::apply_cors_resp(body.into_response(), origin)
+}
+
+/// 默认 settings 模板（ST default/settings.json 的 App 子集形态）：
+/// App 前端自有默认值兜底，这里只保证合法 JSON 空配置落地。
+const DEFAULT_SETTINGS_TEMPLATE: &str = "{}";
+
+/// 首启种子：default-user/settings.json 缺失时写默认模板（原子写，目录一并创建）
+fn seed_default_settings(data_root: &std::path::Path) -> std::io::Result<()> {
+    let p = settings_path(data_root);
+    if let Some(parent) = p.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let tmp = p.with_extension("json.tmp");
+    std::fs::write(&tmp, DEFAULT_SETTINGS_TEMPLATE.as_bytes())
+        .and_then(|_| std::fs::rename(&tmp, &p))
+        .map_err(|e| {
+            let _ = std::fs::remove_file(&tmp);
+            e
+        })
 }
 
 /// POST /api/settings/save —— body 即 settings 本体（整体覆盖），4 空格缩进原子写
@@ -367,9 +399,10 @@ mod tests {
         };
         let svc = SettingsService::new();
 
-        // 初次 get：文件不存在 → 500（ST 同语义）
+        // 初次 get：文件不存在 → 首启种子（默认落地 + 照常 200，ST getUserSettings 语义）
         let r = get(&st, None);
-        assert_eq!(r.status().as_u16(), 500);
+        assert_eq!(r.status().as_u16(), 200);
+        assert!(settings_path(&root).exists());
 
         // save 全量对象
         let body = json!({ "username": "老板", "power_user": {"keep": true}, "extension_settings": {"regex": [1,2]} });
@@ -484,6 +517,30 @@ mod tests {
         assert!(dir
             .join(format!("{SETTINGS_BACKUP_PREFIX}202601006-000000.json"))
             .exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn get_seeds_default_when_missing() {
+        // 干净数据根（settings.json 与目录都不存在）→ 首启种子而非 500
+        let root = tmp_root("seed-default");
+        let st = BackendState {
+            token: Arc::new("t".into()),
+            data_root: root.clone(),
+            max_body_bytes: 1024,
+            settings_svc: Arc::new(SettingsService::new()),
+            chats_svc: new_chats(),
+            maid_tokens: new_maid(),
+            vault: std::sync::Arc::new(super::super::vault::Vault::new_memory()),
+        };
+        let r = get(&st, None);
+        assert_eq!(r.status().as_u16(), 200, "缺失 settings.json 应落地默认模板");
+        let p = settings_path(&root);
+        assert!(p.exists(), "默认模板应已写入 default-user/settings.json");
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "{}");
+        // 第二次读 = 正常读文件，仍是 200
+        let r2 = get(&st, None);
+        assert_eq!(r2.status().as_u16(), 200);
         let _ = std::fs::remove_dir_all(&root);
     }
 

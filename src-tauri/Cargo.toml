@@ -67,3 +67,8 @@ strip = true
 lto = true
 codegen-units = 1
 opt-level = "s"
+
+# native 冒烟/浏览器自动化的独立后端宿主（smoke-browser.mjs 用）
+[[bin]]
+name = "backend-host"
+path = "src/bin/backend_host.rs"
