@@ -6,6 +6,13 @@
  * 卡内脚本 / CDN 资源在沙箱内正常运行，与 ST 网页端酒馆助手的
  * "前端界面"同构；数据访问一律经 postMessage 桥（embedBridge.ts），
  * 沙箱不给 allow-same-origin，脚本无法直连 ST 后端。
+ *
+ * S23（批16）：帧→宿主方向的 postMessage targetOrigin 一律用宿主 origin
+ * （buildEmbedSrcdoc 构造 srcdoc 时注入，见 PARENT_ORIGIN_PLACEHOLDER）；
+ * 注入失败则丢弃消息并 console.warn，禁止回退 '*'。宿主→帧方向保持 '*'
+ * ——沙箱帧（无 allow-same-origin）的 origin 是 opaque null，任何具体
+ * origin 都不匹配会静默丢消息，安全面由接收侧 ev.source 校验 + iframe
+ * sandbox 封住（P1-2 评审项结论，批16 复核后维持并登记）。
  */
 
 /** 被代码围栏包裹的完整 HTML 文档（ST 正则 markdownOnly 替换后的典型形态） */
@@ -220,12 +227,27 @@ export function fixCrossBlockDeclCollision(html: string): string {
   })
 }
 
+/** S23：宿主 origin 占位符（引导脚本里带引号出现）。buildEmbedSrcdoc 在宿主
+ *  侧构造 srcdoc 时替换为实际 origin 的 JSON 字面量；未替换（绕过
+ *  buildEmbedSrcdoc 直接用 SANDBOX_BOOTSTRAP）或空值时，帧内 ORIGIN_OK
+ *  判定失败 → 消息丢弃 + console.warn，绝不回退 '*'。 */
+export const PARENT_ORIGIN_PLACEHOLDER = '__EMBED_PARENT_ORIGIN__'
+
+/** 宿主 origin 注入：沙箱帧是 opaque origin，自己读不到宿主源，必须由宿主
+ *  构造 srcdoc 时显式告知。消息前端界面（HtmlEmbedFrame.vue）与脚本库运行时
+ *  （scriptHost.ts）两个消费方都经 buildEmbedSrcdoc，注入在此单点覆盖。 */
+function injectParentOrigin(bootstrap: string): string {
+  const origin = typeof window !== 'undefined' && window.location ? window.location.origin : ''
+  return bootstrap.split(`'${PARENT_ORIGIN_PLACEHOLDER}'`).join(JSON.stringify(origin))
+}
+
 /**
  * 组装 iframe srcdoc：在卡 HTML 的 <head>（或 <html>、文档最前）注入
  * 桥接引导脚本——必须先于卡内脚本执行，才能把 API 挂成全局函数。
+ * 注入前替换宿主 origin 占位符（S23：帧→宿主 targetOrigin 收紧）。
  */
 export function buildEmbedSrcdoc(html: string, bootstrap: string): string {
-  const injected = `<script>${bootstrap}</script>`
+  const injected = `<script>${injectParentOrigin(bootstrap)}</script>`
   const fixed = fixCrossBlockDeclCollision(html)
   if (/<head[^>]*>/i.test(fixed)) return fixed.replace(/<head[^>]*>/i, (m) => `${m}${injected}`)
   if (/<html[^>]*>/i.test(fixed)) return fixed.replace(/<html[^>]*>/i, (m) => `${m}${injected}`)
@@ -233,11 +255,29 @@ export function buildEmbedSrcdoc(html: string, bootstrap: string): string {
 }
 
 /** 沙箱引导脚本（TavernHelper shim + localStorage 垫片 + 错误/高度上报 + eventOn 事件桥），
- *  消息前端界面 iframe 与脚本库运行时共用同一份。 */
+ *  消息前端界面 iframe 与脚本库运行时共用同一份。
+ *  S23：帧→宿主 postMessage 统一走 postToHost（targetOrigin = 注入的宿主 origin）。 */
 export const SANDBOX_BOOTSTRAP = `
 (function () {
+  // S23：帧→宿主 postMessage 的 targetOrigin。占位符由 buildEmbedSrcdoc 在
+  // 宿主侧构造 srcdoc 时替换为实际 origin（JSON 字面量）；ORIGIN_OK 判定
+  // 失败（未替换/空值/non-origin 形态）→ 消息丢弃 + console.warn 一次，
+  // 禁止回退 '*'。宿主→帧方向仍为 '*'（opaque origin 豁免，见文件头注释）。
+  var PARENT_ORIGIN = '__EMBED_PARENT_ORIGIN__'
+  var ORIGIN_OK = !!PARENT_ORIGIN && PARENT_ORIGIN.indexOf('//') !== -1 && PARENT_ORIGIN.charAt(0) !== '_'
+  var ORIGIN_WARNED = false
+  function postToHost(msg) {
+    if (!ORIGIN_OK) {
+      if (!ORIGIN_WARNED) {
+        ORIGIN_WARNED = true
+        try { console.warn('[tavern-embed] 未注入宿主 origin，帧→宿主消息已丢弃（S23 禁止回退 "*"）：', msg && msg.type) } catch (e) { /* ignore */ }
+      }
+      return
+    }
+    try { parent.postMessage(msg, PARENT_ORIGIN) } catch (e) { /* ignore */ }
+  }
   function reportErr(kind, msg, where) {
-    try { parent.postMessage({ source: 'tavern-embed', type: 'th-error', msg: String(msg), where: String(where ?? '') }, '*') } catch (e) { /* ignore */ }
+    postToHost({ source: 'tavern-embed', type: 'th-error', msg: String(msg), where: String(where ?? '') })
   }
   // 沙箱无 allow-same-origin → localStorage/sessionStorage 访问必抛 SecurityError，
   // 大量卡脚本（日志/配置存取）会因此中断。垫内存版兜底（不跨帧持久，同酒馆助手语义）。
@@ -273,7 +313,7 @@ export const SANDBOX_BOOTSTRAP = `
     return new Promise(function (resolve, reject) {
       var id = ++seq
       pending[id] = { resolve: resolve, reject: reject }
-      parent.postMessage({ source: 'tavern-embed', type: 'th-call', id: id, api: api, args: args }, '*')
+      postToHost({ source: 'tavern-embed', type: 'th-call', id: id, api: api, args: args })
       window.setTimeout(function () {
         if (pending[id]) { delete pending[id]; reject(new Error('调用超时：' + api)) }
       }, 120000)
@@ -298,12 +338,12 @@ export const SANDBOX_BOOTSTRAP = `
     eventOn: function (name, listener) {
       var id = ++evSeq
       listeners[id] = { name: name, fn: listener }
-      parent.postMessage({ source: 'tavern-embed', type: 'th-event-on', id: id, name: String(name) }, '*')
+      postToHost({ source: 'tavern-embed', type: 'th-event-on', id: id, name: String(name) })
       return id
     },
     eventOff: function (id) {
       delete listeners[id]
-      parent.postMessage({ source: 'tavern-embed', type: 'th-event-off', id: id }, '*')
+      postToHost({ source: 'tavern-embed', type: 'th-event-off', id: id })
     },
     eventEmit: function (name, payload) { return call('eventEmit', { name: name, payload: payload }) },
   }
@@ -330,7 +370,7 @@ export const SANDBOX_BOOTSTRAP = `
   window.TavernHelper = api
   Object.keys(api).forEach(function (k) { window[k] = api[k] })
   function postHeight() {
-    parent.postMessage({ source: 'tavern-embed', type: 'th-resize', height: document.documentElement.scrollHeight }, '*')
+    postToHost({ source: 'tavern-embed', type: 'th-resize', height: document.documentElement.scrollHeight })
   }
   if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.documentElement)
   window.addEventListener('load', postHeight)
