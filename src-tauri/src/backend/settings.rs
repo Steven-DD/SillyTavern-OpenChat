@@ -132,6 +132,7 @@ fn backup_user_settings(
     ));
     std::fs::write(&backup, &content)?;
     remove_old_backups(&dir);
+    log::debug!(target: super::logx::FS, "settings 备份 → {}", super::logx::redact(&backup.display().to_string()));
     Ok(())
 }
 
@@ -239,6 +240,7 @@ pub fn get(st: &BackendState, origin: Option<HeaderValue>) -> Response {
         }
         Err(e) => {
             // ST 对读失败回 500（settings.js:225）
+            log::error!(target: super::logx::FS, "settings/get 读取失败: {e}");
             let resp = (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": { "message": format!("settings.json 读取失败：{e}") } })),
@@ -317,6 +319,7 @@ pub fn save(
     if let Err(e) = std::fs::write(&tmp, pretty.as_bytes()).and_then(|_| std::fs::rename(&tmp, &p))
     {
         let _ = std::fs::remove_file(&tmp);
+        log::error!(target: super::logx::FS, "settings/save 写入失败: {e}");
         let resp = (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": { "message": format!("settings 写入失败：{e}") } })),
@@ -324,10 +327,12 @@ pub fn save(
             .into_response();
         return super::apply_cors_resp(resp, origin);
     }
+    log::info!(target: super::logx::FS, "settings/save 落盘 bytes={}", pretty.len());
 
     // 触发 autosave（10 分钟节流 + 去重）—— 评审 A3：复刻 ST 的节流策略，
     // 与前端「先比对一致就不写」配合，防止 backups 目录爆量
-    trigger_autosave(st, svc);
+    let backed_up = trigger_autosave(st, svc);
+    log::debug!(target: super::logx::FS, "settings autosave triggered={backed_up}");
 
     let resp = Json(json!({ "result": "ok" }));
     super::apply_cors_resp(resp.into_response(), origin)

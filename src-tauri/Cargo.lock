@@ -4122,6 +4122,7 @@ dependencies = [
  "git2",
  "jsonwebtoken",
  "keyring",
+ "log",
  "multer",
  "percent-encoding",
  "reqwest 0.12.28",

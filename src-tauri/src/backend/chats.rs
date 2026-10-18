@@ -226,6 +226,7 @@ fn check_integrity(file_path: &std::path::Path, slug: &str) -> bool {
 
 /// IntegrityMismatchError 的错误响应：`{error:'integrity'}` 400
 fn integrity_conflict(origin: Option<HeaderValue>) -> Response {
+    log::warn!(target: super::logx::FS, "会话完整性冲突（integrity）——拒绝覆盖");
     apply_cors_resp(
         (
             StatusCode::BAD_REQUEST,
@@ -421,6 +422,7 @@ fn iso_utc(secs: i64) -> String {
 }
 
 fn err_json(status: StatusCode, msg: &str) -> Response {
+    log::warn!(target: super::logx::FS, "chats 错误 {status}: {}", super::logx::redact(msg));
     (status, Json(json!({ "error": { "message": msg } }))).into_response()
 }
 
@@ -481,6 +483,13 @@ pub fn save(
     };
     let path = chats_dir(st).join(&stem).join(safe_file);
     let force = body.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
+    log::info!(
+        target: super::logx::FS,
+        "chats/save avatar={} file={} lines={} force={force}",
+        super::logx::redact(avatar),
+        super::logx::redact(file_name),
+        chat.len()
+    );
     match try_save_chat(st, svc, chat, &path, force, &stem) {
         Ok(()) => ok_json(origin, json!({ "ok": true })),
         Err("integrity") => integrity_conflict(origin),
@@ -566,6 +575,7 @@ pub fn rename(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> R
     };
     let from = folder.join(orig_safe);
     let to = folder.join(new_safe);
+    log::info!(target: super::logx::FS, "chats/rename original={} renamed={} is_group={is_group}", super::logx::redact(original), super::logx::redact(renamed));
     if !from.is_file() || to.exists() {
         return ok_json(origin, json!({ "error": true }));
     }
@@ -607,6 +617,7 @@ pub fn delete(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> R
         );
     };
     let p = chats_dir(st).join(stem).join(safe_file);
+    log::info!(target: super::logx::FS, "chats/delete avatar={} file={}", super::logx::redact(avatar), super::logx::redact(&chatfile));
     match std::fs::remove_file(&p) {
         Ok(()) => ok_json(origin, json!({ "ok": true })),
         Err(_) => apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin),
@@ -926,6 +937,7 @@ pub fn group_delete(st: &BackendState, body: &Value, origin: Option<HeaderValue>
     let Ok(safe) = crate::pathguard::component(&format!("{id}.jsonl")) else {
         return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
     };
+    log::info!(target: super::logx::FS, "chats/group/delete id={}", super::logx::redact(id));
     match std::fs::remove_file(group_chats_dir(st).join(safe)) {
         Ok(()) => ok_json(origin, json!({ "ok": true })),
         Err(_) => apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin),
@@ -953,6 +965,7 @@ pub fn group_save(
     };
     let path = group_chats_dir(st).join(safe);
     let force = body.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
+    log::info!(target: super::logx::FS, "chats/group/save id={} lines={} force={force}", super::logx::redact(id), chat.len());
     match try_save_chat(st, svc, chat, &path, force, id) {
         Ok(()) => ok_json(origin, json!({ "ok": true })),
         Err("integrity") => integrity_conflict(origin),

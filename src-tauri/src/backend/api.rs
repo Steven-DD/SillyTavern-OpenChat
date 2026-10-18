@@ -10,7 +10,7 @@
 //! 可判定的「未迁移」错误，禁止 200+空结果伪造成功）。
 
 use super::{
-    apply_cors_resp, forbidden, is_exempt_from_auth, origin_allowed, preflight, BackendState,
+    apply_cors_resp, forbidden, is_exempt_from_auth, logx, origin_allowed, preflight, BackendState,
 };
 use axum::{
     body::Body,
@@ -22,6 +22,9 @@ use axum::{
 use serde_json::json;
 
 /// 鉴权 + CORS 统一入口（S2-S5）。所有请求（含已实现端点与 501 兜底）经此。
+///
+/// 日志：一次请求一条 `← 状态码 耗时 方法 路径 origin=… bytes=…`（logx::ReqLog），
+/// 鉴权拒绝与超限另记 warn —— 生产「全部请求 403 / 大卡上传失败」可据此直接定位。
 pub async fn authorize(
     State(st): State<BackendState>,
     method: Method,
@@ -35,24 +38,38 @@ pub async fn authorize(
         .cloned()
         .filter(origin_allowed);
 
+    let path_q = uri.path_and_query().map(|p| p.as_str()).unwrap_or("/");
+
     if method == Method::OPTIONS {
+        log::debug!(target: logx::API, "OPTIONS 预检 {}", logx::redact(path_q));
         return preflight(origin);
     }
 
-    let path_q = uri.path_and_query().map(|p| p.as_str()).unwrap_or("/");
+    let origin_str = origin.as_ref().and_then(|o| o.to_str().ok());
+    let ua = headers.get(header::USER_AGENT).and_then(|v| v.to_str().ok());
+    let req = logx::ReqLog::new(method.as_str(), path_q, origin_str);
 
     // S5：token 只走 X-Relay-Auth 头，query 里的 token 一律无效
     let auth_ok = is_exempt_from_auth(&method, path_q)
         || headers.get("x-relay-auth").and_then(|v| v.to_str().ok()) == Some(st.token.as_str());
     if !auth_ok {
-        return forbidden();
+        logx::auth_rejected(method.as_str(), path_q, origin_str, ua);
+        let resp = forbidden();
+        req.finish(resp.status().as_u16(), "auth=rejected");
+        return resp;
     }
 
     // 读取请求体（写端点需要；上限 S15）
     let body_bytes = match axum::body::to_bytes(body, st.max_body_bytes).await {
         Ok(b) => b,
-        Err(_) => {
-            return apply_cors_resp(
+        Err(e) => {
+            log::warn!(
+                target: logx::API,
+                "请求体读取失败或超过上限（{}B）：{e} {}",
+                st.max_body_bytes,
+                logx::redact(path_q)
+            );
+            let resp = apply_cors_resp(
                 (
                     StatusCode::BAD_REQUEST,
                     Json(json!({ "error": { "message": "请求体读取失败或超过上限" } })),
@@ -60,13 +77,18 @@ pub async fn authorize(
                     .into_response(),
                 origin,
             );
+            req.finish(resp.status().as_u16(), "body=too_large_or_broken");
+            return resp;
         }
     };
 
     let content_type = headers
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok());
-    route(st, method, origin, path_q, &body_bytes, content_type).await
+    let n = body_bytes.len();
+    let resp = route(st, method, origin, path_q, &body_bytes, content_type).await;
+    req.finish(resp.status().as_u16(), &format!("bytes={n}"));
+    resp
 }
 
 /// 路由分发：已实现族 → handler；否则 501 兜底
@@ -477,6 +499,7 @@ async fn route(
 
 /// JSON 解析失败（400）
 fn bad_json(origin: Option<HeaderValue>) -> Response {
+    log::warn!(target: logx::API, "请求体不是合法 JSON（400）");
     apply_cors_resp(
         (
             StatusCode::BAD_REQUEST,
@@ -504,6 +527,7 @@ fn ping(origin: Option<HeaderValue>) -> Response {
 /// 前端既有错误处理（error.message 语义）可直接显示，不会当成功。
 fn not_implemented(origin: Option<HeaderValue>, path_q: &str) -> Response {
     let path = path_q.split('?').next().unwrap_or("/");
+    log::warn!(target: logx::API, "未实现端点（501）{path}");
     let resp = (
         StatusCode::NOT_IMPLEMENTED,
         Json(json!({

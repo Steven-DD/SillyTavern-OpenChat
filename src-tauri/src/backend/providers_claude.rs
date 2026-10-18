@@ -32,6 +32,7 @@ fn model_starts_any(model: &str, alts: &[&str]) -> bool {
 
 /// 发送 Claude 请求（/messages）
 pub async fn send_claude(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
+    super::providers::log_outbound("claude", body);
     let use_rp = body
         .get("reverse_proxy")
         .and_then(|v| v.as_str())

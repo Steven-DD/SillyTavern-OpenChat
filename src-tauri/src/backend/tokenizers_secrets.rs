@@ -45,6 +45,7 @@ fn cl100k_bpe() -> Option<&'static tiktoken_rs::CoreBPE> {
 }
 
 fn err_json(status: StatusCode, msg: &str) -> Response {
+    log::warn!(target: super::logx::FS, "tokenizers/secrets 错误 {status}: {}", super::logx::redact(msg));
     (status, Json(json!({ "error": { "message": msg } }))).into_response()
 }
 
@@ -191,22 +192,28 @@ pub fn encode_with_body(model: &str, body_bytes: &[u8], origin: Option<HeaderVal
         _ => super::nai_tokens::encode_nerdstash_v2(&text),
     };
     match result {
-        Ok(ids) => apply_cors_resp(
-            (
-                StatusCode::OK,
-                Json(json!({ "ids": ids, "length": ids.len() })),
+        Ok(ids) => {
+            log::debug!(target: super::logx::PROVIDER, "tokenizers/{model}/encode chars={} ids={}", text.chars().count(), ids.len());
+            apply_cors_resp(
+                (
+                    StatusCode::OK,
+                    Json(json!({ "ids": ids, "length": ids.len() })),
+                )
+                    .into_response(),
+                origin,
             )
-                .into_response(),
-            origin,
-        ),
-        Err(e) => apply_cors_resp(
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": { "message": e } })),
+        }
+        Err(e) => {
+            log::error!(target: super::logx::PROVIDER, "tokenizers/{model}/encode 失败: {e}");
+            apply_cors_resp(
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": { "message": e } })),
+                )
+                    .into_response(),
+                origin,
             )
-                .into_response(),
-            origin,
-        ),
+        }
     }
 }
 
@@ -280,8 +287,15 @@ pub fn secrets_write(st: &BackendState, body: &Value, origin: Option<HeaderValue
     let tmp = p.with_extension("json.tmp");
     match std::fs::write(&tmp, &pretty).and_then(|_| std::fs::rename(&tmp, &p)) {
         Ok(()) => {
-            // T12：镜像落盘后同步 vault（keychain/setttings 权威；失败降级镜像=ST 字面）
+            // T12：镜像落盘后同步 vault（keychain/settings 权威；失败降级镜像）
             st.vault.store_sync(st, key, &id, value);
+            // ⚠ 只记 key 名与长度，绝不记 value（S13）
+            log::info!(
+                target: super::logx::VAULT,
+                "secrets/write key={} value_len={} id={id}",
+                super::logx::redact(key),
+                value.len()
+            );
             ok_json(origin, json!({ "id": id }))
         }
         Err(e) => err_json(
@@ -324,6 +338,7 @@ pub fn secrets_read(st: &BackendState, origin: Option<HeaderValue>) -> Response 
 /// POST /api/secrets/view：ST 默认 403（allowKeysExposure=false）。
 /// native 后端**永不提供**该端点（评审 P0-3B/S8 硬性安全需求）。
 pub fn secrets_view(origin: Option<HeaderValue>) -> Response {
+    log::warn!(target: super::logx::VAULT, "secrets/view 被请求 → 403（S8：不提供密钥明文读取）");
     apply_cors_resp(
         (
             StatusCode::FORBIDDEN,

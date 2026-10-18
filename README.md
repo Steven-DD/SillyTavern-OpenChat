@@ -63,6 +63,18 @@ npm run selfcheck                                # 前端各模块回归自检
 cargo test --manifest-path src-tauri/Cargo.toml  # Rust 单测 + 契约/黄金样本测试
 ```
 
+## 排障与日志
+
+前后端日志统一走 `tauri-plugin-log`，落在系统日志目录（Windows：
+`%LOCALAPPDATA%\<app-id>\logs\`，单文件 2MB 滚动保留一份），按时间线可直接
+串联「前端操作 → 后端请求 → 上游出站」：
+
+- 每条请求一行：`← 200 12ms POST /api/chats/get origin=… bytes=…`（`stchat::api`）
+- 数据落盘：`stchat::fs`；上游出站：`stchat::provider`；密钥：`stchat::vault`；
+  启动：`stchat::boot`；扩展/翻译/TTS：`stchat::ext`
+- 默认级别 `Info`；排障时设环境变量 `ST_CHAT_LOG=debug`（或 `trace`）后重启应用
+- 日志**不含请求体**，且 token/密钥一律脱敏为 `***`（安全规格 S13）
+
 ## 安全设计
 
 - **网络面**：本地后端只绑定 127.0.0.1 随机端口；每个请求校验一次性随机 token，

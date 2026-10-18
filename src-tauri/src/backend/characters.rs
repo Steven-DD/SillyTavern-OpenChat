@@ -37,6 +37,11 @@ fn character_path(st: &BackendState, avatar_url: &str) -> Result<std::path::Path
 }
 
 fn err_json(status: StatusCode, msg: &str) -> Response {
+    log::warn!(
+        target: super::logx::FS,
+        "characters 错误 {status}: {}",
+        super::logx::redact(msg)
+    );
     (status, Json(json!({ "error": { "message": msg } }))).into_response()
 }
 
@@ -160,7 +165,7 @@ pub fn all(st: &BackendState, origin: Option<HeaderValue>) -> Response {
                     }
                     Err(e) => {
                         // ST：单张读失败只打日志、跳过（Promise.all 里 try/catch）
-                        eprintln!("[backend] characters/all 跳过 {n}：{e}");
+                        log::warn!(target: super::logx::FS, "characters/all 跳过 {}：{e}", super::logx::redact(&n));
                     }
                 }
             }
@@ -174,6 +179,7 @@ pub fn all(st: &BackendState, origin: Option<HeaderValue>) -> Response {
             );
         }
     }
+    log::info!(target: super::logx::FS, "characters/all 返回 {} 张卡", out.len());
     apply_cors_resp(Json(json!(out)).into_response(), origin)
 }
 
@@ -185,6 +191,7 @@ pub fn get(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Resp
             origin,
         );
     };
+    log::debug!(target: super::logx::FS, "characters/get avatar={}", super::logx::redact(avatar));
     let p = match character_path(st, avatar) {
         Ok(p) => p,
         Err(e) => {
@@ -310,6 +317,7 @@ pub fn delete(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> R
             origin,
         );
     };
+    log::info!(target: super::logx::FS, "characters/delete avatar={} delete_chats={}", super::logx::redact(avatar), body.get("delete_chats").and_then(|v| v.as_bool()).unwrap_or(false));
     // ST：avatar_url !== sanitize(avatar_url) → 403（characters.js:1421）
     if avatar != crate::pathguard::sanitize(avatar) {
         return apply_cors_resp(
@@ -366,6 +374,7 @@ pub fn rename(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> R
             origin,
         );
     };
+    log::info!(target: super::logx::FS, "characters/rename avatar={} -> new_name={}", super::logx::redact(avatar), super::logx::redact(new_name));
     let old_path = match character_path(st, avatar) {
         Ok(p) => p,
         Err(e) => {
@@ -605,6 +614,13 @@ pub async fn create(
 
     // ch_name sanitize（ST create:1028）；空名 → 400
     let raw_name = fields.get("ch_name").cloned().unwrap_or_default();
+    log::info!(
+        target: super::logx::FS,
+        "characters/create ch_name={} avatar_bytes={} fields={}",
+        super::logx::redact(&raw_name),
+        avatar.as_ref().map(|a| a.len()).unwrap_or(0),
+        fields.len()
+    );
     let safe_name = crate::pathguard::sanitize(&raw_name);
     if safe_name.is_empty() {
         return apply_cors_resp(
@@ -731,6 +747,14 @@ pub async fn edit(
     }
     let get = |k: &str| fields.get(k).map(|s| s.as_str()).unwrap_or("");
 
+    log::info!(
+        target: super::logx::FS,
+        "characters/edit avatar={} ch_name={} avatar_bytes={}",
+        super::logx::redact(get("avatar_url")),
+        super::logx::redact(get("ch_name")),
+        avatar.as_ref().map(|a| a.len()).unwrap_or(0)
+    );
+
     // ch_name 校验（characters.js:1108-1112）
     let ch_name = get("ch_name");
     if ch_name.is_empty() || ch_name == "." {
@@ -852,8 +876,16 @@ pub async fn import(
 
     // 大小校验（S15）
     if super::uploads::check_size(file_bytes.len(), st.max_body_bytes).is_err() {
+        log::warn!(target: super::logx::FS, "characters/import 超限：bytes={} 上限={}", file_bytes.len(), st.max_body_bytes);
         return error_true(StatusCode::BAD_REQUEST);
     }
+    log::info!(
+        target: super::logx::FS,
+        "characters/import format={} bytes={} file={}",
+        super::logx::redact(&format),
+        file_bytes.len(),
+        super::logx::redact(m.avatar_filename.as_deref().unwrap_or("-"))
+    );
 
     let now_iso = iso8601_from_unix(
         SystemTime::now()
@@ -992,6 +1024,7 @@ pub fn export(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> R
             origin,
         );
     }
+    log::info!(target: super::logx::FS, "characters/export avatar={} format={}", super::logx::redact(avatar), super::logx::redact(format));
     let raw = match std::fs::read(&p) {
         Ok(r) => r,
         Err(e) => {

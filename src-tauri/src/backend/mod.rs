@@ -27,6 +27,7 @@ pub mod chats;
 pub mod extensions;
 pub mod extras;
 pub mod horde;
+pub mod logx;
 pub mod nai_tokens;
 pub mod novelai;
 pub mod providers;
@@ -100,15 +101,21 @@ pub async fn start(data_root: std::path::PathBuf) -> std::io::Result<BackendHand
     // T12：原有密钥迁移（幂等；镜像 secrets.json 保留作回退连续性）
     state.vault.migrate_existing(&state);
 
+    let max_body_mb = state.max_body_bytes / (1024 * 1024);
     let app = router(state);
+
+    let boot_root = logx::redact(&data_root.display().to_string());
+    log::info!(
+        target: logx::BOOT,
+        "native backend 启动 127.0.0.1:{port} data_root={boot_root} max_body={max_body_mb}MB"
+    );
 
     tokio::spawn(async move {
         if let Err(e) = axum::serve(listener, app).await {
-            eprintln!("[backend] 服务异常退出: {e}");
+            log::error!(target: logx::BOOT, "服务异常退出: {e}");
         }
     });
 
-    println!("[backend] 已启动 127.0.0.1:{port}（鉴权已启用，token 256-bit）");
     Ok(BackendHandle { port, token })
 }
 

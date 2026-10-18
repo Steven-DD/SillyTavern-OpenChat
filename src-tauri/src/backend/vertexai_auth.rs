@@ -112,6 +112,7 @@ pub async fn get_access_token(sa_json_text: &str) -> Result<(String, String), St
     // 3) 缓存
     let expires_at = now_secs() + expires_in;
     *TOKEN_CACHE.lock().unwrap() = Some(CachedToken { token: token.clone(), expires_at });
+    log::info!(target: super::logx::PROVIDER, "vertexai full 模式：OAuth2 token 获取成功，expires_in={expires_in}s");
     Ok((token, expires_at.to_string()))
 }
 

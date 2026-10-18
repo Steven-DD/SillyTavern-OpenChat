@@ -36,6 +36,7 @@ fn du(st: &BackendState) -> std::path::PathBuf {
 }
 
 fn err_json(status: StatusCode, msg: &str) -> Response {
+    log::warn!(target: super::logx::EXT, "extras 错误 {status}: {}", super::logx::redact(msg));
     (status, Json(json!({ "error": { "message": msg } }))).into_response()
 }
 
@@ -298,6 +299,16 @@ pub fn maid_report(
             },
         );
     }
+    let total: usize = sanitized
+        .as_object()
+        .map(|o| {
+            o.values()
+                .filter_map(|v| v.as_array())
+                .map(|a| a.len())
+                .sum()
+        })
+        .unwrap_or(0);
+    log::info!(target: super::logx::EXT, "data-maid/report 孤儿文件 {total} 项");
     ok_json(origin, json!({ "report": sanitized, "token": token }))
 }
 
@@ -356,16 +367,19 @@ pub fn maid_delete(
     };
     // containment：数据根内才删（ST data-maid.js:793-797 isPathUnderParent）
     let root = du(st);
+    let mut deleted = 0usize;
     for h in hashes {
         if let Some(h) = h.as_str() {
             if let Some((path, _)) = paths.iter().find(|(_, hash)| hash == h) {
                 let p = std::path::Path::new(path);
                 if p.starts_with(&root) && p.is_file() {
                     let _ = std::fs::remove_file(p);
+                    deleted += 1;
                 }
             }
         }
     }
+    log::info!(target: super::logx::EXT, "data-maid/delete 请求 {} 项，实际删除 {deleted} 项", hashes.len());
     apply_cors_resp(StatusCode::NO_CONTENT.into_response(), origin)
 }
 
@@ -568,6 +582,7 @@ fn elevenlabs_synthesize_url(voice_id: &str) -> Result<String, ()> {
 
 /// POST /api/speech/synthesize（本地 ML）—— S20 降级
 pub fn speech_local_unavailable(origin: Option<HeaderValue>) -> Response {
+    log::warn!(target: super::logx::EXT, "speech/synthesize 本地引擎不可用 → 501（S20 降级，非伪成功）");
     apply_cors_resp(
         (
             StatusCode::NOT_IMPLEMENTED,

@@ -70,6 +70,7 @@ pub(crate) const API_WORKERS_AI: &str = "https://api.cloudflare.com/client/v4/ac
  * ================================================================ */
 
 pub(crate) fn err_json(status: StatusCode, msg: &str) -> Response {
+    log::warn!(target: super::logx::PROVIDER, "provider 错误 {status}: {}", super::logx::redact(msg));
     (status, Json(json!({ "error": { "message": msg } }))).into_response()
 }
 
@@ -78,6 +79,7 @@ pub(crate) fn json_resp(status: StatusCode, v: Value, origin: Option<HeaderValue
 }
 
 pub(crate) fn not_migrated(source: &str, origin: Option<HeaderValue>) -> Response {
+    log::warn!(target: super::logx::PROVIDER, "生成源未支持: {}", super::logx::redact(source));
     let resp = (
         StatusCode::NOT_IMPLEMENTED,
         Json(json!({
@@ -93,6 +95,24 @@ pub(crate) fn not_migrated(source: &str, origin: Option<HeaderValue>) -> Respons
 /// 服务端读密钥（T12 vault）：keychain/settings 权威 → 镜像回落（vault.rs）
 pub(crate) fn read_secret(st: &BackendState, key: &str) -> Option<String> {
     st.vault.read_active(st, key)
+}
+
+/// 出站统一日志（源/模型/流式/消息数）—— 各 send_* 入口调用，避免逐个手写格式。
+/// 只记元信息，不记 body（S13：请求体可能含私密对话）。
+pub(crate) fn log_outbound(source: &str, body: &Value) {
+    let model = body.get("model").and_then(|v| v.as_str()).unwrap_or("-");
+    let stream = body.get("stream").and_then(|v| v.as_bool()).unwrap_or(false);
+    let n = body
+        .get("messages")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+    log::info!(
+        target: super::logx::PROVIDER,
+        "出站 source={} model={} stream={stream} messages={n}",
+        super::logx::redact(source),
+        super::logx::redact(model)
+    );
 }
 
 /// JSON.stringify(value, null, 4)（4 空格缩进）
@@ -568,15 +588,21 @@ pub(crate) async fn relay_independent(
     let resp = match upstream {
         Ok(r) => r,
         // 连接失败（catch 分支）→ 500 {error:true}
-        Err(_) => {
+        Err(e) => {
+            log::error!(target: super::logx::PROVIDER, "上游连接失败: {}", super::logx::redact(&e));
             return json_resp(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 json!({ "error": true }),
                 origin,
-            )
+            );
         }
     };
     let status_ok = resp.status().is_success();
+    log::info!(
+        target: super::logx::PROVIDER,
+        "上游响应 status={} stream={stream} ok={status_ok}",
+        resp.status().as_u16()
+    );
 
     if stream {
         if status_ok {
@@ -585,6 +611,7 @@ pub(crate) async fn relay_independent(
                 OutShape::Cohere => transform_sse_reply(resp, origin, cohere_to_openai).await,
             };
         }
+        log::warn!(target: super::logx::PROVIDER, "流式上游非 2xx（{}）→ 原样透传", resp.status().as_u16());
         return passthrough(resp, origin).await;
     }
 
@@ -592,6 +619,14 @@ pub(crate) async fn relay_independent(
     if !status_ok {
         // ST 字面：500 + tryParse(errorText) ?? {error:true}
         let parsed = serde_json::from_str::<Value>(&text).unwrap_or(json!({ "error": true }));
+        // 只记错误摘要字段（不记完整上游 body —— 部分上游会在 4xx 里回显请求内容）
+        let msg = parsed
+            .get("error")
+            .and_then(|e| e.get("message").and_then(|m| m.as_str()).or_else(|| e.as_str()))
+            .or_else(|| parsed.get("message").and_then(|m| m.as_str()))
+            .unwrap_or("");
+        let brief: String = super::logx::redact(msg).chars().take(300).collect();
+        log::warn!(target: super::logx::PROVIDER, "上游非 2xx 错误摘要: {brief}");
         return json_resp(StatusCode::INTERNAL_SERVER_ERROR, parsed, origin);
     }
     let v = serde_json::from_str::<Value>(&text).unwrap_or(json!({}));
@@ -680,8 +715,21 @@ pub async fn generate(st: &BackendState, body: &Value, origin: Option<HeaderValu
         return err_json(StatusCode::BAD_REQUEST, "缺少 chat_completion_source");
     };
     let body = ensure_post_processing(body);
-
-    match source {
+    let model = body.get("model").and_then(|v| v.as_str()).unwrap_or("-");
+    let stream = body.get("stream").and_then(|v| v.as_bool()).unwrap_or(false);
+    let n_msgs = body
+        .get("messages")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+    log::info!(
+        target: super::logx::PROVIDER,
+        "chat-completions/generate source={} model={} stream={stream} messages={n_msgs}",
+        super::logx::redact(source),
+        super::logx::redact(model)
+    );
+    let started = std::time::Instant::now();
+    let resp = match source {
         "claude" => super::providers_claude::send_claude(st, &body, origin).await,
         "makersuite" | "vertexai" => {
             super::providers_google::send_makersuite(st, &body, origin).await
@@ -706,7 +754,15 @@ pub async fn generate(st: &BackendState, body: &Value, origin: Option<HeaderValu
             generic_generate(st, &body, source, origin).await
         }
         other => not_migrated(other, origin),
-    }
+    };
+    log::info!(
+        target: super::logx::PROVIDER,
+        "chat-completions/generate 完成 source={} status={} {}ms",
+        super::logx::redact(source),
+        resp.status().as_u16(),
+        started.elapsed().as_millis()
+    );
+    resp
 }
 
 /// custom_prompt_post_processing 面支持（generate 入口，chat-completions.js:2246-2253）
@@ -794,6 +850,7 @@ async fn generic_generate(
     source: &str,
     origin: Option<HeaderValue>,
 ) -> Response {
+    log_outbound(source, body);
     let mut msg_mutated = body.clone(); // embed / 后处理面在本地副本上做
     let mut headers: Vec<(String, String)> = Vec::new();
     let mut body_params = Map::new();
@@ -1403,6 +1460,7 @@ pub async fn status(st: &BackendState, body: &Value, origin: Option<HeaderValue>
     let Some(source) = body.get("chat_completion_source").and_then(|v| v.as_str()) else {
         return err_json(StatusCode::BAD_REQUEST, "缺少 chat_completion_source");
     };
+    log::info!(target: super::logx::PROVIDER, "chat-completions/status source={}", super::logx::redact(source));
 
     match source {
         "openai" => {

@@ -36,6 +36,7 @@ fn group_chats_dir(st: &BackendState) -> std::path::PathBuf {
 }
 
 fn err_json(status: StatusCode, msg: &str) -> Response {
+    log::warn!(target: super::logx::FS, "worldinfo/groups 错误 {status}: {}", super::logx::redact(msg));
     (status, Json(json!({ "error": { "message": msg } }))).into_response()
 }
 
@@ -162,6 +163,7 @@ pub fn wi_edit(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> 
     }
     let pretty = serde_json::to_string_pretty(data).unwrap_or_else(|_| data.to_string());
     let tmp = p.with_extension("json.tmp");
+    log::info!(target: super::logx::FS, "worldinfo/edit name={} bytes={}", super::logx::redact(name), pretty.len());
     match std::fs::write(&tmp, &pretty).and_then(|_| std::fs::rename(&tmp, &p)) {
         Ok(()) => ok_json(origin, json!({ "ok": true })),
         Err(e) => err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("写入失败：{e}")),
@@ -180,6 +182,7 @@ pub fn wi_delete(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -
     if !p.is_file() {
         return apply_cors_resp(StatusCode::INTERNAL_SERVER_ERROR.into_response(), origin);
     }
+    log::info!(target: super::logx::FS, "worldinfo/delete name={}", super::logx::redact(name));
     match std::fs::remove_file(&p) {
         Ok(()) => apply_cors_resp(StatusCode::OK.into_response(), origin),
         Err(e) => err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("删除失败：{e}")),
@@ -360,6 +363,7 @@ pub fn gr_create(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -
         return apply_cors_resp(StatusCode::FORBIDDEN.into_response(), origin);
     };
     let p = gdir.join(safe);
+    log::info!(target: super::logx::FS, "groups/create id={id}");
     let pretty = serde_json::to_string_pretty(&metadata).unwrap_or_default();
     match std::fs::write(&p, &pretty) {
         Ok(()) => ok_json(origin, metadata),
@@ -382,6 +386,7 @@ pub fn gr_edit(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> 
         let _ = std::fs::create_dir_all(parent);
     }
     let pretty = serde_json::to_string_pretty(&b).unwrap_or_default();
+    log::info!(target: super::logx::FS, "groups/edit id={}", super::logx::redact(id));
     let tmp = p.with_extension("json.tmp");
     match std::fs::write(&tmp, &pretty).and_then(|_| std::fs::rename(&tmp, &p)) {
         Ok(()) => ok_json(origin, json!({ "ok": true })),
@@ -398,6 +403,7 @@ pub fn gr_delete(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -
         return apply_cors_resp(StatusCode::FORBIDDEN.into_response(), origin);
     };
     let p = groups_dir(st).join(safe);
+    log::info!(target: super::logx::FS, "groups/delete id={}", super::logx::redact(id));
     // 先读 chats[] 删群聊文件（groups.js:211-227：读失败仅告警继续）
     if let Ok(text) = std::fs::read_to_string(&p) {
         if let Ok(group) = serde_json::from_str::<Value>(&text) {

@@ -62,6 +62,12 @@ pub async fn send_makersuite(
     body: &Value,
     origin: Option<HeaderValue>,
 ) -> Response {
+    super::providers::log_outbound(
+        body.get("chat_completion_source")
+            .and_then(|v| v.as_str())
+            .unwrap_or("makersuite"),
+        body,
+    );
     let is_vertex = body.get("chat_completion_source").and_then(|v| v.as_str()) == Some("vertexai");
     let api_name = if is_vertex {
         "Google Vertex AI"

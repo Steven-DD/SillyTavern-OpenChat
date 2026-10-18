@@ -281,10 +281,17 @@ pub async fn generate(st: &BackendState, body: &Value, origin: Option<HeaderValu
         Some(k) => k,
         // ST 字面：裸 400（sendStatus 无 JSON 体）
         None => {
+            log::warn!(target: super::logx::PROVIDER, "novelai/generate 缺少 api_key_novel → 400");
             use axum::response::IntoResponse;
             return super::apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
         }
     };
+    log::info!(
+        target: super::logx::PROVIDER,
+        "novelai/generate model={} stream={}",
+        super::logx::redact(body.get("model").and_then(|m| m.as_str()).unwrap_or("-")),
+        body.get("stream").and_then(|v| v.as_bool()).unwrap_or(false)
+    );
     let model = body
         .get("model")
         .and_then(|m| m.as_str())

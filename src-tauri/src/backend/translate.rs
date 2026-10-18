@@ -94,6 +94,17 @@ pub async fn dispatch(
     body: &Value,
     origin: Option<HeaderValue>,
 ) -> Response {
+    let target = body
+        .get("target_language")
+        .or_else(|| body.get("target"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("-");
+    log::info!(
+        target: super::logx::EXT,
+        "translate provider={} target={}",
+        super::logx::redact(provider),
+        super::logx::redact(target)
+    );
     match provider {
         "libre" => libre(st, body, origin).await,
         "google" => google(st, body, origin).await,

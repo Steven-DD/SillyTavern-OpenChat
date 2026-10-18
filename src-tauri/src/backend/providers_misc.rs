@@ -44,6 +44,7 @@ pub async fn send_mistral(
     body: &Value,
     origin: Option<HeaderValue>,
 ) -> Response {
+    super::providers::log_outbound("mistral", body);
     let (use_rp, api_root) = match body
         .get("reverse_proxy")
         .and_then(|v| v.as_str())
@@ -132,6 +133,7 @@ pub async fn send_mistral(
  * AI21（Jamba：OpenAI 兼容 + convertAI21Messages + json_object hack）
  * ---------------------------------------------------------------- */
 pub async fn send_ai21(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
+    super::providers::log_outbound("ai21", body);
     let key = super::providers::read_secret(st, "api_key_ai21").unwrap_or_default();
     if key.is_empty() {
         return super::providers::json_resp(
@@ -194,6 +196,7 @@ pub async fn send_deepseek(
     body: &Value,
     origin: Option<HeaderValue>,
 ) -> Response {
+    super::providers::log_outbound("deepseek", body);
     let (use_rp, api_root) = match body
         .get("reverse_proxy")
         .and_then(|v| v.as_str())
@@ -306,6 +309,7 @@ pub async fn send_deepseek(
  * xAI（OpenAI 兼容 + 转换 + reasoning_effort 二值化 high/low）
  * ---------------------------------------------------------------- */
 pub async fn send_xai(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
+    super::providers::log_outbound("xai", body);
     let (use_rp, api_root) = match body
         .get("reverse_proxy")
         .and_then(|v| v.as_str())
@@ -406,6 +410,7 @@ pub async fn send_aimlapi(
     body: &Value,
     origin: Option<HeaderValue>,
 ) -> Response {
+    super::providers::log_outbound("aimlapi", body);
     let key = super::providers::read_secret(st, "api_key_aimlapi").unwrap_or_default();
     if key.is_empty() {
         return super::providers::json_resp(
@@ -471,6 +476,7 @@ pub async fn send_electronhub(
     body: &Value,
     origin: Option<HeaderValue>,
 ) -> Response {
+    super::providers::log_outbound("electronhub", body);
     let key = super::providers::read_secret(st, "api_key_electronhub").unwrap_or_default();
     if key.is_empty() {
         return super::providers::json_resp(
@@ -537,6 +543,7 @@ pub async fn send_electronhub(
  * Chutes（OpenAI 兼容 + repetition_penalty/min_p 宽采样）
  * ---------------------------------------------------------------- */
 pub async fn send_chutes(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
+    super::providers::log_outbound("chutes", body);
     let key = super::providers::read_secret(st, "api_key_chutes").unwrap_or_default();
     if key.is_empty() {
         return super::providers::json_resp(
@@ -600,6 +607,7 @@ pub async fn send_minimax(
     body: &Value,
     origin: Option<HeaderValue>,
 ) -> Response {
+    super::providers::log_outbound("minimax", body);
     let api_root = if body.get("minimax_endpoint").and_then(|v| v.as_str()) == Some("cn") {
         super::providers::API_MINIMAX_CN
     } else {
@@ -656,6 +664,7 @@ pub async fn send_minimax(
  * Azure OpenAI（deployments URL + api-key 头 + OPENAI keys 子集直传）
  * ---------------------------------------------------------------- */
 pub async fn send_azure(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
+    super::providers::log_outbound("azure_openai", body);
     let azure_base_url = body
         .get("azure_base_url")
         .and_then(|v| v.as_str())
@@ -767,6 +776,7 @@ pub async fn send_azure(st: &BackendState, body: &Value, origin: Option<HeaderVa
  * Cohere（v2 原生协议请求面 ST 字面 + **输出面转 OpenAI 形**）
  * ---------------------------------------------------------------- */
 pub async fn send_cohere(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
+    super::providers::log_outbound("cohere", body);
     let key = super::providers::read_secret(st, "api_key_cohere").unwrap_or_default();
     if key.is_empty() {
         return super::providers::json_resp(

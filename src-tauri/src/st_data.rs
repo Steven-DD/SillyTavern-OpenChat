@@ -208,8 +208,9 @@ pub fn import_bag(
                 .unwrap_or(0);
             let bak = data_root.with_extension(format!("bak-{ts}"));
             fs::rename(data_root, &bak).map_err(|e| format!("备份现有数据失败：{e}"))?;
-            println!(
-                "[st_data] 导入前备份 → {}（{} 文件）",
+            log::info!(
+                target: "stchat::fs",
+                "数据袋导入前备份 → {}（{} 文件）",
                 display_path(&bak),
                 st.files
             );

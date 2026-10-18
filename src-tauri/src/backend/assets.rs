@@ -124,6 +124,7 @@ pub fn thumbnail(st: &BackendState, query: &str, origin: Option<HeaderValue>) ->
     };
     let p = original.join(&safe);
     if !p.is_file() {
+        log::debug!(target: super::logx::FS, "thumbnail 404 type={} file={}", t_dec, super::logx::redact(&safe));
         return err_resp(StatusCode::NOT_FOUND);
     }
     match std::fs::read(&p) {
@@ -169,6 +170,7 @@ pub fn static_asset(st: &BackendState, path: &str, origin: Option<HeaderValue>) 
         Err(_) => return err_resp(StatusCode::FORBIDDEN),
     };
     if !p.is_file() {
+        log::debug!(target: super::logx::FS, "静态资源 404 path={}", super::logx::redact(path));
         return err_resp(StatusCode::NOT_FOUND);
     }
     match std::fs::read(&p) {
@@ -258,11 +260,17 @@ pub async fn avatars_upload(
     }
     let p = dir.join(&filename);
     match std::fs::write(&p, &bytes) {
-        Ok(()) => ok_json(origin, json!({ "path": filename })),
-        Err(e) => apply_cors_resp(
-            err_json_internal(&format!("写入失败：{e}")).into_response(),
-            origin,
-        ),
+        Ok(()) => {
+            log::info!(target: super::logx::FS, "avatars/upload file={} bytes={}", super::logx::redact(&filename), bytes.len());
+            ok_json(origin, json!({ "path": filename }))
+        }
+        Err(e) => {
+            log::error!(target: super::logx::FS, "avatars/upload 写入失败 file={}: {e}", super::logx::redact(&filename));
+            apply_cors_resp(
+                err_json_internal(&format!("写入失败：{e}")).into_response(),
+                origin,
+            )
+        }
     }
 }
 
@@ -278,6 +286,7 @@ pub fn avatars_delete(st: &BackendState, body: &Value, origin: Option<HeaderValu
         return err_resp(StatusCode::FORBIDDEN);
     };
     let p = du(st).join("User Avatars").join(&safe);
+    log::info!(target: super::logx::FS, "avatars/delete avatar={}", super::logx::redact(avatar));
     if p.is_file() {
         let _ = std::fs::remove_file(&p);
         // 缩略图失效（avatars.js:34 invalidateThumbnail persona）
@@ -394,11 +403,20 @@ pub fn images_upload(st: &BackendState, body: &Value, origin: Option<HeaderValue
     };
     let p = dir.join(&file_name);
     if let Err(e) = std::fs::write(&p, &bytes) {
+        log::error!(target: super::logx::FS, "images/upload 写入失败 ch_name={} file={}: {e}", super::logx::redact(&safe_ch), super::logx::redact(&file_name));
         return apply_cors_resp(
             err_json_internal(&format!("写入失败：{e}")).into_response(),
             origin,
         );
     }
+    log::info!(
+        target: super::logx::FS,
+        "images/upload ch_name={} format={} bytes={} file={}",
+        super::logx::redact(&safe_ch),
+        super::logx::redact(format),
+        bytes.len(),
+        super::logx::redact(&file_name)
+    );
     // 返回路径（ST images.js：`user/images/<ch_name>/<file>` 相对形态，
     // 前端 groups.ts:78 消费 r.path 并写回 group.avatar_url）
     ok_json(

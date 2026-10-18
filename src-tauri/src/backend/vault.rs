@@ -150,7 +150,7 @@ impl Vault {
                 degraded: AtomicBool::new(false),
             },
             Err(e) => {
-                eprintln!("[vault] OS keychain 不可用（{e}）→ 降级为 secrets.json 镜像权威（行为=ST 字面）");
+                log::warn!(target: super::logx::VAULT, "OS keychain 不可用（{e}）→ 降级为 secrets.json 镜像权威（密钥仍可用，仅安全性降级）");
                 Self {
                     store: Box::new(KeyringStore),
                     degraded: AtomicBool::new(true),
@@ -214,7 +214,7 @@ impl Vault {
                 Err(_) => {
                     // keychain 故障 → 一次性降级标记 + 镜像
                     self.degraded.store(true, Ordering::Relaxed);
-                    eprintln!("[vault] keychain 读取故障 → 降级为镜像权威（secrets.json）");
+                    log::warn!(target: super::logx::VAULT, "keychain 读取故障（key={key}）→ 降级为镜像权威（secrets.json）");
                 }
             }
         }
@@ -232,13 +232,11 @@ impl Vault {
                 }
                 if value.len() > 2500 {
                     // Windows CredMan 上限内（2560B 全条目）；超限 → 显式降级（镜像兜底）
-                    eprintln!(
-                        "[vault] keychain 条目超 2500B（key={key}）→ 该密钥仅落镜像（secrets.json），行为=ST 字面"
-                    );
+                    log::warn!(target: super::logx::VAULT, "keychain 条目超 2500B（key={key}）→ 该密钥仅落镜像（secrets.json）");
                     return;
                 }
                 if let Err(e) = self.store.set(&Self::account_for(key, id), value) {
-                    eprintln!("[vault] keychain 写入失败（key={key}）：{e} → 降级为镜像权威");
+                    log::error!(target: super::logx::VAULT, "keychain 写入失败（key={key}）：{e} → 降级为镜像权威");
                     self.degraded.store(true, Ordering::Relaxed);
                 }
             }
@@ -283,7 +281,7 @@ impl Vault {
             }
         }
         if chain + cfg > 0 {
-            println!("[vault] 原有密钥迁移：keychain {chain} 条、settings 配置 {cfg} 项（镜像 secrets.json 按清单保留）");
+            log::info!(target: super::logx::VAULT, "原有密钥迁移：keychain {chain} 条、settings 配置 {cfg} 项（镜像 secrets.json 保留）");
         }
     }
 }

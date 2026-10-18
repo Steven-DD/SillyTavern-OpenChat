@@ -31,7 +31,11 @@ use git2::{FetchOptions, Repository};
 use serde_json::{json, Value};
 
 fn text_resp(status: StatusCode, msg: impl Into<String>, origin: Option<HeaderValue>) -> Response {
-    apply_cors_resp((status, msg.into()).into_response(), origin)
+    let msg = msg.into();
+    if status.is_client_error() || status.is_server_error() {
+        log::warn!(target: super::logx::EXT, "extensions 错误 {status}: {}", super::logx::redact(&msg));
+    }
+    apply_cors_resp((status, msg).into_response(), origin)
 }
 
 fn ok_json(origin: Option<HeaderValue>, v: Value) -> Response {
@@ -203,6 +207,13 @@ pub async fn install(st: &BackendState, body: &Value, origin: Option<HeaderValue
         Ok(p) => p,
         Err(_) => return text_resp(StatusCode::FORBIDDEN, "扩展名不得越出基础目录", origin),
     };
+    log::info!(
+        target: super::logx::EXT,
+        "extensions/install name={} url={} global={global} branch={}",
+        super::logx::redact(&name),
+        super::logx::url_summary(&url),
+        branch.as_deref().unwrap_or("-")
+    );
     if ext_path.exists() {
         return text_resp(
             StatusCode::CONFLICT,
@@ -376,6 +387,12 @@ pub async fn update(st: &BackendState, body: &Value, origin: Option<HeaderValue>
         Err(resp) => return resp,
     };
     let (mut is_up_to_date, remote_url) = up_to_date_state(&repo);
+    log::info!(
+        target: super::logx::EXT,
+        "extensions/update name={} global={global} remote={} up_to_date={is_up_to_date}",
+        super::logx::redact(&name),
+        super::logx::url_summary(&remote_url)
+    );
     if !is_up_to_date {
         // ST git.pull —— 只做 fast-forward；分歧/网络失败不动本地
         //（比 ST 更保守：非 ff 不硬落。登记在清单 T14）
@@ -757,6 +774,7 @@ pub async fn delete(st: &BackendState, body: &Value, origin: Option<HeaderValue>
         Err(resp) => return resp,
     };
     let display = ext_path.display().to_string();
+    log::info!(target: super::logx::EXT, "extensions/delete name={} global={global}", super::logx::redact(&name));
     match std::fs::remove_dir_all(&ext_path) {
         Ok(()) => text_resp(
             StatusCode::OK,

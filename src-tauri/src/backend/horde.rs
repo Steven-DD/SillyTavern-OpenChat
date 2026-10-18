@@ -91,6 +91,7 @@ pub async fn generate_text(
     body: &Value,
     origin: Option<HeaderValue>,
 ) -> Response {
+    log::info!(target: super::logx::PROVIDER, "horde/generate-text");
     let Some(_) = body.as_object() else {
         return json_resp(StatusCode::OK, json!({ "error": true }), origin);
     };
@@ -125,6 +126,7 @@ pub async fn task_status(
     body: &Value,
     origin: Option<HeaderValue>,
 ) -> Response {
+    log::info!(target: super::logx::PROVIDER, "horde/task-status");
     let Some(task_id) = body.get("taskId").and_then(|t| t.as_str()) else {
         return json_resp(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -150,6 +152,7 @@ pub async fn cancel_task(
     body: &Value,
     origin: Option<HeaderValue>,
 ) -> Response {
+    log::info!(target: super::logx::PROVIDER, "horde/cancel-task");
     let Some(task_id) = body.get("taskId").and_then(|t| t.as_str()) else {
         return json_resp(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -175,6 +178,7 @@ pub async fn text_models(
     body: &Value,
     origin: Option<HeaderValue>,
 ) -> Response {
+    log::info!(target: super::logx::PROVIDER, "horde/text-models");
     let force = body.get("force").and_then(|f| f.as_bool()).unwrap_or(false);
     {
         let c = cache().lock().unwrap();

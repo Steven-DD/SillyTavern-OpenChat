@@ -16,6 +16,26 @@ pub mod st_data;
 use std::path::{Path, PathBuf};
 use tauri::Manager;
 
+/// 日志级别：默认 Info；排障时设 `ST_CHAT_LOG=debug|trace`（重启生效）。
+///
+/// 生产（release）无控制台，日志落 appLogDir 滚动文件；Info 默认既能覆盖
+/// 请求生命周期/落盘/出站，又不会把 reqwest/hyper 的 debug 噪音写爆文件。
+fn log_level() -> log::LevelFilter {
+    match std::env::var("ST_CHAT_LOG")
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "trace" => log::LevelFilter::Trace,
+        "debug" => log::LevelFilter::Debug,
+        "warn" => log::LevelFilter::Warn,
+        "error" => log::LevelFilter::Error,
+        "off" => log::LevelFilter::Off,
+        _ => log::LevelFilter::Info,
+    }
+}
+
 /// 中继/后端端点信息（base + 鉴权 token）
 #[derive(serde::Serialize)]
 pub struct BackendEndpointInfo {
@@ -32,7 +52,11 @@ pub struct BackendSlot(pub std::sync::Mutex<Option<backend::BackendHandle>>);
 #[tauri::command]
 fn backend_base(state: tauri::State<'_, BackendSlot>) -> Result<BackendEndpointInfo, String> {
     let g = state.0.lock().map_err(|_| "backend 槽被污染".to_string())?;
-    let h = g.as_ref().ok_or_else(|| "native backend 未启动".to_string())?;
+    let h = g.as_ref().ok_or_else(|| {
+        log::warn!(target: backend::logx::IPC, "backend_base 被调用但 native backend 未启动");
+        "native backend 未启动".to_string()
+    })?;
+    log::debug!(target: backend::logx::IPC, "backend_base 下发 base=http://127.0.0.1:{}", h.port);
     Ok(BackendEndpointInfo {
         base: format!("http://127.0.0.1:{}", h.port),
         token: h.token.clone(),
@@ -78,9 +102,20 @@ async fn chat_mutate_lines(
     ops: Vec<ChatLineOp>,
 ) -> Result<(), String> {
     let path = chat_jsonl_path(&state.0, &avatar, &file)?;
+    let n = ops.len();
+    log::info!(
+        target: backend::logx::FS,
+        "会话行级改写 avatar={} file={} ops={n}",
+        backend::logx::redact(&avatar),
+        backend::logx::redact(&file)
+    );
     tauri::async_runtime::spawn_blocking(move || chat_apply_ops_to_file(&path, ops))
         .await
         .map_err(|e| format!("任务异常：{e}"))?
+        .map_err(|e| {
+            log::error!(target: backend::logx::FS, "会话行级改写失败 avatar={} file={} ops={n}: {e}", backend::logx::redact(&avatar), backend::logx::redact(&file));
+            e
+        })
 }
 
 fn chat_apply_ops_to_file(path: &Path, ops: Vec<ChatLineOp>) -> Result<(), String> {
@@ -134,9 +169,11 @@ async fn chat_export_file(
 ) -> Result<(), String> {
     let src = chat_jsonl_path(&state.0, &avatar, &file)?;
     if !src.is_file() {
+        log::warn!(target: backend::logx::FS, "导出会话失败：文件不存在 avatar={} file={}", backend::logx::redact(&avatar), backend::logx::redact(&file));
         return Err(format!("会话文件不存在：{}", src.display()));
     }
     let dest = PathBuf::from(dest.trim());
+    log::info!(target: backend::logx::FS, "导出会话 avatar={} file={} -> {}", backend::logx::redact(&avatar), backend::logx::redact(&file), backend::logx::redact(&dest.display().to_string()));
     tauri::async_runtime::spawn_blocking(move || {
         std::fs::copy(&src, &dest)
             .map(|_| ())
@@ -144,6 +181,10 @@ async fn chat_export_file(
     })
     .await
     .map_err(|e| format!("任务异常：{e}"))?
+    .map_err(|e| {
+        log::error!(target: backend::logx::FS, "导出会话失败: {e}");
+        e
+    })
 }
 
 #[tauri::command]
@@ -154,9 +195,11 @@ async fn character_export_png(
 ) -> Result<(), String> {
     let src = character_png_path(&state.0, &avatar)?;
     if !src.is_file() {
+        log::warn!(target: backend::logx::FS, "导出角色卡失败：文件不存在 avatar={}", backend::logx::redact(&avatar));
         return Err(format!("角色卡文件不存在：{}", src.display()));
     }
     let dest = PathBuf::from(dest.trim());
+    log::info!(target: backend::logx::FS, "导出角色卡 avatar={} -> {}", backend::logx::redact(&avatar), backend::logx::redact(&dest.display().to_string()));
     tauri::async_runtime::spawn_blocking(move || {
         std::fs::copy(&src, &dest)
             .map(|_| ())
@@ -164,6 +207,10 @@ async fn character_export_png(
     })
     .await
     .map_err(|e| format!("任务异常：{e}"))?
+    .map_err(|e| {
+        log::error!(target: backend::logx::FS, "导出角色卡失败: {e}");
+        e
+    })
 }
 
 /* ================================================================== *
@@ -183,11 +230,21 @@ async fn st_data_export(
     }
     let cfg = root.join("config.yaml");
     let cfg_ref = cfg.is_file().then_some(cfg);
+    let dest_log = backend::logx::redact(&dest.display().to_string());
+    let with_secrets = include_secrets.unwrap_or(false);
+    log::info!(target: backend::logx::FS, "导出数据袋 dest={dest_log} include_secrets={with_secrets}");
     tauri::async_runtime::spawn_blocking(move || {
         st_data::export_bag(&root, cfg_ref.as_deref(), &dest, include_secrets.unwrap_or(false))
     })
     .await
     .map_err(|e| format!("导出任务异常：{e}"))?
+    .inspect(|r| {
+        log::info!(target: backend::logx::FS, "导出数据袋完成 files={} bytes={}", r.files, r.bytes);
+    })
+    .map_err(|e| {
+        log::error!(target: backend::logx::FS, "导出数据袋失败: {e}");
+        e
+    })
 }
 
 #[tauri::command]
@@ -195,15 +252,24 @@ async fn st_data_import(state: tauri::State<'_, DataRootState>, src: String) -> 
     let root = state.0.clone();
     let src = PathBuf::from(src.trim());
     if !src.is_file() {
+        log::warn!(target: backend::logx::FS, "导入数据袋失败：文件不存在 {}", backend::logx::redact(&src.display().to_string()));
         return Err(format!("导入文件不存在：{}", src.display()));
     }
     let cfg = root.join("config.yaml");
     let cfg_ref = cfg.is_file().then_some(cfg);
+    log::info!(target: backend::logx::FS, "导入数据袋 src={}", backend::logx::redact(&src.display().to_string()));
     tauri::async_runtime::spawn_blocking(move || {
         st_data::import_bag(&src, &root, cfg_ref.as_deref())
     })
     .await
     .map_err(|e| format!("导入任务异常：{e}"))?
+    .inspect(|r| {
+        log::info!(target: backend::logx::FS, "导入数据袋完成 files={} bytes={}", r.files, r.bytes);
+    })
+    .map_err(|e| {
+        log::error!(target: backend::logx::FS, "导入数据袋失败: {e}");
+        e
+    })
 }
 
 /* ================================================================== *
@@ -218,6 +284,9 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
             tauri_plugin_log::Builder::new()
+                // 全量日志：stdout + appLogDir 滚动文件（2MB KeepOne，本地时区）
+                .level(log_level())
+                .timezone_strategy(tauri_plugin_log::TimezoneStrategy::UseLocal)
                 .max_file_size(2_000_000)
                 .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
                 .build(),
@@ -239,9 +308,21 @@ pub fn run() {
             app.manage(DataRootState(data_root.clone()));
             app.manage(BackendSlot(std::sync::Mutex::new(None)));
 
+            log::info!(
+                target: backend::logx::BOOT,
+                "应用启动 config_dir={} data_root={} log_level={:?}",
+                config_dir.display(),
+                data_root.display(),
+                log_level()
+            );
+
             let handle = app.handle().clone();
             let h = tauri::async_runtime::block_on(backend::start(data_root.clone()))
-                .map_err(|e| format!("native backend 启动失败: {e}"))?;
+                .map_err(|e| {
+                    log::error!(target: backend::logx::BOOT, "native backend 启动失败: {e}");
+                    format!("native backend 启动失败: {e}")
+                })?;
+            log::info!(target: backend::logx::BOOT, "native backend 就绪 127.0.0.1:{}", h.port);
             *handle.state::<BackendSlot>().0.lock().unwrap() = Some(h);
 
             Ok(())

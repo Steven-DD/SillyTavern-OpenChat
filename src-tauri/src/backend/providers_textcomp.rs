@@ -36,7 +36,7 @@ use serde_json::{json, Value};
 
 /* ---------------- 后端定义 ---------------- */
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 enum T {
     Mancer,
     Vllm,
@@ -365,6 +365,14 @@ pub async fn generate(st: &BackendState, body: &Value, origin: Option<HeaderValu
     else {
         return json_resp(StatusCode::BAD_REQUEST, json!({ "error": true }), origin);
     };
+    let stream = body.get("stream").and_then(|v| v.as_bool()).unwrap_or(false);
+    log::info!(
+        target: super::logx::PROVIDER,
+        "text-completions/generate type={:?} stream={stream} base={} model={}",
+        api_type,
+        super::logx::url_summary(api_server),
+        super::logx::redact(body.get("model").and_then(|v| v.as_str()).unwrap_or("-"))
+    );
 
     // localhost → 127.0.0.1（ST 字面）
     let base_raw = api_server.replace("localhost", "127.0.0.1");
@@ -777,6 +785,12 @@ pub async fn status(st: &BackendState, body: &Value, origin: Option<HeaderValue>
         return json_resp(StatusCode::BAD_REQUEST, json!({ "error": true }), origin);
     };
     let base_raw = api_server.replace("localhost", "127.0.0.1");
+    log::info!(
+        target: super::logx::PROVIDER,
+        "text-completions/status type={:?} base={}",
+        api_type,
+        super::logx::url_summary(api_server)
+    );
     // HIGH-5：api_server 出站网关（LocalTextgen 自建服务通道：环回 http 放行）
     let base = match super::providers::validate_egress_url(
         &base_raw,
