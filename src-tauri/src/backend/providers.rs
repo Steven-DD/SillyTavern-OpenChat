@@ -2023,7 +2023,7 @@ mod tests {
         .is_err());
         // 解析失败 → fail-closed
         let resolve_fail = |_host: &str, _port: u16| -> std::io::Result<Vec<std::net::IpAddr>> {
-            Err(std::io::Error::new(std::io::ErrorKind::Other, "dns down"))
+            Err(std::io::Error::other("dns down"))
         };
         assert!(validate_egress_url_with(
             "https://api.openai.com/v1",

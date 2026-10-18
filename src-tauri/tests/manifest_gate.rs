@@ -16,7 +16,16 @@
 //! 本注释 + code review 承担（snapshot 无法机械证明 api.rs 现状，登记为
 //! 已知限制）。
 
-const MANIFEST: &str = include_str!("../../docs/agents/endpoint-manifest.md");
+/// 契约基线为**本地维护**文件（`docs/` 按仓库约定不入库）：
+/// CI / 新克隆缺席时返回 None，闸门跳过并打印提示，而不是编译期失败。
+fn manifest_text() -> Option<String> {
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("docs")
+        .join("agents")
+        .join("endpoint-manifest.md");
+    std::fs::read_to_string(&p).ok()
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Rule {
@@ -142,9 +151,9 @@ fn route_match(method: &str, path: &str) -> bool {
 
 /// 解析 manifest 契约表：`| # | 方法 | 路径 | …` 行 → (序号, method, path)
 /// （cell 内 `\|` 转义先还原；非 GET/POST 行（Tauri IPC 命令、说明性表格）自动跳过）
-fn parse_manifest_rows() -> Vec<(usize, String, String)> {
+fn parse_manifest_rows(text: &str) -> Vec<(usize, String, String)> {
     let mut rows = Vec::new();
-    for line in MANIFEST.lines() {
+    for line in text.lines() {
         if !line.trim_start().starts_with('|') {
             continue;
         }
@@ -256,7 +265,33 @@ const REQUIRED_SET: &[(&str, &str)] = &[
 
 #[test]
 fn manifest_gate_routes_parsed_and_covered() {
-    let rows = parse_manifest_rows();
+    // 快照自检（红线 3）不依赖契约文件，先跑，保证门在无基线时也有牙
+    assert!(ROUTE_SNAPSHOT.len() >= 70, "路由快照规则异常稀少");
+    let mut uniq: Vec<(&str, &Rule)> = ROUTE_SNAPSHOT.iter().map(|(m, r)| (*m, r)).collect();
+    let before = uniq.len();
+    uniq.sort_by(|a, b| (a.0, format!("{:?}", a.1)).cmp(&(b.0, format!("{:?}", b.1))));
+    uniq.dedup_by(|a, b| a.0 == b.0 && format!("{:?}", a.1) == format!("{:?}", b.1));
+    assert_eq!(uniq.len(), before, "快照存在重复规则（同步抄写错误）");
+
+    // 必到位族（红线 1）同样只依赖快照
+    let missing: Vec<&(&str, &str)> = REQUIRED_SET
+        .iter()
+        .filter(|(m, p)| !route_match(m, p))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "必到位端点从路由快照缺席（红线）：{:?}",
+        missing.iter().map(|(m, p)| format!("{m} {p}")).collect::<Vec<_>>()
+    );
+
+    let Some(text) = manifest_text() else {
+        eprintln!(
+            "[manifest_gate] 跳过契约对照：docs/agents/endpoint-manifest.md 不在本地\
+             （docs/ 不入库，CI/新克隆必然缺席）；快照红线已执行"
+        );
+        return;
+    };
+    let rows = parse_manifest_rows(&text);
     assert!(
         rows.len() >= 70,
         "manifest 契约行解析过少（解析 {}/预期 77）：解析器空转或契约文件损坏",
@@ -286,18 +321,6 @@ fn manifest_gate_routes_parsed_and_covered() {
         report_skip.join("\n")
     );
 
-    // 红线 1：必到位族逐条断言（REQUIRED_SET 元素要么在 manifest 已路由，要么
-    // 与 manifest 行等价存在 —— 直接以 route_match 语义断言）
-    let missing: Vec<&(&str, &str)> = REQUIRED_SET
-        .iter()
-        .filter(|(m, p)| !route_match(m, p))
-        .collect();
-    assert!(
-        missing.is_empty(),
-        "必到位端点从路由快照缺席（红线）：{:?}",
-        missing.iter().map(|(m, p)| format!("{m} {p}")).collect::<Vec<_>>()
-    );
-
     // 红线 2：跳过清单应只含「已知未迁移面」，若出现正文级覆盖缺口（如 #1-#29）
     // 说明路由退化 —— 凡是 manifest 数据 CRUD/生成通道族的关键端点都不允许在 skip 里
     let critical_hint = [
@@ -319,14 +342,6 @@ fn manifest_gate_routes_parsed_and_covered() {
         }
     }
 
-    // 红线 3：快照内没有任何规则为空/重复（防手抄同步把表抄炸）
-    assert!(ROUTE_SNAPSHOT.len() >= 70, "路由快照规则异常稀少");
-    let mut uniq: Vec<(&str, &Rule)> = ROUTE_SNAPSHOT.iter().map(|(m, r)| (*m, r)).collect();
-    let before = uniq.len();
-    uniq.sort_by(|a, b| (a.0, format!("{:?}", a.1)).cmp(&(b.0, format!("{:?}", b.1))));
-    uniq.dedup_by(|a, b| a.0 == b.0 && format!("{:?}", a.1) == format!("{:?}", b.1));
-    assert_eq!(uniq.len(), before, "快照存在重复规则（同步抄写错误）");
-
     eprintln!(
         "[manifest_gate] 必到位族 {} 条全部命中快照；快照 receipt 规则 {} 条",
         REQUIRED_SET.len(),
@@ -335,10 +350,14 @@ fn manifest_gate_routes_parsed_and_covered() {
 }
 
 /// manifest 解析器口径单测：`\|` 转义还原、方法过滤（IPC 命令行不误入）、
-/// 序号列非数字的说明性行不误入。
+/// 序号列非数字的说明性行不误入。契约基线不在本地时跳过（docs/ 不入库）。
 #[test]
 fn manifest_parser_boundary_rows() {
-    let rows = parse_manifest_rows();
+    let Some(text) = manifest_text() else {
+        eprintln!("[manifest_gate] 跳过解析器边界单测：契约基线不在本地（docs/ 不入库）");
+        return;
+    };
+    let rows = parse_manifest_rows(&text);
     // /thumbnail 行（含 `avatar\|persona\|bg` 转义）应还原为单行并切出 /thumbnail
     let t = rows.iter().find(|(i, _, _)| *i == 30).expect("缺 #30 行");
     assert_eq!(t.1, "GET");

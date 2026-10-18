@@ -277,9 +277,9 @@ mod tests {
         // 非 tEXt chunk 保留（IDAT/IHDR/IEND 结构完整）
         let out_chunks = extract_chunks(&out).unwrap();
         let names: Vec<&[u8; 4]> = out_chunks.iter().map(|c| &c.name).collect();
-        assert!(names.contains(&&*b"IHDR"));
-        assert!(names.contains(&&*b"IDAT"));
-        assert!(names.contains(&&*b"IEND"));
+        assert!(names.contains(&b"IHDR"));
+        assert!(names.contains(&b"IDAT"));
+        assert!(names.contains(&b"IEND"));
         // 恰好 2 个 chara 类 chunk（chara + ccv3），旧的被移除
         let n = out_chunks
             .iter()

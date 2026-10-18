@@ -5,9 +5,13 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   frontend:
-    name: 前端（类型检查 + 构建 + 自检）
+    name: 前端（类型检查 + 构建 + 自检 + 产物洁净度）
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,15 +23,20 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: npm run selfcheck
+      # 去 ST 化硬约束（D6）：构建产物不含 node 可执行文件 / ST 源码树标记
+      - run: node scripts/verify-clean-machine.mjs
 
   rust:
-    name: Rust（单测 + e2e）
+    name: Rust（clippy + 单测/契约测试）
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-      # 不设 REQUIRE_REAL_ST：真实 ST 缺席时 relay e2e 自动跳过（mock 部分离线可跑）
-      - run: cargo test --manifest-path src-tauri/Cargo.toml
+      - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings
+      # 契约基线 docs/ 不入库：manifest 闸门在 CI 自动跳过契约对照，仅跑路由快照红线
+      - run: cargo test --manifest-path src-tauri/Cargo.toml --locked
