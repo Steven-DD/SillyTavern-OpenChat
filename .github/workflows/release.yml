@@ -45,5 +45,5 @@ jobs:
           releaseName: 'SillyTavern-OpenChat ${{ github.ref_name }}'
           releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: false
-          prerelease: true
+          prerelease: false
           args: ''

@@ -1,6 +1,6 @@
 [package]
 name = "sillytavern-openchat"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 # Tauri dev 走 `cargo run --no-default-features`（不指定 --bin）；
 # 自从批14 引入 [[bin]] backend-host（冒烟宿主）后本包有两个 bin，
