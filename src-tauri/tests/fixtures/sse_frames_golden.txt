@@ -1,0 +1,5 @@
+data: {"id": "chatcmpl-fixture-add0000000000000001", "object": "chat.completion.chunk", "created": 1699999900, "model": "fixture-model", "choices": [{"index": 0, "delta": {"content": "灯"}, "finish_reason": null}], "fixture_probe": {"帧序": 1}}
+data: {"id": "chatcmpl-fixture-add0000000000000001", "object": "chat.completion.chunk", "created": 1699999901, "model": "fixture-model", "choices": [{"index": 0, "delta": {"content": "已在二更点起"}, "finish_reason": null}], "fixture_probe": {"帧序": 2}}
+data: {"id": "chatcmpl-fixture-add0000000000000001", "object": "chat.completion.chunk", "created": 1699999902, "model": "fixture-model", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 11, "completion_tokens": 5, "total_tokens": 16}, "fixture_probe": {"帧序": 3}}
+data: {"error": {"message": "mock 上游错误帧（黄金样本）", "type": "server_error", "probe": {"帧序": 4}}}
+data: [DONE]

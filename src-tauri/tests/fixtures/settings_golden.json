@@ -1,0 +1,540 @@
+{
+  "username": "夜航船长",
+  "font_scale": 1.0,
+  "power_user": true,
+  "allow_keys_exposure": false,
+  "fast_ui_mode": true,
+  "integrity_guard": "黄金样本-勿改",
+  "background": {
+    "float": "左舷灯光",
+    "type": "uselib",
+    "url": "回声_码头.png"
+  },
+  "extension_settings": {
+    "stchat_quick_replies": [
+      {
+        "label": "速答 · 中文",
+        "message": "请继续推进任务。",
+        "show_startup": true
+      },
+      {
+        "label": "速答 · 检点",
+        "message": "请先核对引数与单位。",
+        "show_startup": false
+      }
+    ],
+    "regex": [
+      {
+        "script": "清稿",
+        "find": "碎片化表述",
+        "replace": "整段成文"
+      }
+    ],
+    "stchat_native": {
+      "quarter_turns": 3
+    }
+  },
+  "themes": {
+    "2026-暗夜港湾": {
+      "primary": "#0f172a",
+      "accent": "琥珀"
+    }
+  },
+  "token_usage_log": [
+    {
+      "model": "fixture-model",
+      "usage": {
+        "prompt": 11,
+        "completion": 5
+      }
+    }
+  ],
+  "naive_nested_probe": {
+    "深层": {
+      "更深": [
+        {
+          "层": 1
+        },
+        {
+          "层": 2,
+          "保留": null
+        }
+      ]
+    }
+  },
+  "unknown_key_0": "未知值-0",
+  "unknown_key_1": 1,
+  "unknown_key_2": true,
+  "unknown_key_3": {
+    "idx": 3,
+    "备注": null
+  },
+  "unknown_key_4": [
+    "块-4-a",
+    "块-4-b"
+  ],
+  "unknown_key_5": {
+    "嵌套": {
+      "i": 5,
+      "语义": "保真探针"
+    }
+  },
+  "unknown_key_6": 0.31,
+  "unknown_key_7": "αβγ-θαβγ-θ",
+  "unknown_key_8": "未知值-8",
+  "unknown_key_9": 9,
+  "unknown_key_10": true,
+  "unknown_key_11": {
+    "idx": 11,
+    "备注": null
+  },
+  "unknown_key_12": [
+    "块-12-a",
+    "块-12-b"
+  ],
+  "unknown_key_13": {
+    "嵌套": {
+      "i": 13,
+      "语义": "保真探针"
+    }
+  },
+  "unknown_key_14": 0.39,
+  "unknown_key_15": "αβγ-θ",
+  "unknown_key_16": "未知值-16",
+  "unknown_key_17": 17,
+  "unknown_key_18": true,
+  "unknown_key_19": {
+    "idx": 19,
+    "备注": null
+  },
+  "unknown_key_20": [
+    "块-20-a",
+    "块-20-b"
+  ],
+  "unknown_key_21": {
+    "嵌套": {
+      "i": 21,
+      "语义": "保真探针"
+    }
+  },
+  "unknown_key_22": 0.47,
+  "unknown_key_23": "αβγ-θαβγ-θαβγ-θ",
+  "unknown_key_24": "未知值-24",
+  "unknown_key_25": 25,
+  "unknown_key_26": true,
+  "unknown_key_27": {
+    "idx": 27,
+    "备注": null
+  },
+  "unknown_key_28": [
+    "块-28-a",
+    "块-28-b"
+  ],
+  "unknown_key_29": {
+    "嵌套": {
+      "i": 29,
+      "语义": "保真探针"
+    }
+  },
+  "unknown_key_30": 0.55,
+  "unknown_key_31": "αβγ-θαβγ-θ",
+  "unknown_key_32": "未知值-32",
+  "unknown_key_33": 33,
+  "unknown_key_34": true,
+  "unknown_key_35": {
+    "idx": 35,
+    "备注": null
+  },
+  "unknown_key_36": [
+    "块-36-a",
+    "块-36-b"
+  ],
+  "unknown_key_37": {
+    "嵌套": {
+      "i": 37,
+      "语义": "保真探针"
+    }
+  },
+  "unknown_key_38": 0.63,
+  "unknown_key_39": "αβγ-θ",
+  "unknown_key_40": "未知值-40",
+  "unknown_key_41": 41,
+  "unknown_key_42": true,
+  "unknown_key_43": {
+    "idx": 43,
+    "备注": null
+  },
+  "unknown_key_44": [
+    "块-44-a",
+    "块-44-b"
+  ],
+  "unknown_key_45": {
+    "嵌套": {
+      "i": 45,
+      "语义": "保真探针"
+    }
+  },
+  "unknown_key_46": 0.71,
+  "unknown_key_47": "αβγ-θαβγ-θαβγ-θ",
+  "unknown_key_48": "未知值-48",
+  "unknown_key_49": 49,
+  "unknown_key_50": true,
+  "unknown_key_51": {
+    "idx": 51,
+    "备注": null
+  },
+  "unknown_key_52": [
+    "块-52-a",
+    "块-52-b"
+  ],
+  "unknown_key_53": {
+    "嵌套": {
+      "i": 53,
+      "语义": "保真探针"
+    }
+  },
+  "unknown_key_54": 0.79,
+  "unknown_key_55": "αβγ-θαβγ-θ",
+  "unknown_key_56": "未知值-56",
+  "unknown_key_57": 57,
+  "unknown_key_58": true,
+  "unknown_key_59": {
+    "idx": 59,
+    "备注": null
+  },
+  "unknown_key_60": [
+    "块-60-a",
+    "块-60-b"
+  ],
+  "unknown_key_61": {
+    "嵌套": {
+      "i": 61,
+      "语义": "保真探针"
+    }
+  },
+  "unknown_key_62": 0.87,
+  "unknown_key_63": "αβγ-θ",
+  "unknown_key_64": "未知值-64",
+  "unknown_key_65": 65,
+  "unknown_key_66": true,
+  "unknown_key_67": {
+    "idx": 67,
+    "备注": null
+  },
+  "unknown_key_68": [
+    "块-68-a",
+    "块-68-b"
+  ],
+  "unknown_key_69": {
+    "嵌套": {
+      "i": 69,
+      "语义": "保真探针"
+    }
+  },
+  "unknown_key_70": 0.95,
+  "unknown_key_71": "αβγ-θαβγ-θαβγ-θ",
+  "unknown_key_72": "未知值-72",
+  "unknown_key_73": 73,
+  "unknown_key_74": true,
+  "unknown_key_75": {
+    "idx": 75,
+    "备注": null
+  },
+  "unknown_key_76": [
+    "块-76-a",
+    "块-76-b"
+  ],
+  "unknown_key_77": {
+    "嵌套": {
+      "i": 77,
+      "语义": "保真探针"
+    }
+  },
+  "unknown_key_78": 1.03,
+  "unknown_key_79": "αβγ-θαβγ-θ",
+  "unknown_key_80": "未知值-80",
+  "unknown_key_81": 81,
+  "unknown_key_82": true,
+  "unknown_key_83": {
+    "idx": 83,
+    "备注": null
+  },
+  "unknown_key_84": [
+    "块-84-a",
+    "块-84-b"
+  ],
+  "unknown_key_85": {
+    "嵌套": {
+      "i": 85,
+      "语义": "保真探针"
+    }
+  },
+  "unknown_key_86": 1.1099999999999999,
+  "unknown_key_87": "αβγ-θ",
+  "unknown_key_88": "未知值-88",
+  "unknown_key_89": 89,
+  "unknown_key_90": true,
+  "unknown_key_91": {
+    "idx": 91,
+    "备注": null
+  },
+  "unknown_key_92": [
+    "块-92-a",
+    "块-92-b"
+  ],
+  "unknown_key_93": {
+    "嵌套": {
+      "i": 93,
+      "语义": "保真探针"
+    }
+  },
+  "unknown_key_94": 1.19,
+  "unknown_key_95": "αβγ-θαβγ-θαβγ-θ",
+  "unknown_key_96": "未知值-96",
+  "unknown_key_97": 97,
+  "unknown_key_98": true,
+  "unknown_key_99": {
+    "idx": 99,
+    "备注": null
+  },
+  "unknown_key_100": [
+    "块-100-a",
+    "块-100-b"
+  ],
+  "unknown_key_101": {
+    "嵌套": {
+      "i": 101,
+      "语义": "保真探针"
+    }
+  },
+  "unknown_key_102": 1.27,
+  "unknown_key_103": "αβγ-θαβγ-θ",
+  "unknown_key_104": "未知值-104",
+  "unknown_key_105": 105,
+  "unknown_key_106": true,
+  "unknown_key_107": {
+    "idx": 107,
+    "备注": null
+  },
+  "unknown_key_108": [
+    "块-108-a",
+    "块-108-b"
+  ],
+  "unknown_key_109": {
+    "嵌套": {
+      "i": 109,
+      "语义": "保真探针"
+    }
+  },
+  "unknown_key_110": 1.35,
+  "unknown_key_111": "αβγ-θ",
+  "unknown_key_112": "未知值-112",
+  "unknown_key_113": 113,
+  "unknown_key_114": true,
+  "unknown_key_115": {
+    "idx": 115,
+    "备注": null
+  },
+  "unknown_key_116": [
+    "块-116-a",
+    "块-116-b"
+  ],
+  "unknown_key_117": {
+    "嵌套": {
+      "i": 117,
+      "语义": "保真探针"
+    }
+  },
+  "unknown_key_118": 1.43,
+  "unknown_key_119": "αβγ-θαβγ-θαβγ-θ",
+  "unknown_key_120": "未知值-120",
+  "unknown_key_121": 121,
+  "unknown_key_122": true,
+  "unknown_key_123": {
+    "idx": 123,
+    "备注": null
+  },
+  "unknown_key_124": [
+    "块-124-a",
+    "块-124-b"
+  ],
+  "unknown_key_125": {
+    "嵌套": {
+      "i": 125,
+      "语义": "保真探针"
+    }
+  },
+  "unknown_key_126": 1.51,
+  "unknown_key_127": "αβγ-θαβγ-θ",
+  "unknown_key_128": "未知值-128",
+  "unknown_key_129": 129,
+  "unknown_key_130": true,
+  "unknown_key_131": {
+    "idx": 131,
+    "备注": null
+  },
+  "unknown_key_132": [
+    "块-132-a",
+    "块-132-b"
+  ],
+  "unknown_key_133": {
+    "嵌套": {
+      "i": 133,
+      "语义": "保真探针"
+    }
+  },
+  "unknown_key_134": 1.59,
+  "unknown_key_135": "αβγ-θ",
+  "unknown_key_136": "未知值-136",
+  "unknown_key_137": 137,
+  "unknown_key_138": true,
+  "unknown_key_139": {
+    "idx": 139,
+    "备注": null
+  },
+  "unknown_key_140": [
+    "块-140-a",
+    "块-140-b"
+  ],
+  "unknown_key_141": {
+    "嵌套": {
+      "i": 141,
+      "语义": "保真探针"
+    }
+  },
+  "unknown_key_142": 1.67,
+  "unknown_key_143": "αβγ-θαβγ-θαβγ-θ",
+  "unknown_key_144": "未知值-144",
+  "unknown_key_145": 145,
+  "unknown_key_146": true,
+  "unknown_key_147": {
+    "idx": 147,
+    "备注": null
+  },
+  "unknown_key_148": [
+    "块-148-a",
+    "块-148-b"
+  ],
+  "unknown_key_149": {
+    "嵌套": {
+      "i": 149,
+      "语义": "保真探针"
+    }
+  },
+  "unknown_key_150": 1.75,
+  "unknown_key_151": "αβγ-θαβγ-θ",
+  "unknown_key_152": "未知值-152",
+  "unknown_key_153": 153,
+  "unknown_key_154": true,
+  "unknown_key_155": {
+    "idx": 155,
+    "备注": null
+  },
+  "unknown_key_156": [
+    "块-156-a",
+    "块-156-b"
+  ],
+  "unknown_key_157": {
+    "嵌套": {
+      "i": 157,
+      "语义": "保真探针"
+    }
+  },
+  "unknown_key_158": 1.83,
+  "unknown_key_159": "αβγ-θ",
+  "unknown_key_160": "未知值-160",
+  "unknown_key_161": 161,
+  "unknown_key_162": true,
+  "unknown_key_163": {
+    "idx": 163,
+    "备注": null
+  },
+  "unknown_key_164": [
+    "块-164-a",
+    "块-164-b"
+  ],
+  "unknown_key_165": {
+    "嵌套": {
+      "i": 165,
+      "语义": "保真探针"
+    }
+  },
+  "unknown_key_166": 1.91,
+  "unknown_key_167": "αβγ-θαβγ-θαβγ-θ",
+  "unknown_key_168": "未知值-168",
+  "unknown_key_169": 169,
+  "unknown_key_170": true,
+  "unknown_key_171": {
+    "idx": 171,
+    "备注": null
+  },
+  "unknown_key_172": [
+    "块-172-a",
+    "块-172-b"
+  ],
+  "unknown_key_173": {
+    "嵌套": {
+      "i": 173,
+      "语义": "保真探针"
+    }
+  },
+  "unknown_key_174": 1.99,
+  "unknown_key_175": "αβγ-θαβγ-θ",
+  "unknown_key_176": "未知值-176",
+  "unknown_key_177": 177,
+  "unknown_key_178": true,
+  "unknown_key_179": {
+    "idx": 179,
+    "备注": null
+  },
+  "unknown_key_180": [
+    "块-180-a",
+    "块-180-b"
+  ],
+  "unknown_key_181": {
+    "嵌套": {
+      "i": 181,
+      "语义": "保真探针"
+    }
+  },
+  "unknown_key_182": 2.0700000000000003,
+  "unknown_key_183": "αβγ-θ",
+  "unknown_key_184": "未知值-184",
+  "unknown_key_185": 185,
+  "unknown_key_186": true,
+  "unknown_key_187": {
+    "idx": 187,
+    "备注": null
+  },
+  "unknown_key_188": [
+    "块-188-a",
+    "块-188-b"
+  ],
+  "unknown_key_189": {
+    "嵌套": {
+      "i": 189,
+      "语义": "保真探针"
+    }
+  },
+  "unknown_key_190": 2.15,
+  "unknown_key_191": "αβγ-θαβγ-θαβγ-θ",
+  "unknown_key_192": "未知值-192",
+  "unknown_key_193": 193,
+  "unknown_key_194": true,
+  "unknown_key_195": {
+    "idx": 195,
+    "备注": null
+  },
+  "unknown_key_196": [
+    "块-196-a",
+    "块-196-b"
+  ],
+  "unknown_key_197": {
+    "嵌套": {
+      "i": 197,
+      "语义": "保真探针"
+    }
+  },
+  "unknown_key_198": 2.23,
+  "unknown_key_199": "αβγ-θαβγ-θ"
+}
