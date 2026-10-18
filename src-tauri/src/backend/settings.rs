@@ -69,7 +69,7 @@ fn backups_dir(data_root: &std::path::Path) -> std::path::PathBuf {
 
 /// ST util.js generateTimestamp：`yyyymmdd-hhmmss`（本地时区）。
 /// ⚠ 追加毫秒 —— ST 原版秒级在同秒内两次备份会同名互相覆盖（其 10 分钟节流
-/// 使概率可忽略）；我们的测试与快节奏写入需要唯一性，毫秒不破坏可排序性。
+/// 使碰撞概率可忽略）；测试与高频写入需要唯一性，毫秒精度不会影响排序。
 fn generate_timestamp() -> String {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)

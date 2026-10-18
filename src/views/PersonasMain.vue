@@ -14,7 +14,7 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
 /**
  * ⚠ 不能在模板里写 `{{ '{{user}}' }}` —— Vue 的 mustache 解析器遇到插值内部的 `{{`
- * 会直接报 "Unterminated string constant"（整页白屏）。字面量放 script 里再插值出去。
+ * 会触发 "Unterminated string constant" 并导致页面无法加载。将字面量定义在 script 中再插值。
  */
 const USER_MACRO = '{{user}}'
 

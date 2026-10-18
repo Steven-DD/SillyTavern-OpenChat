@@ -8,9 +8,9 @@ import { useCharacterStore } from '@/stores/character'
 import { useChatStore } from '@/stores/chat'
 import { useLayoutStore } from '@/stores/layout'
 import { useCtxMenuStore } from '@/stores/ctxmenu'
-import { characterExportCard } from '@/services/tauri/plugins'
+import { characterExportCard } from '@/services/tauri/desktop'
 import { appendCharacterTags, renameCharacter } from '@/services/st/data'
-import { sidecar } from '@/services/tauri/bridge'
+import { desktop } from '@/services/tauri/bridge'
 import type { StCharacter } from '@/services/st/types'
 import type { StGroup as StGroupData } from '@/services/st/groups'
 
@@ -115,7 +115,7 @@ function editFor(c: StCharacter) {
 }
 
 async function exportFor(c: StCharacter) {
-  if (!sidecar.isDesktop) return
+  if (!desktop.isDesktop) return
   try {
     const { save } = await import('@tauri-apps/plugin-dialog')
     const p = await save({
@@ -346,7 +346,7 @@ onMounted(() => {
             {{ chars.saving ? '导入中…' : '导入文件…' }}
           </button>
         </div>
-        <p class="panel-hint">导入支持 ST 角色卡 JSON / PNG / charx；内嵌世界书会自动导入并绑定</p>
+        <p class="panel-hint">导入支持角色卡 JSON / PNG / charx（ST 兼容格式）；内嵌世界书会自动导入并绑定</p>
         <input ref="fileInput" type="file" accept=".json,.png,.charx,.yaml,.yml,.byaf" hidden @change="onFile" />
       </div>
       <p v-if="msg" class="op-msg" :class="{ err: !msgOk }">{{ msg }}</p>
@@ -503,7 +503,7 @@ onMounted(() => {
         </button>
         <button class="pk" @click="charRename = null">取消</button>
       </div>
-      <p class="panel-hint">聊天记录由 ST 服务端一并迁移到新名字</p>
+      <p class="panel-hint">聊天记录会一并迁移到新名字</p>
     </div>
 
     <!-- 群组重命名 -->

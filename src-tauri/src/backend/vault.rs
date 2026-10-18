@@ -3,8 +3,8 @@
 //!
 //! 存储面（回退连续性，清单 T12 验收口径）：
 //! - `secrets.json` **镜像保留**（ST 完整多值结构 id/value/label/active）——
-//!   用户切回 st 模式时 ST 直接读它，密钥仍有效（Phase 6 去 ST 时清理，
-//!   本期不清）；native 不在此之外产生新的明文密钥文件。
+//!   保持与 ST 数据格式互通；密钥以 keychain 为权威，镜像仅作兼容形态，
+//!   不再新增明文密钥文件。
 //! - keychain 权威：service=`SillyTavern-OpenChat`，account=`STOC:{key}:{id}`；
 //!   读 = keychain 优先（镜像 active 条目定 id）→ 镜像 value 回落
 //!   （keyring 不可用/headless 降级 —— 存档一次性 log，行为=ST 字面）。

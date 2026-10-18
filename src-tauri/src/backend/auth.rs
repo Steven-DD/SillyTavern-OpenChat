@@ -1,7 +1,6 @@
 //! backend/auth —— token 生成（S1）
 //!
-//! 与 relay.rs:76-81 同源（getrandom 0.2 + OS CSPRNG + hex 编码 256-bit）。
-//! relay 在 native 模式移除后这里是唯一来源。
+//! 256-bit OS CSPRNG（getrandom + hex 编码），本地环回鉴权唯一来源。
 
 /// 生成 256-bit 随机 token（hex）。环形回环上的本地 token，熵源用 OS CSPRNG。
 pub fn gen_token() -> String {

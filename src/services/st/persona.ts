@@ -8,7 +8,7 @@
  *   power_user.default_persona        = 默认人设（文件名）
  *   power_user.username               = {{user}} 宏取值
  * 头像文件本身在 `default-user/User Avatars/`，图走 `/thumbnail?type=persona`
- * （Content-Type 由中继嗅探校正，CORP 由中继放开 —— 见 relay.rs）。
+ * （静态资源响应头由后端统一处理）。
  *
  * ── 写入策略 ──
  * 与配置映射同路：**读全量 → 合并 → 写全量**。`/api/settings/save` 是整体覆盖，
@@ -77,7 +77,7 @@ function asDict(v: unknown): Dict {
   return v && typeof v === 'object' && !Array.isArray(v) ? (v as Dict) : {}
 }
 
-/** 人设头像 URL（经中继，type=persona） */
+/** 人设头像 URL（经后端，type=persona） */
 export function personaAvatarUrl(id: string): string {
   return `${stBase()}/thumbnail?type=persona&file=${encodeURIComponent(id)}`
 }

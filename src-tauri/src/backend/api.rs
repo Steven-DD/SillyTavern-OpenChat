@@ -500,7 +500,7 @@ fn ping(origin: Option<HeaderValue>) -> Response {
 }
 
 /// 兜底：未实现端点（S20）。
-/// 501 + `{error:{message:"该端点尚未迁移（native 后端 Phase X 范围）"}}`。
+/// 501 + `{error:{message:"该端点尚未支持",code:"NOT_MIGRATED"}}`。
 /// 前端既有错误处理（error.message 语义）可直接显示，不会当成功。
 fn not_implemented(origin: Option<HeaderValue>, path_q: &str) -> Response {
     let path = path_q.split('?').next().unwrap_or("/");
@@ -508,7 +508,7 @@ fn not_implemented(origin: Option<HeaderValue>, path_q: &str) -> Response {
         StatusCode::NOT_IMPLEMENTED,
         Json(json!({
             "error": {
-                "message": format!("该端点尚未迁移到 native 后端（Phase 1 进行中）：{path}"),
+                "message": format!("该端点尚未支持：{path}"),
                 "code": "NOT_MIGRATED",
             }
         })),

@@ -25,7 +25,7 @@ const theme = useThemeStore()
 /* ---- ST 主题文本色（斜体/引号/下划线）：对齐网页端 .mes_text 着色 ---- */
 const stColors = ref<StTextColors | null>(null)
 void loadStTextColors().then((c) => (stColors.value = c))
-/** 全模式套用；浅色下仅把过亮颜色压暗（ST 主题按深底设计，纯白斜体直接上会不可读） */
+/** 应用于所有模式；浅色主题下调暗过亮颜色，以确保斜体文字可读。 */
 const stColorVars = computed<Record<string, string> | undefined>(() => {
   if (!stColors.value) return undefined
   const vars = stTextColorsToVars(stColors.value, theme.mode === 'light')
@@ -220,7 +220,7 @@ const rows = computed<Row[]>(() => {
 })
 
 const connText = computed(
-  () => ({ unknown: '检测连接…', online: '已连接 SillyTavern', offline: '后端未连接' })[chat.conn],
+  () => ({ unknown: '检测连接…', online: '已连接后端', offline: '后端未连接' })[chat.conn],
 )
 
 const usage = computed(() => {

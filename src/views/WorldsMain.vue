@@ -659,7 +659,7 @@ async function doDeleteEntry() {
 /* 条目卡片。
    ⚠ 必须禁止 flex 收缩：.body 是 overflow-y:auto 的纵向 flex 容器，
    默认 flex-shrink:1 会把展开的长条目压到容器高度，配合 overflow:hidden
-   内容被裁掉且无法滚动（踩过） */
+   内容被裁切且无法滚动。 */
 .ent {
   flex: none;
   border: 1px solid var(--c-border);

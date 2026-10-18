@@ -112,8 +112,8 @@ fn status_path(t: T) -> &'static str {
 fn typed_headers(st: &BackendState, t: T) -> Vec<(String, String)> {
     let extra: &[(&str, &str)] = match t {
         T::OpenRouter | T::Featherless => &[
-            ("HTTP-Referer", "https://sillytavern.app"),
-            ("X-Title", "SillyTavern"),
+            ("HTTP-Referer", "https://github.com/Steven-DD/SillyTavern-OpenChat"),
+            ("X-Title", "ST Chat"),
         ],
         _ => &[],
     };

@@ -13,7 +13,7 @@ defineProps<{
 <template>
   <!--
     宽度与边框由 AppShell 的 .pane-mid 包裹层统一管（这里只负责填充与排版）。
-    ⚠ 不要用 lg:(...) 变体组语法 —— 需要额外的 transformerVariantGroup，没装就是死类名（踩过）。
+    ⚠ 避免使用 lg:(...) 变体组语法；该语法依赖未配置的 transformerVariantGroup，可能导致类名无法解析。
   -->
   <aside class="w-full flex-1 min-h-0 flex flex-col bg-canvas">
     <div class="px-14px pt-14px pb-8px flex-none">

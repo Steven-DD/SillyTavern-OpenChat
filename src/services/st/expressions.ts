@@ -19,7 +19,7 @@ export async function listSprites(charName: string): Promise<Sprite[]> {
   return Array.isArray(data) ? (data as Sprite[]) : []
 }
 
-/** 立绘图片 URL（中继基址 + path，path 形如 /characters/<dir>/<file>） */
+/** 立绘图片 URL（后端基址 + path，path 形如 /characters/<dir>/<file>） */
 export function spriteUrl(relPath: string): string {
   return `${stBase()}${relPath}`
 }

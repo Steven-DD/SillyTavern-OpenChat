@@ -100,7 +100,7 @@ export function modelStPath(source: string): string {
  * 采样参数全套、生成上限（OpenAI 通道与全局各一份，两处都同步保持一致）。
  *
  * 刻意不收 `username`：本 App 的用户名是**从 ST 读来**的（`{{user}}` 宏取值）
- * 我们没有改它的入口 —— 放进来只会是一条永远「一致」的空转映射。
+ * 不修改其入口；否则会引入始终返回「一致」的无效映射。
  * 等「用户角色（Persona）」功能上线、App 真正拥有这个值的主导权再加。
  */
 export function buildEntries(cfg: AppConfigForMapping): MappingEntry[] {

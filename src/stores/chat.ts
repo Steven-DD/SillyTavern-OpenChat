@@ -81,7 +81,7 @@ import type { StCharacter, StChatMessage, StChatSummary } from '@/services/st/ty
 import { useCharacterStore } from './character'
 import { usePersonaStore } from './persona'
 import { useSettingsStore } from './settings'
-import { chatMutateLines, type ChatLineOp } from '@/services/tauri/plugins'
+import { chatMutateLines, type ChatLineOp } from '@/services/tauri/desktop'
 import {
   addSessionUsage,
   calcCost,
@@ -810,7 +810,7 @@ export const useChatStore = defineStore('chat', {
 
     /**
      * 按配置新建会话（新建会话配置弹窗的落点）。
-     * 成功返回 true；同名会话已存在时拒绝（saveChat 是整体覆盖，绝不能毁掉旧会话）。
+     * 成功时返回 true；若同名会话已存在则拒绝，避免 saveChat 整体覆盖已有会话。
      */
     async newChatWithConfig(character: StCharacter, opts: NewChatOptions): Promise<boolean> {
       if (this.streaming) return false
@@ -1333,7 +1333,7 @@ export const useChatStore = defineStore('chat', {
 
         if (!live.content.trim()) {
           live.error = true
-          // 思考模型常见坑：reasoning 有大量内容而正文为空 = max_tokens 被思考耗尽
+          // 若 reasoning 占用大量 token 且正文为空，可能是 max_tokens 已被思考内容耗尽。
           const hint =
             (live.reasoning ?? '').trim().length > 0
               ? '（本次思考内容较长，单次回复上限可能被思考耗尽——可在「设置 → 通用」调大最大回复 Token）'

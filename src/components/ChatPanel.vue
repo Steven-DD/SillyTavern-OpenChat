@@ -526,7 +526,7 @@ function goWorlds(): void {
             </button>
           </div>
           <p class="hint">
-            立绘来自 ST sprites/&lt;角色&gt;/ 目录（ST 的 Character Expressions 扩展数据）。
+            立绘来自 sprites/&lt;角色&gt;/ 目录（Character Expressions 扩展数据）。
             自动识别需要 ST 端启用 classify 模块，否则手动点选。
           </p>
         </template>

@@ -280,7 +280,7 @@ export const SANDBOX_BOOTSTRAP = `
     postToHost({ source: 'tavern-embed', type: 'th-error', msg: String(msg), where: String(where ?? '') })
   }
   // 沙箱无 allow-same-origin → localStorage/sessionStorage 访问必抛 SecurityError，
-  // 大量卡脚本（日志/配置存取）会因此中断。垫内存版兜底（不跨帧持久，同酒馆助手语义）。
+  // 避免卡片脚本（如日志和配置存取）因此中断；使用内存存储回退，不跨帧持久化，与酒馆助手语义一致。
   function makeStorage() {
     var store = {}
     return {

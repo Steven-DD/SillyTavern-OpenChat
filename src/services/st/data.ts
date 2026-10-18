@@ -430,7 +430,7 @@ export interface SaveChatResult {
 /**
  * 保存会话（消息数组整体写回）。
  * ST 带文件完整性校验：若文件被外部改动会返回 400 {error:'integrity'}，
- * 此时以 force=true 重试（我们的场景是单一写入方，冲突即覆盖）。
+ * 此时以 force=true 重试；当前仅有单一写入方，冲突时覆盖即可。
  */
 export async function saveChat(
   avatarUrl: string,
@@ -570,7 +570,7 @@ export async function saveAutoContinue(v: AutoContinueSettings): Promise<void> {
 /**
  * 写回 ST 全局设置。
  *
- * ⚠⚠ **这个接口有两个坑，用错会毁掉用户配置** ⚠⚠
+ * ⚠⚠ **此接口有两项重要限制，错误调用可能覆盖用户配置** ⚠⚠
  *
  * ST 服务端实现是 `writeFileAtomicSync(path, JSON.stringify(request.body))`
  * —— **整体覆盖，传什么写什么**：
@@ -592,7 +592,7 @@ export async function saveSettings(settings: StSettingsLite): Promise<void> {
 /**
  * 角色头像缩略图 URL。
  * ⚠ 必须拼上 stBase()：开发环境 stBase() 为空 → 相对路径走 Vite 代理；
- *   生产环境 stBase() = Tauri 中继地址 → 绝对路径。若写成纯相对路径，
+ *   生产环境 stBase() = 本地后端地址 → 绝对路径。若写成纯相对路径，
  *   生产环境会去请求 Tauri 应用自身的源，必然 404。
  * 实测：/thumbnail?type=avatar&file=x.png → 200（约 13KB，原图 550KB）
  */

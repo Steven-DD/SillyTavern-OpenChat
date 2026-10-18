@@ -384,7 +384,7 @@ function isRetryable(msg: string): boolean {
 
 /**
  * Google 的 429 正文会给出建议等待秒数：`Please retry in 18.89s`。
- * 免费层配额是按分钟计的，退避不到这个时长重试必然再次 429（实测踩过）。
+ * 免费层配额按分钟计算；退避时间不足时，重试可能再次触发 429。
  * 上限 25s，避免极端情况下卡太久。
  */
 function retryHintMs(msg: string): number {
@@ -422,7 +422,7 @@ function wantStream(opts: GenerateOptions): boolean {
 /**
  * system 消息规范化（严格聊天模板适配）：
  * Qwen3.5 等 llama.cpp Jinja 模板要求 system 只能出现在消息数组开头
- * （"System message must be at the beginning"），而我们的组装产物会在
+ * （"System message must be at the beginning"），而组装结果会在
  * 中后段注入 system（jailbreak 尾部/记忆/向量/continue nudge 等）。
  * 规则：开头连续 system 合并为一条；其余位置的 system 转为 user
  * （保留注入位置语义，内容不变）。对应 ST 网页端的 "Squash system
@@ -465,7 +465,7 @@ function buildBody(
     stream: wantStream(opts),
     chat_completion_source: source,
     // ⚠ 刻意不传 use_sysprompt：ST 只在它为真时才把 system 放进 systemInstruction。
-    // 我们的历史以开场白（assistant）开头，若 system 走 systemInstruction，
+    // 历史记录以开场白（assistant）开头；若 system 使用 systemInstruction，
     // Google 侧 contents 首轮会变成 model，触发 prefill 校验报错。
     // 保持 falsy → system 被折成首个 user 轮，contents[0].role === 'user'，安全。
     // 回归验证见 app/scripts/test-prompt.mjs

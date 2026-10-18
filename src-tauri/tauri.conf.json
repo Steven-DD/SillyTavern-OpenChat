@@ -29,9 +29,9 @@
       "nsis"
     ],
     "publisher": "datago",
-    "copyright": "AGPL-3.0 (依赖 SillyTavern，同协议开源)",
-    "shortDescription": "SillyTavern 的微信式桌面客户端",
-    "longDescription": "把 SillyTavern 作为本地后端托管，提供类微信的三栏聊天界面。",
+    "copyright": "AGPL-3.0",
+    "shortDescription": "类微信式桌面聊天客户端（自包含 Rust 后端）",
+    "longDescription": "内置 Rust 本地 HTTP 后端，数据以 SillyTavern 兼容格式保存，提供类微信的三栏聊天界面。",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

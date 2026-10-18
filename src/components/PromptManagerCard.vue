@@ -73,7 +73,7 @@ async function save(): Promise<void> {
     <h4>提示词管理（Prompt Manager）</h4>
     <p class="hint">
       数据存 settings.json 的 prompts / prompt_order；
-      未加载到 ST 数据{{ loaded ? '' : '（当前为默认值，连接 ST 后保存即写入）' }}。
+      未加载到数据{{ loaded ? '' : '（当前为默认值，连接后端后保存即写入）' }}。
     </p>
 
     <label class="fld">

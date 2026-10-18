@@ -1,13 +1,12 @@
 /**
- * SillyTavern API 客户端（通路层）
+ * 本地后端 API 客户端（通路层）
  *
- * ST 后端受 CSRF 保护：POST 需先从 /csrf-token 获取 token（Cookie + X-CSRF-Token 双提交）。
+ * 后端受 CSRF 形态保护：POST 需先从 /csrf-token 获取 token（Cookie + X-CSRF-Token 双提交）。
  * 生成接口返回 SSE 流（OpenAI / Google 原生 chunk 透传），统一在这里解析为增量文本。
  *
- * ── 基地址（两种运行形态）──
- * - 开发：留空 → 同源，由 Vite 代理转发到 127.0.0.1:8000
- * - 生产：由 Tauri Rust 中继注入 `http://127.0.0.1:<随机端口>`
- *   （中继代持会话 Cookie，见 src-tauri/src/relay.rs）
+ * ── 基地址 ──
+ * 生产：由 Tauri 启动时经 `backend_base` 命令注入 `http://127.0.0.1:<随机端口>`
+ * （本地后端自包含，无外部进程）。
  * ⚠ 不能缓存成模块级常量：桥接在模块求值之后才写入基地址，缓存会拿到空值。
  */
 
@@ -26,23 +25,22 @@ export function setStBase(url: string): void {
   csrfPending = null
 }
 
-/** 中继鉴权 token（桌面壳经中继访问时由 bridge 写入，浏览器开发 / 直连为空）。
+/** 后端鉴权 token（桌面壳经 bridge 写入，浏览器开发 / 直连为空）。
  * ⚠ 存 sessionStorage（S22 评审整改）：XSS 偷不走跨标签持久 token；
  * token 本就每次启动重新生成，sessionStorage 与其生命周期一致。 */
-export function setRelayToken(t: string): void {
+export function setApiToken(t: string): void {
   const v = t.trim()
-  if (v) sessionStorage.setItem('st.relayToken', v)
-  else sessionStorage.removeItem('st.relayToken')
+  if (v) sessionStorage.setItem('st.apiToken', v)
+  else sessionStorage.removeItem('st.apiToken')
 }
 
 /**
- * 中继鉴权头：中继代持着 ST 会话 Cookie（含密钥接口），除静态资源 GET 外
- * 一律要求 `X-Relay-Auth`。未配置 token时不附加，
- * 避免给直连场景引入多余的自定义头。
+ * 后端鉴权头：除静态资源 GET 豁免外一律要求 `X-Relay-Auth`。
+ * 未配置 token 时不附加，避免给直连场景引入多余的自定义头。
  * （读取兼容 localStorage —— 桥接旧会话残留 token 的回退；写入只走上面）
  */
-function relayAuthHeaders(): Record<string, string> {
-  const t = sessionStorage.getItem('st.relayToken') ?? localStorage.getItem('st.relayToken') ?? ''
+function authHeaders(): Record<string, string> {
+  const t = sessionStorage.getItem('st.apiToken') ?? localStorage.getItem('st.apiToken') ?? ''
   return t ? { 'X-Relay-Auth': t } : {}
 }
 
@@ -59,7 +57,7 @@ async function ensureCsrf(): Promise<string> {
     try {
       const res = await fetch(`${stBase()}/csrf-token`, {
         credentials: 'include',
-        headers: relayAuthHeaders(),
+        headers: authHeaders(),
       })
       if (!res.ok) throw new Error(`令牌获取失败（HTTP ${res.status}）`)
       const data = (await res.json()) as { token?: string }
@@ -78,7 +76,7 @@ async function ensureCsrf(): Promise<string> {
 export async function stGetText(path: string): Promise<string> {
   const res = await fetch(`${stBase()}${path}`, {
     credentials: 'include',
-    headers: relayAuthHeaders(),
+    headers: authHeaders(),
   })
   if (!res.ok) throw new Error(`读取失败（${path}，HTTP ${res.status}）`)
   return res.text()
@@ -87,7 +85,7 @@ export async function stGetText(path: string): Promise<string> {
 export async function stGet<T>(path: string): Promise<T> {
   const res = await fetch(`${stBase()}${path}`, {
     credentials: 'include',
-    headers: relayAuthHeaders(),
+    headers: authHeaders(),
   })
   if (!res.ok) throw new Error(`读取失败（${path}，HTTP ${res.status}）`)
   return (await res.json()) as T
@@ -105,7 +103,7 @@ async function postWithCsrf(path: string, init: (token: string) => RequestInit):
       credentials: 'include',
       ...i,
       // 中继鉴权头在前，调用方的 CSRF/Content-Type 头在后可覆盖
-      headers: { ...relayAuthHeaders(), ...(i.headers ?? {}) },
+      headers: { ...authHeaders(), ...(i.headers ?? {}) },
     })
   let token = await ensureCsrf()
   let res = await send(init(token))

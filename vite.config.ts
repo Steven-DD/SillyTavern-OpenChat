@@ -23,16 +23,6 @@ export default defineConfig({
      * 固定 IPv4 环回：既稳定，又不会把 dev server 暴露到局域网。
      */
     host: '127.0.0.1',
-    // ST 通路：同源代理解决跨域 + CSRF Cookie（生产环境由 Tauri Rust 侧中继）
-    proxy: {
-      '/api': 'http://127.0.0.1:8000',
-      '/csrf-token': 'http://127.0.0.1:8000',
-      // 静态资源：角色头像缩略图 /thumbnail?type=avatar&file=x.png、原图 /characters/x.png
-      '/thumbnail': 'http://127.0.0.1:8000',
-      '/characters': 'http://127.0.0.1:8000',
-      '/user-images': 'http://127.0.0.1:8000',
-      '/backgrounds': 'http://127.0.0.1:8000',
-    },
   },
   // 同上：preview 默认也走 'localhost'，同样会只绑 IPv6 环回，一并固定
   preview: {

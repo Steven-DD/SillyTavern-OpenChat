@@ -3,7 +3,7 @@
  * 扩展管理卡片：挂「设置 → 通用」。
  * - 正则脚本 CRUD（settings.json extension_settings.regex）
  * - 快捷回复 CRUD（extension_settings.stchat_quick_replies，App 自有键）
- * - 翻译设置（extension_settings.stchat_translate，8 家供应商走 ST 服务端）
+ * - 翻译设置（extension_settings.stchat_translate，8 家供应商走后端）
  * - TTS 设置与试听（多供应商：本地 SpeechT5 / 系统语音 / Edge / OpenAI / ElevenLabs）
  * 扩展的安装/搜索/列表/详情在「插件」页。
  */
@@ -126,7 +126,7 @@ async function persistQrs(): Promise<void> {
   }
 }
 
-/* ---- ST 原生 QR 集 ---- */
+/* ---- QR 集 ---- */
 const stPresets = ref<StQrPreset[]>([])
 const presetPick = ref('')
 const exportName = ref('')
@@ -157,7 +157,7 @@ async function doExportPreset(): Promise<void> {
   try {
     await exportQrPreset(name, qrs.value)
     await reloadPresets()
-    note(`已导出「${name}」（QuickReplies/${name}.json，需在 ST 网页端 QR 管理器手动导入后生效）`)
+    note(`已导出「${name}」（QuickReplies/${name}.json，供外部 QR 管理器导入）`)
   } catch (e) {
     note(`导出失败：${e instanceof Error ? e.message : String(e)}`, false)
   } finally {
@@ -165,7 +165,7 @@ async function doExportPreset(): Promise<void> {
   }
 }
 
-/* ---- Instruct 模板（只读透传，编辑在 ST 网页端） ---- */
+/* ---- Instruct 模板（只读透传） ---- */
 const instruct = ref<InstructSettings | null>(null)
 
 /* ---- 翻译 / TTS ---- */
@@ -420,24 +420,24 @@ onMounted(async () => {
       <!-- QR 套装文件导入导出 -->
       <div class="row2f">
         <label class="fld">
-          <span class="lb">ST 集文件（{{ stPresets.length }}）</span>
+          <span class="lb">QR 集文件（{{ stPresets.length }}）</span>
           <div class="qr-row">
             <select v-model="presetPick" class="field field-select grow">
-              <option value="">选择要导入的 ST 集…</option>
+              <option value="">选择要导入的 QR 集…</option>
               <option v-for="p in stPresets" :key="p.name" :value="p.name">{{ p.name }}</option>
             </select>
             <button class="btn btn-sm" :disabled="!presetPick || presetBusy" @click="doImportPreset">导入</button>
           </div>
         </label>
         <label class="fld">
-          <span class="lb">导出为 ST 集（名称）</span>
+          <span class="lb">导出为 QR 集（名称）</span>
           <div class="qr-row">
             <input v-model="exportName" class="field grow" placeholder="如 stchat-default" />
             <button class="btn btn-sm" :disabled="!exportName.trim() || presetBusy" @click="doExportPreset">导出</button>
           </div>
         </label>
       </div>
-      <p class="hint">套装文件存于 QuickReplies/*.json：导入会把条目追加进上方按钮条；导出的文件需在 ST 网页端 QR 管理器手动导入才会生效。</p>
+      <p class="hint">套装文件存于 QuickReplies/*.json：导入会把条目追加进上方按钮条；导出的文件可由外部 QR 管理器导入。</p>
     </div>
 
     <!-- Instruct 模板（只读） -->
@@ -450,8 +450,8 @@ onMounted(async () => {
         <span class="ext-item">wrap：{{ instruct.wrap === false ? '关' : '开' }}</span>
       </div>
       <p class="hint">
-        模板来自 ST 网页端的 Instruct 配置；App 在 Text Completion
-        生成时按此模板拼接 prompt（含首/末序列、{{ '\{\{name\}\}' }} 宏与 stop 序列）。模板编辑请在 ST 网页端进行。
+        模板来自 Instruct 配置；生成时在 Text Completion
+        生成时按此模板拼接 prompt（含首/末序列、{{ '\{\{name\}\}' }} 宏与 stop 序列）。
       </p>
     </div>
 
@@ -473,7 +473,7 @@ onMounted(async () => {
       <div class="btns">
         <button class="btn btn-sm btn-primary" @click="persistTranslate">保存翻译设置</button>
       </div>
-      <p class="hint">密钥（DeepL/Libre 等）在 ST 网页端配置；消息气泡下方悬停工具条点「译」使用。</p>
+      <p class="hint">密钥（DeepL/Libre 等）在扩展设置中配置；消息气泡下方悬停工具条点「译」使用。</p>
     </div>
 
     <div class="sub">
@@ -537,7 +537,7 @@ onMounted(async () => {
           {{ ttsBusy ? '合成中…' : '试听' }}
         </button>
       </div>
-      <p class="hint">消息工具条点 🔊 朗读 / 再点停止。Edge/OpenAI 走 ST 服务端；ElevenLabs 密钥在 ST 网页端配置。</p>
+      <p class="hint">消息工具条点 🔊 朗读 / 再点停止。Edge/OpenAI 走后端；ElevenLabs 密钥在扩展设置中配置。</p>
     </div>
 
     <!-- 记忆（Summarize） -->
@@ -622,8 +622,8 @@ onMounted(async () => {
         <button class="btn btn-sm btn-primary" @click="persistVectors">保存向量设置</button>
       </div>
       <p class="hint">
-        消息自动向量化（ST 服务端按嵌入源生成向量），生成前按当前输入检索相关历史并注入。
-        数据存 ST 服务端 vectors/ 目录；OpenAI/Ollama 等远端源的密钥在 ST 网页端 API 页配置。
+        消息自动向量化（后端按嵌入源生成向量），生成前按当前输入检索相关历史并注入。
+        数据存后端 vectors/ 目录；OpenAI/Ollama 等远端源的密钥在扩展设置中配置。
       </p>
     </div>
 
@@ -639,7 +639,7 @@ onMounted(async () => {
       </div>
       <p class="hint">
         会话配置面板展示角色立绘：classify 可用时按消息情感自动切换，否则手动点选；
-        此处设置兜底表情。立绘文件放 ST 服务端角色的 sprites/ 目录。
+        设置默认表情。立绘文件需放置于角色的 sprites/ 目录。
       </p>
     </div>
 

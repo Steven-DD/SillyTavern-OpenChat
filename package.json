@@ -5,14 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "st": "node scripts/st-dev.mjs",
     "clean": "node scripts/clean-dist.mjs",
     "build": "node scripts/clean-dist.mjs && vue-tsc --noEmit && vite build",
     "typecheck": "vue-tsc --noEmit",
     "selfcheck": "node scripts/run-selfchecks.mjs",
     "preview": "vite preview",
     "icons": "node scripts/gen-app-icon.mjs && tauri icon src-tauri/icons/app-icon.png",
-    "relay-test": "cargo test --manifest-path src-tauri/Cargo.toml --test relay_e2e -- --nocapture",
     "tauri": "tauri dev "
   },
   "engines": {

@@ -5,13 +5,13 @@
  * 目标形态是「App 是唯一入口，底层用稳定版 ST」。用户只应该面对本 App 的配置项，
  * 不该知道 ST 把某个值存在哪个键里。纯逻辑在 `mapping-core.ts`，这里只负责读写与编排。
  *
- * ── 两个必须守住的约束（由 ST 的实现决定，不是我们的选择）──
+ * ── ST 实现要求的约束 ──
  * 1. **写必须是「读全量 → 合并 → 写全量」**。`/api/settings/save` 是整体覆盖
  *    （`JSON.stringify(request.body)`），只传部分字段会把其余键**直接抹掉**。
  * 2. **body 必须是 settings 本身**，不能包成 `{ settings: ... }`（会写坏文件）。
  *
  * ── 映射范围的取舍（诚实说明）──
- * 我们的 App 自己组装 prompt、并在每次请求里显式传 model/temperature/max_tokens
+ * App 负责组装 prompt，并在每次请求中显式传递 model、temperature 和 max_tokens
  * （见 `prompt.ts` / `api.ts`），所以 ST 的全局设置**对生成结果的影响比直觉小**。
  * 映射的真正价值是「不让两边的数字撕裂」，以及为将来可能放开 ST 界面留一致性。
  * 细节见 `mapping-core.ts` 的映射表注释。
@@ -79,7 +79,7 @@ export async function applyMapping(cfg: AppConfigForMapping): Promise<MappingRep
         total,
         message:
           applied === total
-            ? `已同步 ${applied} 项到 SillyTavern`
+            ? `已同步 ${applied} 项到 settings`
             : `同步完成，但 ${total - applied} 项读回不一致`,
       } satisfies MappingReport,
     }

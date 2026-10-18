@@ -21,7 +21,6 @@ import { TEXTGEN_BACKENDS, fetchTextModels } from '@/services/st/textgen'
 import { getSettings, loadAutoContinue } from '@/services/st/data'
 import { runMaidReport, finalizeMaid, deleteMaidFiles, maidViewPath, type MaidReport } from '@/services/st/datamaid'
 import { stGetText } from '@/services/st/client'
-import { sidecar } from '@/services/tauri/bridge'
 import { check } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
 import DataDirCard from '@/components/DataDirCard.vue'
@@ -196,7 +195,7 @@ const maidViewer = ref<{ open: boolean; title: string; content: string; busy: bo
   busy: false,
 })
 
-/** /view 查看器：App 内嵌模态（window.open 在 Tauri 无效，且 /view 走中继需带 token） */
+/** /view 查看器：App 内嵌模态（window.open 在 Tauri 无效，且 /view 走后端需带 token） */
 async function maidViewUi(hash: string): Promise<void> {
   if (!maid.value.token) return
   const rec = Object.values(maid.value.report ?? {})
@@ -373,7 +372,7 @@ function setDev(on: boolean): void {
 const modelChoices = computed(() => gen.modelOptions)
 
 /**
- * 点开模型下拉时兜底自动拉取（用户没先点「连接并拉取模型」的场景）。
+ * 打开模型列表时自动拉取，适用于尚未手动连接并拉取模型的情况。
  * 只在列表为空时拉，成功后不再自动重复。
  */
 async function ensureModels(): Promise<void> {
@@ -405,15 +404,15 @@ async function testConn() {
     const ok = await probeSt()
     if (!ok) {
       testOk.value = false
-      testMsg.value = '无法连接 ST 后端（8000），请确认服务已启动'
+      testMsg.value = '无法连接本地后端，请确认应用已启动'
       return
     }
     const st = await getSettings()
-    // ST 初始化 username 为空串 —— 空值不覆盖，保留兜底（{{user}} 宏需要可读值）
+    // 初始化时 username 为空；保留默认值以供 {{user}} 宏使用。
     const stName = String(st.username ?? '').trim()
     if (stName) chat.userName = stName
     testOk.value = true
-    testMsg.value = `ST 后端在线 · 用户名 ${chat.userName} · main_api=${st.main_api ?? '—'}`
+    testMsg.value = `后端在线 · 用户名 ${chat.userName} · main_api=${st.main_api ?? '—'}`
   } catch (e) {
     testOk.value = false
     testMsg.value = e instanceof Error ? e.message : String(e)
@@ -456,30 +455,8 @@ async function testGenerate() {
   }
 }
 
-/* ---------- 下载与安装设置（代理 / 组件目录） ---------- */
-import { getAppSettings, setAppSettings, type AppSettings } from '@/services/tauri/plugins'
+/* ---------- 下载与安装设置已移除（native 架构无组件安装） ---------- */
 
-const dl = ref<AppSettings>({ proxy: '', proxy_for_npm: true, install_root: '' })
-const dlSaving = ref(false)
-const dlMsg = ref('')
-
-async function loadDl() {
-  const s = await getAppSettings()
-  if (s) dl.value = s
-}
-async function saveDl() {
-  dlSaving.value = true
-  dlMsg.value = ''
-  try {
-    const s = await setAppSettings(dl.value)
-    if (s) dl.value = s
-    dlMsg.value = '已保存（下次下载 / 安装时生效）'
-  } catch (e) {
-    dlMsg.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    dlSaving.value = false
-  }
-}
 
 /* ---------- 数据与连接 ---------- */
 async function loadStInfo() {
@@ -492,22 +469,12 @@ async function loadStInfo() {
     // ST 确认在线后再做映射检测（否则只会得到一个无意义的连接错误）；映射仅开发者模式关心
     if (devMode.value) void gen.inspectMappingNow()
   } catch {
-    /* ST 侧设置卡已移除，这里只做用户名同步，失败静默（在线状态由「系统状态」卡呈现） */
+    /* 设置卡只做用户名同步，失败静默（在线状态由连接自检呈现） */
   }
 }
 
 /** 系统状态行（开发模式可见，浏览器开发环境 isDesktop = false 整卡隐藏） */
-const sysRows = computed(() => {
-  const s = sidecar.status
-  if (!sidecar.isDesktop) return null
-  return [
-    { k: 'ST 状态', v: s ? `${s.state} · ${s.message}` : '—' },
-    { k: 'ST 后端地址', v: s?.port ? `http://127.0.0.1:${s.port}` : '—' },
-    { k: 'ST 前端地址', v: sidecar.relayBase || '—' },
-    { k: 'ST 目录', v: s?.st_dir || '—' },
-    { k: '组件安装目录', v: dl.value.install_root || '软件同目录 plugins（默认）' },
-  ]
-})
+
 
 /** 映射表里的值可能是任意类型，统一成可读文本 */
 function show(v: unknown): string {
@@ -588,7 +555,7 @@ const updBusy = ref(false)
 /** 应用内检查更新（GitHub Releases；桌面版可用） */
 async function checkUpdate(): Promise<void> {
   if (updBusy.value) return
-  if (!sidecar.isDesktop) {
+  if (false) {
     updateMsg.value = '仅桌面版支持应用内更新'
     return
   }
@@ -616,7 +583,6 @@ async function checkUpdate(): Promise<void> {
 
 onMounted(() => {
   void loadStInfo()
-  void loadDl()
   void persona.load()
   onSourceChanged()
   textServerDraft.value = gen.textServer
@@ -667,7 +633,7 @@ onMounted(() => {
                 <span class="lb">认证模式</span>
                 <select class="field field-select" v-model="vaiAuthDraft" @change="saveConnExtras">
                   <option value="express">Express（API Key）</option>
-                  <option value="full">Full（服务账号，需在 ST 侧配好）</option>
+                  <option value="full">Full（服务账号）</option>
                 </select>
               </label>
               <label class="fld">
@@ -890,7 +856,7 @@ onMounted(() => {
               @change="gen.persist()"
             />
           </label>
-          <p class="hint">思考模式控制：力度经 ST 原生透传；额外参数走 custom_include_body（YAML 合并进请求体，适配 llama.cpp 的 enable_thinking / reasoning_budget 等私有参数）；前置指令拼在系统提示末尾。仅「自定义（OpenAI 兼容）」与 OpenAI 源生效。</p>
+          <p class="hint">思考模式控制：力度经后端透传；额外参数走 custom_include_body（YAML 合并进请求体，适配 llama.cpp 的 enable_thinking / reasoning_budget 等私有参数）；前置指令拼在系统提示末尾。仅「自定义（OpenAI 兼容）」与 OpenAI 源生效。</p>
         </section>
 
         <!-- 生成行为 -->
@@ -979,7 +945,7 @@ onMounted(() => {
               {{ b.filename }}
             </button>
           </div>
-          <p class="hint">图片位于 ST 数据目录 backgrounds/ 下；选择后立即作为聊天页背景并记忆。</p>
+          <p class="hint">图片位于数据目录 backgrounds/ 下；选择后立即作为聊天页背景并记忆。</p>
         </section>
 
         <section class="card">
@@ -1025,7 +991,7 @@ onMounted(() => {
             </select>
           </label>
           <p class="preview" :style="{ fontFamily: appearance.fontFamily || undefined }">
-            预览 Aa：你好，SillyTavern。
+            预览 Aa：你好，世界。
           </p>
         </section>
 
@@ -1064,16 +1030,8 @@ onMounted(() => {
 
       <!-- ============ 数据与连接 ============ -->
       <template v-else>
-        <section v-if="devMode && sysRows" class="card">
+        <section v-if="false" class="card">
           <h4>系统状态</h4>
-          <table class="kv">
-            <tbody>
-              <tr v-for="r in sysRows" :key="r.k">
-                <td class="k">{{ r.k }}</td>
-                <td class="v">{{ r.v }}</td>
-              </tr>
-            </tbody>
-          </table>
         </section>
 
         <!-- 数据目录（简版）：位置/大小 + 导入导出；默认配置由应用自动生成 -->
@@ -1082,7 +1040,7 @@ onMounted(() => {
         <!-- 数据巡检 -->
         <section class="card">
           <h4>数据巡检（data-maid）</h4>
-          <p class="hint">扫描 ST 数据区的孤儿文件（未引用图片/备份/缩略图等），确认后一键清理。</p>
+          <p class="hint">扫描数据区的孤儿文件（未引用图片/备份/缩略图等），确认后一键清理。</p>
           <div class="btns">
             <button class="btn" :disabled="maid.busy" @click="runMaidReportUi">
               {{ maid.busy ? '扫描中…' : '生成巡检报告' }}
@@ -1162,40 +1120,12 @@ onMounted(() => {
           <p v-if="maid.msg" class="hint">{{ maid.msg }}</p>
         </section>
 
-        <!-- 下载与安装设置：代理 / 组件目录 -->
-        <section class="card">
-          <h4>下载与安装</h4>
-          <p class="hint">用于组件下载与依赖安装。</p>
-          <label class="fld">
-            <span class="lb">HTTP 代理（留空 = 直连）</span>
-            <input v-model="dl.proxy" class="field" placeholder="http://127.0.0.1:7890" />
-          </label>
-          <label class="chk">
-            <input v-model="dl.proxy_for_npm" type="checkbox" />
-            <span>npm 安装依赖时也走该代理</span>
-          </label>
-          <label class="fld" style="margin-top: 10px">
-            <span class="lb">组件安装目录</span>
-            <input
-              v-model="dl.install_root"
-              class="field"
-              placeholder="留空 = 软件同目录下的 plugins"
-            />
-            <span class="crumb">
-              留空时装到软件所在目录；该目录不可写会自动改用 %LOCALAPPDATA%。
-            </span>
-          </label>
-          <div class="btns">
-            <button class="btn" :disabled="dlSaving" @click="saveDl">
-              {{ dlSaving ? '保存中…' : '保存' }}
-            </button>
-            <span v-if="dlMsg" class="crumb">{{ dlMsg }}</span>
-          </div>
-        </section>
+        <!-- 下载与安装设置已移除（native 架构无组件安装） -->
+
       </template>
     </div>
 
-    <!-- maid /view 内嵌查看器（Tauri 下 window.open 无效；fetch 走中继带 token） -->
+    <!-- maid /view 内嵌查看器（Tauri 下 window.open 无效；fetch 走后端带 token） -->
     <div v-if="maidViewer.open" class="viewer-mask" @click.self="maidViewer.open = false">
       <div class="viewer">
         <div class="viewer-head">

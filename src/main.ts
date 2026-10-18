@@ -8,7 +8,7 @@ import { useAppearanceStore } from '@/stores/appearance'
 import { initDesktopBridge } from '@/services/tauri/bridge'
 import { installGlobalErrorHook, log } from '@/services/log'
 // 原子类（UnoCSS presetUno**不含** reset —— 不要引 @unocss/reset/tailwind.css：
-// 它会给 html 设 line-height:1.5，把我们的紧凑排版整体撑高）
+// 该样式会将 html 的 line-height 设为 1.5，影响紧凑布局）
 import 'virtual:uno.css'
 import './styles/tokens.css'
 import './styles/base.css'
@@ -25,7 +25,7 @@ useThemeStore().apply()
 // 外观偏好（字号/字体/语言）同样在挂载前应用，避免二次跳动
 useAppearanceStore().init()
 
-// 桌面壳：取中继地址 + 订阅 ST 状态后再挂载，保证首个请求就打到正确基地址。
+// 桌面壳：取本地后端地址后再挂载，保证首个请求就打到正确基地址。
 // 浏览器开发环境下此函数直接返回（不加载 @tauri-apps/api）。
 await initDesktopBridge()
 

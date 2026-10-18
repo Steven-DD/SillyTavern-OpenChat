@@ -5,8 +5,8 @@
 //! native 后端借机修正为：扩展名白名单（剔除视频）+ 魔数嗅探 + fileSize 上限
 //! + 服务端生成落盘名 + 按魔数判 Content-Type + nosniff + 非图片 attachment。
 //!
-//! ⚠ 魔数嗅探表与 relay.rs 的 sniff_image_mime 双份并存（relay 不在本任务
-//! writeScopes，未直改）；BMP（BM→image/bmp）先补在本表，relay 移除时合并。
+//! 魔数嗅探表为静态资源返回与上传校验共用（单一来源）。
+//! BMP（BM→image/bmp）在本表覆盖。
 
 /// 允许上传的图片扩展名（对齐 ST MEDIA_EXTENSIONS 并**剔除视频**）
 pub const ALLOWED_EXTENSIONS: [&str; 7] = ["png", "jpg", "jpeg", "webp", "gif", "bmp", "jfif"];
@@ -34,7 +34,7 @@ pub fn check_extension(format: &str) -> Result<(), UploadError> {
     }
 }
 
-/// S16-②：魔数嗅探 —— 声明格式必须与内容一致（复用 relay.rs sniff_image_mime 的
+/// S16-②：魔数嗅探 —— 声明格式必须与内容一致（
 /// 判定表；base64 解码后的首字节）
 pub fn check_magic(declared: &str, head: &[u8]) -> Result<(), UploadError> {
     let actual = sniff_image_mime(head);
@@ -122,9 +122,8 @@ fn ext_to_mime(ext: &str) -> &'static str {
     }
 }
 
-/// 按魔数判断真实图片类型（与 relay.rs sniff_image_mime 同表 —— 嗅探逻辑单一来源
-/// 待 relay 移除后完全并入此处；T9 阶段双份并存，以 relay 为准，测试互验。
-/// 本表额外补 BMP：`BM` 魔数（S18 整改项，relay 侧未补、不直改））
+/// 按魔数判断真实图片类型（嗅探逻辑单一来源：静态资源返回与上传校验共用此表）。
+/// BMP：`BM` 魔数（S18 整改项）。
 pub fn sniff_image_mime(bytes: &[u8]) -> Option<&'static str> {
     match bytes {
         [0xFF, 0xD8, 0xFF, ..] => Some("image/jpeg"),
@@ -145,7 +144,7 @@ mod tests {
         assert!(check_extension("png").is_ok());
         assert!(check_extension("JPEG").is_ok());
         assert!(check_extension("jfif").is_ok());
-        // 视频剔除（ST 白名单里有，我们明确拒绝）
+        // 明确拒绝视频类型，即使其包含在 ST 白名单中。
         assert!(check_extension("mp4").is_err());
         assert!(check_extension("avi").is_err());
         assert!(check_extension("exe").is_err());
@@ -210,15 +209,11 @@ mod tests {
     }
 
     #[test]
-    fn sniff_table_matches_relay() {
-        // 与 relay.rs 的表互验（评审要求：魔数逻辑单一来源前的双份一致性）
-        assert_eq!(
-            sniff_image_mime(&[0xFF, 0xD8, 0xFF, 0xE0]),
-            Some(crate::relay::SNIFF_JPEG)
-        );
+    fn sniff_table_covers_core_formats() {
+        assert_eq!(sniff_image_mime(&[0xFF, 0xD8, 0xFF, 0xE0]), Some("image/jpeg"));
         assert_eq!(
             sniff_image_mime(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]),
-            Some(crate::relay::SNIFF_PNG)
+            Some("image/png")
         );
     }
 }

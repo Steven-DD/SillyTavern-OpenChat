@@ -11,7 +11,7 @@ import { useCtxMenuStore } from '@/stores/ctxmenu'
 const ctx = useCtxMenuStore()
 
 /** 估算尺寸用于防溢出（项高约 34px，宽 148px）。
- * ⚠ Vue 3 的 style 绑定不会像 React 那样自动补 px —— 数字会被当成无单位非法值丢弃，
+ * ⚠ Vue 3 的 style 绑定不会自动为数值补充 px；无单位数值可能被浏览器忽略，
  * 菜单会掉到文档流末尾（视口外），表现为「右键菜单不显示」。必须手动带单位。 */
 const MENU_W = 148
 const pos = computed(() => {

@@ -39,13 +39,6 @@ const router = createRouter({
       },
     },
     {
-      path: '/plugins',
-      components: {
-        mid: () => import('@/views/PluginsMid.vue'),
-        main: () => import('@/views/PluginsMain.vue'),
-      },
-    },
-    {
       path: '/settings',
       components: {
         mid: () => import('@/views/SettingsMid.vue'),

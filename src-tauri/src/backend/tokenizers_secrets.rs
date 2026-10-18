@@ -4,7 +4,7 @@
 //! - tokenizers.js:916-1036 `/openai/count`：真 tokenizer 失败时回落
 //!   **guesstimate**（`ceil(utf8 bytes / 3.35)`，tokenizers.js:68-71，
 //!   BYTES_PER_TOKEN=3.35）。Phase 1 无重型 tokenizer crate → 直接走
-//!   guesstimate（ST 自家的回落公式；前端本就有三级兜底，清单 T16
+//!   guesstimate（ST 自带的估算公式；前端另有三级回退，清单 T16
 //!   分层标准即「一期近似、逐模型精确化」）。body 是**消息数组**，
 //!   ST 失败回落对 `JSON.stringify(req.body)` 计数 —— 同口径。
 //! - tokenizers.js /encode 端点族（llama3/nerdstash_v2/claude 等）：

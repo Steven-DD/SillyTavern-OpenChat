@@ -82,7 +82,7 @@ pub(crate) fn not_migrated(source: &str, origin: Option<HeaderValue>) -> Respons
         StatusCode::NOT_IMPLEMENTED,
         Json(json!({
             "error": {
-                "message": format!("生成源 {source} 尚未迁移到 native 后端（Provider 全量对齐属 Phase 2）：请切回 `st` 模式使用"),
+                "message": format!("生成源 {source} 尚未支持（Provider 全量对齐中）"),
                 "code": "NOT_MIGRATED",
             }
         })),
@@ -240,8 +240,8 @@ pub(crate) fn flatten_schema(schema: &Value, _api: &str) -> Value {
 
 pub(crate) fn aimlapi_headers() -> Vec<(String, String)> {
     vec![
-        ("HTTP-Referer".into(), "https://sillytavern.app".into()),
-        ("X-Title".into(), "SillyTavern".into()),
+        ("HTTP-Referer".into(), "https://github.com/Steven-DD/SillyTavern-OpenChat".into()),
+        ("X-Title".into(), "ST Chat".into()),
     ]
 }
 

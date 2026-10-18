@@ -3,7 +3,7 @@
  *
  * ── 为什么必须自研 ──
  * ST 的 prompt 组装（prompt manager / 世界书扫描 / 深度插入）跑在它的**浏览器前端**，
- * 后端只做转发。我们把 ST 当纯后端用 → 组装必须自己实现。
+ * 后端仅负责转发；ST 作为纯后端使用时，prompt 需由 App 自行组装。
  *
  * ── 覆盖范围 ──
  * 已实现默认管线的核心：系统提示（角色描述/性格/场景/对话示例）+ 对话历史
@@ -13,11 +13,11 @@
  * ── 实测约束（决定本文件的写法，勿随意改）──
  * 1. 不传 `use_sysprompt`（保持 falsy）：ST 的 convertGooglePrompt 只在它为真时
  *    才把 system 放进 systemInstruction，否则把 system 折成**首个 user 轮**。
- *    Google 侧对「首轮为 model」有 prefill 校验会报错 —— 我们的历史以开场白（assistant）
+ *    Google 会拒绝首轮为 model 的 prefill；历史记录以开场白（assistant）
  *    开头，所以必须靠 system 顶到第一轮，保证 contents[0].role === 'user'。
  * 2. messages 里**不能带 name 字段**：convertGooglePrompt 会把 name 拼成
  *    `name: ` 前缀塞进正文（那是给 example_user/example_assistant 用的）。
- * 3. ST 会自动合并相邻同角色消息，我们不必自己合并。
+ * 3. ST 会自动合并相邻的同角色消息。
  */
 import type { StChatMessage, StCharacter } from './types'
 import { isChatHeader, parseSendDate, type AuthorsNote } from './chatdoc'

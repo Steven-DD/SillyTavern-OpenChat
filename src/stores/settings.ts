@@ -151,7 +151,7 @@ export const useSettingsStore = defineStore('settings', {
       if (state.mapState === 'unknown') return '尚未检测'
       if (state.mapState === 'error') return '同步失败'
       if (state.mapState === 'synced')
-        return `已与 SillyTavern 一致（${state.mapEntries.length} 项）`
+        return `已与 settings 一致（${state.mapEntries.length} 项）`
       return `${state.mapEntries.filter((e) => !e.inSync).length} 项待同步`
     },
   },

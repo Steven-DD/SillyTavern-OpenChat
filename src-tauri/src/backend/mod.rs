@@ -1,12 +1,11 @@
-//! backend —— Rust 本地 HTTP 后端骨架（Phase 1 · 评审整改 T7/T9 承载体）
+//! backend —— Rust 本地 HTTP 后端（自包含数据服务）
 //!
-//! ── 定位（方案 §4.1 + 决策 D1 方案 a）──
-//! 与 relay.rs 的关键区别：这里**不是反向代理**，是数据服务的本体。
-//! Strangler 期间与 ST 并存（互斥由 T6 闸门管），native 模式下前端 `st.base`
-//! 直接指向本服务。relay 在 native 模式移除，其四件套并入本模块：
-//!   1. 鉴权（X-Relay-Auth + 256-bit token，同 relay.rs:76-81 生成方式）
-//!   2. CORS 白名单反射（同 relay.rs origin_allowed）
-//!   3. 静态 GET 豁免四前缀（同 relay.rs is_exempt_from_auth）
+//! ── 定位 ──
+//! 本模块就是数据服务的本体：前端 `st.base` 直接指向本服务。
+//! 原先的反向中继已移除，其四件套并入本模块：
+//!   1. 鉴权（X-Relay-Auth + 256-bit token，OS CSPRNG 生成）
+//!   2. CORS 白名单反射
+//!   3. 静态 GET 豁免四前缀
 //!   4. SSE 无缓冲透传语义（本服务直接产流，无上游）
 //!
 //! ── 前端不动（D1）──
@@ -27,7 +26,6 @@ pub mod characters;
 pub mod chats;
 pub mod extensions;
 pub mod extras;
-pub mod gate;
 pub mod horde;
 pub mod nai_tokens;
 pub mod novelai;
@@ -62,7 +60,7 @@ pub struct BackendState {
     pub token: Arc<String>,
     /// 数据根目录（与 ST 兼容格式同位置；T6 的 data_paths 单一裁决）
     pub data_root: std::path::PathBuf,
-    /// 上传字节上限（S15：fileSize 语义；裁定值 32MB —— 与 relay 请求体上限一致，
+    /// 上传字节上限（S15：fileSize 语义；裁定值 32MB，
     /// 覆盖实测最大角色卡；ST multer 的 fieldSize 500MB 是已知过宽面，不照抄）
     pub max_body_bytes: usize,
     /// settings 服务的 autosave 节流状态（Phase 1 族一）
@@ -120,11 +118,11 @@ fn router(state: BackendState) -> Router {
 }
 
 /* ------------------------------------------------------------------ *
- * 鉴权 + CORS 中间件（并入 relay.rs 四件套；S2/S3/S4/S5）
+ * 鉴权 + CORS 中间件（S2/S3/S4/S5）
  * ------------------------------------------------------------------ */
 
-/// 允许反射 CORS 的 Origin 白名单（与 relay.rs:162-175 字面一致 —— 单一口径，
-/// 未来 relay 删除时以这里为准）
+/// 允许反射 CORS 的 Origin 白名单（单一口径：
+/// 只服务本应用自己的前端）
 fn origin_allowed(o: &HeaderValue) -> bool {
     o.to_str()
         .map(|s| {
@@ -140,7 +138,7 @@ fn origin_allowed(o: &HeaderValue) -> bool {
         .unwrap_or(false)
 }
 
-/// 静态资源 GET 豁免（对齐 relay.rs:180-186 语义并收紧为段边界匹配）：
+/// 静态资源 GET 豁免（段边界匹配）：
 /// `<img>/CSS url()` 无法带自定义头；/api/* 与 /csrf-token 永不免检（S3）。
 /// 段边界：`/thumbnailX` 不算 `/thumbnail` 前缀（防 `/thumbnailX/api/x` 式伪装）。
 fn is_exempt_from_auth(method: &Method, path: &str) -> bool {
@@ -239,7 +237,7 @@ mod tests {
     }
 
     #[test]
-    fn origin_whitelist_matches_relay() {
+    fn origin_whitelist_is_enforced() {
         let ok = [
             "tauri://localhost",
             "http://tauri.localhost",
@@ -301,8 +299,8 @@ mod tests {
         assert_eq!(r.status().as_u16(), 501);
         let v: serde_json::Value = r.json().await.unwrap();
         assert!(
-            v["error"]["message"].as_str().unwrap().contains("未迁移"),
-            "错误体应说明未迁移: {v}"
+            v["error"]["message"].as_str().unwrap().contains("尚未支持"),
+            "错误体应说明未支持: {v}"
         );
     }
 

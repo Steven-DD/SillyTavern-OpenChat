@@ -134,7 +134,7 @@ onMounted(() => {
             {{ worlds.mutating ? '导入中…' : '导入文件…' }}
           </button>
         </div>
-        <p class="panel-hint">导入支持 ST 世界书 JSON（顶层含 entries）</p>
+        <p class="panel-hint">导入支持世界书 JSON（顶层含 entries）</p>
         <input ref="fileInput" type="file" accept=".json" hidden @change="onFile" />
       </div>
       <p v-if="msg" class="op-msg" :class="{ err: !msgOk }">{{ msg }}</p>
