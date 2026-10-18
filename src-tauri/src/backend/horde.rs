@@ -79,7 +79,8 @@ async fn fetch_json(
         }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": { "message": e.to_string() } }),
+            // S13：reqwest 错误 Display 含完整 URL → 剥除（保留描述）
+            json!({ "error": { "message": super::providers::fmt_upstream_err(&e) } }),
         ),
     }
 }
