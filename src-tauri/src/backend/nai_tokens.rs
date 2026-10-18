@@ -51,6 +51,9 @@ pub fn encode_llama3(text: &str) -> Result<Vec<i64>, String> {
  * nerdstash_v2（SPM proto 精确词表 + 贪心分段近似）
  * ================================================================ */
 
+/// dead_code 豁免保留原因：pieces 只在测试里被读（proto_pieces_loaded 断言
+/// 词表非空），生产路径只用 id_of / unk_id 做贪心分段。
+/// 摘除条件：生产代码需要遍历词表（如 piece 级调试输出）时，连同本豁免删除。
 #[cfg_attr(not(test), allow(dead_code))]
 struct SpmModel {
     /// piece 表（id → piece；test 消费 + 调试）

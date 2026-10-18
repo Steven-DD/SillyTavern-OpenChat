@@ -16,7 +16,7 @@
 //! 4 空格 pretty，且 serde_json 收敛键序，字节级比对不成立亦不必要；
 //! 「零丢失」以全键集合 + 每键值相等为准）。不出网。
 
-use st_chat_lib::backend;
+use sillytavern_openchat_lib::backend;
 use std::path::PathBuf;
 
 const SETTINGS_FIXTURE: &str = include_str!("fixtures/settings_golden.json");
@@ -26,8 +26,8 @@ const CHARACTER_FIXTURE: &str = include_str!("fixtures/character_v2_golden.json"
 const SSE_FIXTURE: &str = include_str!("fixtures/sse_frames_golden.txt");
 
 /* ------------------------------------------------------------------ *
- * 共享启动件（与 dualrun_framework.rs / manifest_gate.rs 各自内联同款，
- * 属测试 crate 独立编译单元 —— 不经 src/ 的任何改动）
+ * 共享启动件（与 manifest_gate.rs 各自内联同款，属测试 crate 独立
+ * 编译单元 —— 不经 src/ 的任何改动）
  * ------------------------------------------------------------------ */
 
 struct BackendEnv {
@@ -38,7 +38,7 @@ struct BackendEnv {
 
 async fn spawn_backend(label: &str) -> BackendEnv {
     let root =
-        std::env::temp_dir().join(format!("stchat-golden-{label}-{}", std::process::id()));
+        std::env::temp_dir().join(format!("stoc-golden-{label}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     let ep = backend::start(root.clone()).await.expect("backend 启动失败");
     BackendEnv {
@@ -101,7 +101,7 @@ async fn settings_roundtrip_save_get_zero_loss() {
     );
     // 显式点名断言（评审 A3 的「读-改-写」链路原子面中 App 真正消费的键）
     assert_eq!(served["username"], "夜航船长", "中文值保真");
-    assert!(served["extension_settings"]["stchat_quick_replies"].is_array());
+    assert!(served["extension_settings"]["stoc_quick_replies"].is_array());
     for i in 0..200 {
         assert!(
             !served[format!("unknown_key_{i}")].is_null(),
@@ -381,7 +381,7 @@ fn golden_corpus_self_check() {
     assert!(data_frames.iter().any(|l| l.contains("[DONE]")), "缺 [DONE]");
     assert!(
         SSE_FIXTURE.contains("\"usage\""),
-        "usage 探针帧缺失（双跑归一化的被剔除字段）"
+        "usage 探针帧缺失（SSE 用量帧）"
     );
 }
 

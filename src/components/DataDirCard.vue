@@ -7,7 +7,9 @@
  *   1. 导出 / 导入（数据袋 = 数据目录内容 + config.yaml 的 zip）
  *
  * 安全边界：
+ *   - 导入：仅接受本应用的数据库袋 zip；不扫描、不读取 SillyTavern 安装目录
  *   - 导入：覆盖现有数据，导入前自动备份为 data.bak-<时间戳>
+ *   - 导出含密钥：默认不导出；勾选后需手动输入确认词「导出密钥」才执行
  */
 import { ref } from 'vue'
 import { stDataExport, stDataImport, hasTauri } from '@/services/tauri/desktop'
@@ -23,6 +25,8 @@ const pendingZip = ref('')
 const includeSecrets = ref(false)
 const secretConfirm = ref(false)
 const pendingDest = ref('')
+/** 导出含明文密钥的确认词（须原样输入才能继续） */
+const SECRET_CONFIRM_WORD = '导出密钥'
 
 async function pickSavePath(defaultName: string): Promise<string | null> {
   const { save } = await import('@tauri-apps/plugin-dialog')
@@ -50,7 +54,7 @@ async function doExport() {
   note.value = ''
   errMsg.value = ''
   const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '')
-  const dest = await pickSavePath(`st-chat-data-${stamp}.zip`)
+  const dest = await pickSavePath(`SillyTavern-OpenChat-data-${stamp}.zip`)
   if (!dest) return
   if (includeSecrets.value) {
     secretConfirm.value = true
@@ -108,6 +112,11 @@ async function doImportConfirmed() {
       用「导出」做备份，换机器或重装后用「导入」恢复。
     </p>
 
+    <p class="hint">
+      导入仅支持数据袋 zip：<strong>不扫描、不读取 SillyTavern 安装目录</strong>。
+      如需从 ST 迁移，请在 ST 侧导出数据袋（或把其 data 目录打包为 zip）后，用此处「导入」载入。
+    </p>
+
     <div class="btns">
       <button class="btn" :disabled="busy !== null" @click="doExport">
         {{ busy === 'export' ? '导出中…' : '导出' }}
@@ -123,8 +132,8 @@ async function doImportConfirmed() {
       包含 API 密钥明文（secrets.json 等）
     </label>
     <p v-if="includeSecrets" class="hint warn-hint">
-      ⚠ 勾选后导出的 zip 会包含 API 密钥<strong>明文</strong>。
-      导出前会再弹一次确认；备份用途结束后请删除该文件。
+      ⚠ 勾选后导出的数据袋将包含<strong>全部 API 密钥明文</strong>（secrets.json 等）。
+      导出前需要手动输入确认词「${SECRET_CONFIRM_WORD}」才能继续；备份用途结束后请删除该文件。
     </p>
 
     <p v-if="note" class="rsp okish">{{ note }}</p>
@@ -143,7 +152,8 @@ async function doImportConfirmed() {
     <ConfirmDialog
       :open="secretConfirm"
       title="导出包含明文密钥"
-      message="该数据袋将包含 API 密钥明文。\n请确保目标位置安全（不要随意上传 / 分享），备份用途结束后及时删除。确定继续？"
+      message="⚠ 即将导出的数据袋将包含全部 API 密钥明文（secrets.json 等）。\n请确保目标位置安全（不要随意上传 / 分享），备份用途结束后及时删除。\n\n确认风险后，请在下方输入确认词以继续。"
+      :require-text="SECRET_CONFIRM_WORD"
       confirm-text="确认导出（含明文密钥）"
       :busy="busy === 'export'"
       @confirm="() => { secretConfirm = false; if (pendingDest) void doExportRun(pendingDest) }"

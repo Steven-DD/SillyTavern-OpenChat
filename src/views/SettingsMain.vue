@@ -902,14 +902,14 @@ onMounted(() => {
                 <td class="v">
                   <code>{{ e.stPath }}</code>
                   <span class="sub">
-                    {{ show(e.appValue) }} → ST 现值 {{ show(e.stValue) }}
+                    {{ show(e.appValue) }} → settings.json 现值 {{ show(e.stValue) }}
                   </span>
                 </td>
                 <td class="st" :class="{ on: e.inSync }">{{ e.inSync ? '一致' : '待同步' }}</td>
               </tr>
             </tbody>
           </table>
-          <p v-else class="hint">尚未检测（需要 ST 在线）。</p>
+          <p v-else class="hint">尚未检测（需要本地后端在线）。</p>
           <div class="btns">
             <button class="btn" :disabled="gen.syncing" @click="gen.inspectMappingNow()">
               重新检测
@@ -929,7 +929,7 @@ onMounted(() => {
           <h4>聊天背景</h4>
           <div class="btns">
             <button class="btn" :disabled="bgc.loading" @click="bgc.loadList(true)">
-              {{ bgc.loading ? '加载中…' : '从 ST 加载背景列表' }}
+              {{ bgc.loading ? '加载中…' : '从本地后端加载背景列表' }}
             </button>
             <button class="btn" :class="{ 'btn-primary': !bgc.enabled }" @click="bgc.choose('')">不使用</button>
           </div>

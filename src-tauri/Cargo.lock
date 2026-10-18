@@ -3983,6 +3983,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "sillytavern-openchat"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "bytes",
+ "futures-util",
+ "getrandom 0.2.17",
+ "git2",
+ "jsonwebtoken",
+ "keyring",
+ "log",
+ "multer",
+ "percent-encoding",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-log",
+ "tauri-plugin-process",
+ "tauri-plugin-updater",
+ "tiktoken-rs",
+ "tokenizers",
+ "tokio",
+ "unicode-normalization",
+ "zip 2.4.2",
+]
+
+[[package]]
 name = "simd-adler32"
 version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4108,39 +4141,6 @@ dependencies = [
  "nom",
  "serde",
  "unicode-segmentation",
-]
-
-[[package]]
-name = "st-chat"
-version = "0.1.0"
-dependencies = [
- "axum",
- "base64 0.22.1",
- "bytes",
- "futures-util",
- "getrandom 0.2.17",
- "git2",
- "jsonwebtoken",
- "keyring",
- "log",
- "multer",
- "percent-encoding",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-log",
- "tauri-plugin-process",
- "tauri-plugin-updater",
- "tiktoken-rs",
- "tokenizers",
- "tokio",
- "unicode-normalization",
- "zip 2.4.2",
 ]
 
 [[package]]

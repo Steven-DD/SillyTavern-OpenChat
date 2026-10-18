@@ -24,7 +24,7 @@ import type { DisplayMessage } from '@/services/st/chatdoc'
 const CUSTOM_HTML_TAGS: readonly string[] = ['thinking']
 const HTML_POLICY = 'trusted' as const
 /** markstream 自定义组件注册 id（MessageBubble 与 ThinkingBlock 嵌套渲染共用） */
-const MD_CUSTOM_ID = 'st-chat'
+const MD_CUSTOM_ID = 'sillytavern-openchat'
 
 setCustomComponents(MD_CUSTOM_ID, { thinking: ThinkingBlock })
 

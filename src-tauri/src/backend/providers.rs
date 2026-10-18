@@ -261,7 +261,7 @@ pub(crate) fn flatten_schema(schema: &Value, _api: &str) -> Value {
 pub(crate) fn aimlapi_headers() -> Vec<(String, String)> {
     vec![
         ("HTTP-Referer".into(), "https://github.com/Steven-DD/SillyTavern-OpenChat".into()),
-        ("X-Title".into(), "ST Chat".into()),
+        ("X-Title".into(), "SillyTavern-OpenChat".into()),
     ]
 }
 

@@ -12,9 +12,13 @@
 //!   **不可近似伪造 → 501 NOT_MIGRATED**（NAI 属 Phase 2，连续性清单 §1.2）。
 //! - secrets.js:511-525 `/write {key, value, label?}`：多值结构 ——
 //!   push `{id: uuid, value, label: 'Unlabeled', active: true}` 且先
-//!   `_deactivateAllSecrets`；落 `<root>/secrets.json`（明文 JSON，
-//!   secrets.js:150 —— T12 迁移为 vault 前 fallback 形态）。
+//!   `_deactivateAllSecrets`；落 `<root>/secrets.json`。
 //!   返回 `{id}`（前端 api.ts:524 只透传）。
+//!   **落盘策略（2026-10-19 裁定：keychain 为主、镜像兜底）**：权威副本
+//!   （keychain/settings）**先写**、镜像后写；权威就位 → 镜像条目保持 ST
+//!   四字段结构但 value 置空串并标 `backend="keychain"|"settings"`；仅降级
+//!   （keyring 不可用/写失败/value>2500B）时镜像保留明文并标
+//!   `backend="mirror"`（显式 log，不得静默丢密钥）。
 
 use super::{apply_cors_resp, BackendState};
 use axum::http::{HeaderValue, StatusCode};
@@ -260,6 +264,13 @@ pub fn secrets_write(st: &BackendState, body: &Value, origin: Option<HeaderValue
         .unwrap_or("Unlabeled")
         .to_string();
 
+    // 写入顺序铁律：**权威副本先写（keychain/settings）、镜像后写**。
+    // 权威就位 → 镜像 value 置空（明文只留权威面）；降级/超限 → 镜像留明文。
+    let id = super::vault::uuid_v4();
+    let outcome = st.vault.store_sync(st, key, &id, value);
+    let backend = outcome.backend_label();
+    let mirror_value = if outcome.is_authoritative() { "" } else { value };
+
     let p = secrets_path(st);
     let mut secrets: Value = match std::fs::read_to_string(&p) {
         Ok(text) => serde_json::from_str(&text).unwrap_or_else(|_| json!({})),
@@ -272,12 +283,13 @@ pub fn secrets_write(st: &BackendState, body: &Value, origin: Option<HeaderValue
     }
     let list = arr.as_array_mut().unwrap();
     deactivate_all(list);
-    let id = super::vault::uuid_v4();
     list.push(json!({
-        "id": id,
-        "value": value,
+        "id": id.clone(),
+        // 正常路径为空串（ST 四字段结构保留）；仅降级/超限时留明文
+        "value": mirror_value,
         "label": label,
         "active": true,
+        "backend": backend,
     }));
     // 原子写（0600 权限在 Windows 上由 NTFS 继承；POSIX 场景由 launched 环境决定）
     if let Some(parent) = p.parent() {
@@ -287,21 +299,35 @@ pub fn secrets_write(st: &BackendState, body: &Value, origin: Option<HeaderValue
     let tmp = p.with_extension("json.tmp");
     match std::fs::write(&tmp, &pretty).and_then(|_| std::fs::rename(&tmp, &p)) {
         Ok(()) => {
-            // T12：镜像落盘后同步 vault（keychain/settings 权威；失败降级镜像）
-            st.vault.store_sync(st, key, &id, value);
-            // ⚠ 只记 key 名与长度，绝不记 value（S13）
-            log::info!(
-                target: super::logx::VAULT,
-                "secrets/write key={} value_len={} id={id}",
-                super::logx::redact(key),
-                value.len()
-            );
+            // ⚠ 只记 key 名/长度与 backend，绝不记 value（S13）
+            if outcome.is_authoritative() {
+                log::info!(
+                    target: super::logx::VAULT,
+                    "secrets/write key={} value_len={} id={id} backend={backend}（镜像 value 置空）",
+                    super::logx::redact(key),
+                    value.len()
+                );
+            } else {
+                log::warn!(
+                    target: super::logx::VAULT,
+                    "secrets/write key={} value_len={} id={id} 权威副本未就位 → 镜像保留明文（backend=mirror）",
+                    super::logx::redact(key),
+                    value.len()
+                );
+            }
             ok_json(origin, json!({ "id": id }))
         }
-        Err(e) => err_json(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("secrets 写入失败：{e}"),
-        ),
+        Err(e) => {
+            // 权威副本已写、镜像索引失败：密钥未丢，但镜像无 id 定位 → 需重写
+            log::error!(
+                target: super::logx::VAULT,
+                "secrets 镜像写入失败（权威副本已就位，镜像索引缺失）：{e}"
+            );
+            err_json(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("secrets 写入失败：{e}"),
+            )
+        }
     }
 }
 
@@ -361,8 +387,8 @@ mod tests {
     }
     use std::sync::Arc;
 
-    fn st_with(tag: &str) -> BackendState {
-        let root = std::env::temp_dir().join(format!("stchat-toksec-{tag}-{}", std::process::id()));
+    fn st_with_vault(tag: &str, vault: super::super::vault::Vault) -> BackendState {
+        let root = std::env::temp_dir().join(format!("stoc-toksec-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         BackendState {
             token: Arc::new("t".into()),
@@ -371,8 +397,12 @@ mod tests {
             settings_svc: Arc::new(super::super::settings::SettingsService::new()),
             chats_svc: new_chats(),
             maid_tokens: new_maid(),
-          vault: std::sync::Arc::new(super::super::vault::Vault::new_memory()),
+            vault: std::sync::Arc::new(vault),
         }
+    }
+
+    fn st_with(tag: &str) -> BackendState {
+        st_with_vault(tag, super::super::vault::Vault::new_memory())
     }
 
     #[test]
@@ -511,6 +541,95 @@ mod tests {
         // /view 恒 403（S8）
         let r = secrets_view(None);
         assert_eq!(r.status().as_u16(), 403);
+    }
+
+    /* ---------- 密钥落盘策略（keychain 主 / 镜像兜底 / 洗白） ---------- */
+
+    /// ① 健康路径：镜像 value=="" 且 backend=="keychain"，读回值只能来自 MemoryStore
+    #[test]
+    fn secrets_write_healthy_path_scrubs_mirror_and_reads_store() {
+        let st = st_with("healthy");
+        let r = secrets_write(
+            &st,
+            &json!({ "key": "api_key_openai", "value": "sk-live" }),
+            None,
+        );
+        assert_eq!(r.status().as_u16(), 200);
+        let raw = std::fs::read_to_string(secrets_path(&st)).unwrap();
+        let disk: Value = serde_json::from_str(&raw).unwrap();
+        let e = &disk["api_key_openai"][0];
+        // ST 四字段结构都在
+        assert!(e["id"].as_str().is_some(), "id 保留：{e}");
+        assert_eq!(e["label"], "Unlabeled");
+        assert_eq!(e["active"], true);
+        assert_eq!(e["value"], "", "正常路径：镜像 value 置空（明文只在 keychain）");
+        assert_eq!(e["backend"], "keychain");
+        assert!(!st.vault.is_degraded(), "健康路径不得降级");
+        // 镜像已无明文：读回值只能来自 MemoryStore
+        assert_eq!(
+            st.vault.read_active(&st, "api_key_openai").as_deref(),
+            Some("sk-live")
+        );
+    }
+
+    /// ② 降级：注入必失败 store → 镜像留明文、读回走镜像、is_degraded 真
+    #[test]
+    fn secrets_write_degraded_keeps_plaintext_mirror() {
+        let st = st_with_vault("degraded", super::super::vault::Vault::new_failing());
+        let r = secrets_write(
+            &st,
+            &json!({ "key": "api_key_openai", "value": "sk-degraded" }),
+            None,
+        );
+        assert_eq!(r.status().as_u16(), 200);
+        let raw = std::fs::read_to_string(secrets_path(&st)).unwrap();
+        assert!(raw.contains("sk-degraded"), "降级：镜像必须保留明文：{raw}");
+        let disk: Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(disk["api_key_openai"][0]["value"], "sk-degraded");
+        assert_eq!(disk["api_key_openai"][0]["backend"], "mirror");
+        assert!(st.vault.is_degraded(), "写入失败必须显式降级（不静默丢密钥）");
+        assert_eq!(
+            st.vault.read_active(&st, "api_key_openai").as_deref(),
+            Some("sk-degraded"),
+            "降级后从镜像取到"
+        );
+    }
+
+    /// ③ 超限 >2500B：明文只落镜像且可取（不置空、不丢）
+    #[test]
+    fn secrets_write_oversize_only_reaches_mirror() {
+        let st = st_with("oversize-write");
+        let big = "k".repeat(super::super::vault::KEYCHAIN_VALUE_MAX + 1);
+        let r = secrets_write(
+            &st,
+            &json!({ "key": "api_key_big", "value": big.clone() }),
+            None,
+        );
+        assert_eq!(r.status().as_u16(), 200);
+        let disk: Value =
+            serde_json::from_str(&std::fs::read_to_string(secrets_path(&st)).unwrap()).unwrap();
+        assert_eq!(disk["api_key_big"][0]["value"], big.as_str(), "超限：明文只落镜像");
+        assert_eq!(disk["api_key_big"][0]["backend"], "mirror");
+        assert_eq!(
+            st.vault.read_active(&st, "api_key_big").as_deref(),
+            Some(big.as_str())
+        );
+    }
+
+    /// ⑥ 空值边界：value=="" 不作为密钥返回
+    #[test]
+    fn empty_value_is_not_returned_as_secret() {
+        let st = st_with("empty-write");
+        let r = secrets_write(&st, &json!({ "key": "api_key_openai", "value": "" }), None);
+        assert_eq!(r.status().as_u16(), 200);
+        assert_eq!(
+            st.vault.read_active(&st, "api_key_openai"),
+            None,
+            "空串按无值处理"
+        );
+        let disk: Value =
+            serde_json::from_str(&std::fs::read_to_string(secrets_path(&st)).unwrap()).unwrap();
+        assert_eq!(disk["api_key_openai"][0]["value"], "");
     }
 
     #[test]

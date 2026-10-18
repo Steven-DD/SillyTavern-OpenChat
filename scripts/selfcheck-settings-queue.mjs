@@ -12,6 +12,9 @@
  * 锁内新鲜读 + 单事务合并写）。真实 data.ts 的 IO 打桩在 esbuild bundle 下不可行
  * （编译期绑定），故此处验证的是队列语义不变量；真实链路集成由 e2e 覆盖。
  * 用法：npm run selfcheck（run-selfchecks.mjs 统一打包执行）或 node 直跑。
+ *
+ * 键名命名空间：stoc_*（task-10 前端改名后的新键；旧名 stchat_* 已弃用）。
+ * 本脚本只验证队列语义不变量，键名与前端 settings-writequeue 事务同款命名空间。
  */
 
 let disk = {}
@@ -72,15 +75,15 @@ const writeExt = (key, value) =>
   })
 
 const results = await Promise.all([
-  writeExt('stchat_quick_replies', [{ label: 'qr1' }]),
+  writeExt('stoc_quick_replies', [{ label: 'qr1' }]),
   writeExt('regex', [{ script: 're1' }]),
-  writeExt('stchat_translate', { lang: 'zh' }),
-  writeExt('stchat_vectors', { enabled: true }),
+  writeExt('stoc_translate', { lang: 'zh' }),
+  writeExt('stoc_vectors', { enabled: true }),
 ])
 
 const ext1 = disk.extension_settings ?? {}
 ok(
-  ['stchat_quick_replies', 'regex', 'stchat_translate', 'stchat_vectors'].every((k) => k in ext1),
+  ['stoc_quick_replies', 'regex', 'stoc_translate', 'stoc_vectors'].every((k) => k in ext1),
   `场景1：4 个并发模块的键全部落盘（实际仅 ${Object.keys(ext1).join(',')}）`,
 )
 ok(disk.power_user?.keep_me === true, '场景1：非 extension_settings 键不被抹')
@@ -93,13 +96,13 @@ disk = { ...unknown, extension_settings: {} }
 
 await mutate((cur) => {
   const ext = { ...(cur.extension_settings ?? {}) }
-  ext.stchat_speech = { provider: 'system' }
+  ext.stoc_speech = { provider: 'system' }
   return { next: { ...cur, extension_settings: ext } }
 })
 
 const lost = Object.keys(unknown).filter((k) => !(k in disk))
 ok(lost.length === 0, `场景2：200 未知键零丢失（丢 ${lost.length} 个）`)
-ok(disk.extension_settings?.stchat_speech !== undefined, '场景2：新键写入')
+ok(disk.extension_settings?.stoc_speech !== undefined, '场景2：新键写入')
 
 /* ── 场景3：串行性 —— 队列事务不重叠 ── */
 ok(maxInflight <= 1, `场景3：读-改-写事务不重叠（maxInflight=${maxInflight}）`)

@@ -543,7 +543,7 @@ mod tests {
     use std::sync::Arc;
 
     fn st_with(tag: &str) -> BackendState {
-        let root = std::env::temp_dir().join(format!("stchat-assets-{tag}-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("stoc-assets-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         BackendState {
             token: Arc::new("t".into()),

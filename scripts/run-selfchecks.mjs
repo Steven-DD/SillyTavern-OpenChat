@@ -21,6 +21,19 @@ const scripts = readdirSync(here)
   .filter((f) => /^selfcheck-.+\.mjs$/.test(f) && f !== 'run-selfchecks.mjs')
   .sort()
 
+/* R18 五条回归门禁的 JS 面模块必须存在（②在 src-tauri/tests/manifest_gate.rs，由 cargo test 跑）：
+   防删除/改名导致门禁静默消失。 */
+const REQUIRED_GATE_MODULES = [
+  'selfcheck-no-st-direct.mjs',  // ① 无 ST 直连
+  'selfcheck-contract.mjs',      // ③ manifest↔前端出口；⑤ 未实装端点禁引
+  'selfcheck-no-node-spawn.mjs', // ④ 无 node 子进程
+]
+const missingGates = REQUIRED_GATE_MODULES.filter((m) => !scripts.includes(m))
+if (missingGates.length) {
+  console.error(`✗ R18 门禁模块缺失：${missingGates.join(', ')}（禁止静默删门）`)
+  process.exit(1)
+}
+
 mkdirSync(outDir, { recursive: true })
 let failed = 0
 for (const s of scripts) {

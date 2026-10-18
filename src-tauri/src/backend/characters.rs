@@ -1155,7 +1155,7 @@ mod tests {
     }
 
     fn st_with(tag: &str) -> BackendState {
-        let root = std::env::temp_dir().join(format!("stchat-chars-{tag}-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("stoc-chars-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("default-user").join("characters")).unwrap();
         std::fs::create_dir_all(root.join("default-user").join("chats")).unwrap();

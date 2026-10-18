@@ -1,6 +1,6 @@
 import { stGenerateBlocking, stPost, stPostJson, stStream } from './client'
 
-/** 探测 ST 后端是否在线（连通性检查，供状态条使用）。ST 1.19: POST /api/settings/get */
+/** 探测本地后端是否在线（连通性检查，供状态条使用）。ST 1.19: POST /api/settings/get */
 export async function probeSt(): Promise<boolean> {
   try {
     await stPostJson('/api/settings/get')
@@ -109,12 +109,12 @@ export function setConnConfig(source: string, patch: ConnConfig): void {
 
 /** 当前生成通道 */
 export function currentSource(): string {
-  return localStorage.getItem('st.source') ?? DEFAULT_SOURCE
+  return localStorage.getItem('stoc.source') ?? DEFAULT_SOURCE
 }
 
 /** 当前模型 id */
 export function currentModel(): string {
-  return localStorage.getItem('st.model') ?? DEFAULT_MODEL
+  return localStorage.getItem('stoc.model') ?? DEFAULT_MODEL
 }
 
 export interface GenerateOptions {

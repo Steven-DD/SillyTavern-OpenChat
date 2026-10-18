@@ -309,7 +309,7 @@ export const useChatStore = defineStore('chat', {
     translating: {} as Record<number, boolean>,
     /** 正在朗读的消息下标（-1 = 无） */
     speakingIndex: -1,
-    /** 快捷回复按钮（extension_settings.stchat_quick_replies） */
+    /** 快捷回复按钮（extension_settings.stoc_quick_replies） */
     quickReplies: [] as { label: string; message: string; enabled: boolean; mode?: 'send' | 'insert' }[],
 
     /** 总结记忆（chat_metadata.summary） */

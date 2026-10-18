@@ -22,7 +22,6 @@
 //!   Phase 2 接供应商 API。
 
 use super::{apply_cors_resp, BackendState};
-use axum::body::Body;
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -784,10 +783,6 @@ pub fn vector_delete(st: &BackendState, body: &Value, origin: Option<HeaderValue
     apply_cors_resp(StatusCode::NO_CONTENT.into_response(), origin)
 }
 
-/// 兜底占位（body 泛型参数未来指向请求上下文）
-#[allow(dead_code)]
-fn _witness(_: Body) {}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -801,7 +796,7 @@ mod tests {
     use std::sync::Arc;
 
     fn st_with(tag: &str) -> BackendState {
-        let root = std::env::temp_dir().join(format!("stchat-extras-{tag}-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("stoc-extras-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         BackendState {
             token: Arc::new("t".into()),

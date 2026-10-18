@@ -1,9 +1,10 @@
 //! 全局：MSVC linker 本地化 stdout 会触发 linker_messages 警告（cargo 2024 起）
 #![allow(linker_messages)]
-//! ST Chat · Tauri 应用入口（native backend 自包含架构）
+//! SillyTavern-OpenChat · Tauri 应用入口（native backend 自包含架构）
 //!
 //! 启动顺序：
-//!   0. 插件宿主已移除：数据根目录固定为应用数据目录下的 st-runtime/data
+//!   0. 插件宿主已移除：数据根目录固定为应用数据目录下的 stoc-runtime/data
+//!      （启动时一次性采用旧 identifier 目录下的 st-runtime，见 st_data::adopt_legacy_root）
 //!   1. backend::start(data_root) —— Rust 本地 HTTP 后端（含鉴权 token）
 //!   2. 把基地址与 token 通过 `backend_base` 命令交给前端
 //!   3. 退出时无外部进程需要清理
@@ -16,12 +17,13 @@ pub mod st_data;
 use std::path::{Path, PathBuf};
 use tauri::Manager;
 
-/// 日志级别：默认 Info；排障时设 `ST_CHAT_LOG=debug|trace`（重启生效）。
+/// 日志级别：默认 Info；排障时设 `STOC_LOG=debug|trace`（重启生效）。
+/// 旧名 `ST_CHAT_LOG` 仍兼容读取（一次性过渡，避免既有使用说明失效）。
 ///
 /// 生产（release）无控制台，日志落 appLogDir 滚动文件；Info 默认既能覆盖
 /// 请求生命周期/落盘/出站，又不会把 reqwest/hyper 的 debug 噪音写爆文件。
 fn log_level() -> log::LevelFilter {
-    match std::env::var("ST_CHAT_LOG")
+    match std::env::var("STOC_LOG").or_else(|_| std::env::var("ST_CHAT_LOG"))
         .unwrap_or_default()
         .trim()
         .to_ascii_lowercase()
@@ -302,6 +304,9 @@ pub fn run() {
         .setup(|app| {
             let config_dir = app.path().app_config_dir()?;
             let _ = std::fs::create_dir_all(&config_dir);
+            // 旧数据根一次性采用（best-effort + 显式 log；失败不阻断启动）。
+            // 调用点必须先于 create_dir_all(data_root)：新根一旦建出就不再采用。
+            st_data::adopt_legacy_root(&config_dir);
             let data_root = st_data::external_data_root(&config_dir);
             let _ = std::fs::create_dir_all(&data_root);
             let _ = std::fs::create_dir_all(data_root.join("default-user"));
@@ -347,7 +352,7 @@ mod chat_line_tests {
     }
 
     fn tmp_dir(tag: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("stchat-t15-{tag}-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("stoc-t15-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d

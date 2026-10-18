@@ -114,7 +114,7 @@ const mk = (uid, p = {}) => ({
 /* ---- 向量 ---- */
 eq(hashMessage('abc'), hashMessage('abc'), '向量: hash 稳定')
 ok(hashMessage('abc') !== hashMessage('abd'), '向量: hash 区分文本')
-eq(vectorsCollectionId('Seraphina.png', 'Chat - 2026/9·27'), 'stchat-seraphina-png-chat-2026-9-27', '向量: 集合名 sanitize')
+eq(vectorsCollectionId('Seraphina.png', 'Chat - 2026/9·27'), 'stoc-seraphina-png-chat-2026-9-27', '向量: 集合名 sanitize')
 
 console.log(fail ? `${fail} 失败` : '全部通过')
 process.exit(fail ? 1 : 0)

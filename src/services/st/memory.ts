@@ -2,7 +2,7 @@
  * Summarize 总结记忆
  * - 摘要正文：chat_metadata.summary
  * - 设置：extension_settings.memory
- *   + App 开关 extension_settings.stchat_memory.enabled
+ *   + App 开关 extension_settings.stoc_memory.enabled
  * - 摘要生成本身由 chat store 用主生成通道执行（generateSummaryPrompt 提供提示词）
  */
 import { getSettings } from './data'
@@ -77,11 +77,11 @@ export async function saveMemorySettings(patch: Partial<MemorySettings>): Promis
   return next
 }
 
-/** App 开关（extension_settings.stchat_memory.enabled，默认关，避免悄悄烧配额） */
+/** App 开关（extension_settings.stoc_memory.enabled，默认关，避免悄悄烧配额） */
 export async function loadMemoryAppEnabled(): Promise<boolean> {
   const settings = await getSettings()
   const ext = settings.extension_settings as Record<string, unknown> | undefined
-  const raw = ext?.stchat_memory as { enabled?: boolean } | undefined
+  const raw = ext?.stoc_memory as { enabled?: boolean } | undefined
   return raw?.enabled === true
 }
 
@@ -91,7 +91,7 @@ export async function saveMemoryAppEnabled(enabled: boolean): Promise<void> {
     return {
       next: {
         ...settings,
-        extension_settings: { ...ext, stchat_memory: { ...(ext.stchat_memory as object | undefined), enabled } },
+        extension_settings: { ...ext, stoc_memory: { ...(ext.stoc_memory as object | undefined), enabled } },
       },
     }
   })

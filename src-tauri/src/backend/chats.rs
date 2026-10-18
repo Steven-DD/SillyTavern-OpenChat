@@ -989,7 +989,7 @@ mod tests {
     use std::sync::Arc;
 
     fn st_with(tag: &str) -> BackendState {
-        let root = std::env::temp_dir().join(format!("stchat-chats-{tag}-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("stoc-chats-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("default-user").join("chats").join("chara")).unwrap();
         std::fs::create_dir_all(root.join("default-user").join("group chats")).unwrap();

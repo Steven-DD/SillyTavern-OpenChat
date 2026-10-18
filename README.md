@@ -2,7 +2,7 @@
 
 # SillyTavern-OpenChat
 
-**ST Chat · 自包含 Rust 后端的桌面聊天客户端**
+**SillyTavern-OpenChat · 自包含 Rust 后端的桌面聊天客户端**
 
 内置 Rust 本地 HTTP 后端，数据以 SillyTavern 兼容格式保存，
 同一份角色卡、会话、世界书可与 ST 生态互通。

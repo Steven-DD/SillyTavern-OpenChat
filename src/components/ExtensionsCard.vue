@@ -2,8 +2,8 @@
 /**
  * 扩展管理卡片：挂「设置 → 通用」。
  * - 正则脚本 CRUD（settings.json extension_settings.regex）
- * - 快捷回复 CRUD（extension_settings.stchat_quick_replies，App 自有键）
- * - 翻译设置（extension_settings.stchat_translate，8 家供应商走后端）
+ * - 快捷回复 CRUD（extension_settings.stoc_quick_replies，App 自有键）
+ * - 翻译设置（extension_settings.stoc_translate，8 家供应商走后端）
  * - TTS 设置与试听（多供应商：本地 SpeechT5 / 系统语音 / Edge / OpenAI / ElevenLabs）
  * 扩展的安装/搜索/列表/详情在「插件」页。
  */
@@ -275,13 +275,12 @@ async function persistTts(): Promise<void> {
   }
 }
 
-/** 切到 Edge 供应商时拉一次语音列表 */
+/** 切到 Edge 供应商：native 模式无 edge-tts 后端，仅显示降级说明（不发请求） */
 async function onTtsProviderChange(): Promise<void> {
   if (ttsProvider.value !== 'edge' || edgeVoices.value.length) return
-  try {
-    edgeVoices.value = await loadEdgeVoices()
-  } catch (e) {
-    note(`Edge 语音列表加载失败（需 ST 端启用 edge-tts）：${e instanceof Error ? e.message : String(e)}`, false)
+  edgeVoices.value = await loadEdgeVoices()
+  if (!edgeVoices.value.length) {
+    note('Edge 语音在 native 模式不可用（需自研 TTS），不依赖 ST 端插件', false)
   }
 }
 
@@ -432,7 +431,7 @@ onMounted(async () => {
         <label class="fld">
           <span class="lb">导出为 QR 集（名称）</span>
           <div class="qr-row">
-            <input v-model="exportName" class="field grow" placeholder="如 stchat-default" />
+            <input v-model="exportName" class="field grow" placeholder="如 stoc-default" />
             <button class="btn btn-sm" :disabled="!exportName.trim() || presetBusy" @click="doExportPreset">导出</button>
           </div>
         </label>

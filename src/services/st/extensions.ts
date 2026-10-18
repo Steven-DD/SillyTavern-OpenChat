@@ -1,7 +1,7 @@
 /**
  * 扩展（插件）集成辅助：发现 + 快捷回复存储
  * - discover：GET /api/extensions/discover（内置 + 第三方扩展清单）
- * - 快捷回复：settings.json extension_settings.stchat_quick_replies（App 自有键；
+ * - 快捷回复：settings.json extension_settings.stoc_quick_replies（App 自有键；
  *   ST 原生 QR 套装是独立文件 + Slash 命令体系）
  */
 import { stGet, stPost, stPostVoid } from './client'
@@ -36,7 +36,7 @@ export async function loadQuickReplies(force = false): Promise<QuickReply[]> {
   if (qrCache && !force) return qrCache
   const settings = await getSettings()
   const ext = settings.extension_settings as Record<string, unknown> | undefined
-  const raw = ext?.stchat_quick_replies
+  const raw = ext?.stoc_quick_replies
   qrCache = Array.isArray(raw)
     ? (raw as QuickReply[]).filter((q) => q && typeof q.label === 'string')
     : []
@@ -46,10 +46,10 @@ export async function loadQuickReplies(force = false): Promise<QuickReply[]> {
 export async function saveQuickReplies(list: QuickReply[]): Promise<void> {
   await mutateSettings((settings) => {
     const ext = (settings.extension_settings as Record<string, unknown> | undefined) ?? {}
-    if (JSON.stringify(ext.stchat_quick_replies) === JSON.stringify(list)) {
+    if (JSON.stringify(ext.stoc_quick_replies) === JSON.stringify(list)) {
       return { next: settings, skip: true }
     }
-    return { next: { ...settings, extension_settings: { ...ext, stchat_quick_replies: list } } }
+    return { next: { ...settings, extension_settings: { ...ext, stoc_quick_replies: list } } }
   })
   qrCache = list
 }
@@ -94,7 +94,7 @@ export async function importQrPreset(name: string): Promise<number> {
 export async function exportQrPreset(name: string, list: QuickReply[]): Promise<void> {
   await stPostVoid('/api/quick-replies/save', {
     version: 2,
-    id: `stchat-${name}`,
+    id: `stoc-${name}`,
     name,
     disableSend: false,
     placeBeforeInput: false,
@@ -235,26 +235,6 @@ export async function moveExtension(name: string, global: boolean): Promise<void
   await postExt('/api/extensions/move', { extensionName: stripThirdParty(name), global })
 }
 
-/** 拉取扩展 manifest.json（静态路径，name 已含 third-party/ 前缀） */
-export interface ExtManifest {
-  display_name?: string
-  description?: string
-  author?: string
-  version?: string
-  loading_order?: number
-  requires?: string[]
-  dependencies?: string[]
-  [k: string]: unknown
-}
-
-export async function getExtensionManifest(name: string): Promise<ExtManifest | null> {
-  try {
-    return await stGet<ExtManifest>(`/scripts/extensions/${name}/manifest.json`)
-  } catch {
-    return null
-  }
-}
-
 /** 停用名单（extension_settings.disabledExtensions） */
 export async function getDisabledExtensions(): Promise<string[]> {
   const settings = await getSettings()
@@ -286,27 +266,27 @@ export async function setExtensionDisabled(name: string, disabled: boolean): Pro
 
 /** 内置扩展说明：ST 原生用途 + 本 App 的集成状态 */
 export const BUILTIN_EXT_INFO: Record<string, { desc: string; app: string }> = {
-  assets: { desc: '资产管理：下载/更新 UI 资源、背景、音效', app: 'ST 网页端使用；App 暂未接入' },
-  attachments: { desc: '附件管理：把文件附加到消息', app: 'ST 网页端使用；App 暂未接入' },
-  caption: { desc: '图像反推：为图片生成文字说明发给模型', app: 'ST 网页端使用；App 暂未接入' },
+  assets: { desc: '资产管理：下载/更新 UI 资源、背景、音效', app: '本应用暂未接入' },
+  attachments: { desc: '附件管理：把文件附加到消息', app: '本应用暂未接入' },
+  caption: { desc: '图像反推：为图片生成文字说明发给模型', app: '本应用暂未接入' },
   'connection-manager': { desc: '连接管理：一键切换 API 连接预设', app: 'App 的「设置 → 模型」承担同等职责' },
   expressions: { desc: '表情立绘：按消息情感切换角色立绘', app: '已集成：会话配置面板立绘点选 + 情感自动切换；fallback 设置在 设置 → 通用 → 插件功能' },
-  gallery: { desc: '图库：角色聊天中生成的图片管理', app: 'ST 网页端使用；App 暂未接入' },
+  gallery: { desc: '图库：角色聊天中生成的图片管理', app: '本应用暂未接入' },
   memory: { desc: '总结记忆：定期摘要并注入提示词', app: '已集成：设置 → 通用 → 插件功能（自动摘要频率/注入位置）；手动更新在会话配置 → 记忆' },
   'quick-reply': { desc: '快捷回复：可配置按钮发送预设消息/脚本', app: '已集成：聊天输入区上方按钮条（管理在 设置 → 通用）' },
   regex: { desc: '正则脚本：对输入/输出/提示词做查找替换', app: '已集成：编辑管理在 设置 → 通用' },
-  'stable-diffusion': { desc: '文生图：本地/云端 SD 生成图片', app: 'ST 网页端使用；App 暂未接入' },
+  'stable-diffusion': { desc: '文生图：本地/云端 SD 生成图片', app: '本应用暂未接入' },
   speech: { desc: '语音合成/识别：本地 TTS 与语音输入', app: '已集成 TTS 朗读：消息工具条 🔊' },
   'token-counter': { desc: 'Token 计数器：独立文本计数面板', app: 'App 状态条已显示每轮 token 用量' },
   translate: { desc: '翻译：消息/输入翻译（多家供应商）', app: '已集成：消息工具条「译」' },
   vectors: { desc: '向量存储：数据源向量化 + 检索注入', app: '已集成：设置 → 通用 → 插件功能（消息向量化 + 检索注入）' },
-  shared: { desc: '共享：跨扩展的共享数据', app: 'ST 网页端使用' },
-  slideshow: { desc: '幻灯片：背景幻灯片播放', app: 'ST 网页端使用' },
+  shared: { desc: '共享：跨扩展的共享数据', app: '本应用不消费（SillyTavern 网页端使用）' },
+  slideshow: { desc: '幻灯片：背景幻灯片播放', app: '本应用不消费（SillyTavern 网页端使用）' },
 }
 
 /**
- * ST 端专用的内置扩展（App 生成链路完全不消费，插件列表默认隐藏；
- * 打开「显示 ST 端专用」可查看管理）。
+ * 本应用不消费的内置扩展（插件列表默认隐藏；
+ * 打开「显示本应用不消费的插件」可查看管理）。
  */
 const ST_ONLY_BUILTIN = new Set([
   'assets',
@@ -331,7 +311,7 @@ export function isStOnlyExtension(name: string, type: string): boolean {
 export function extUsageInfo(name: string, type: string): { desc: string; app: string } {
   const bare = name.startsWith('third-party/') ? name.slice('third-party/'.length) : name
   if (type === 'system' || BUILTIN_EXT_INFO[bare]) {
-    return BUILTIN_EXT_INFO[bare] ?? { desc: 'ST 内置插件', app: 'ST 网页端使用；App 暂未接入' }
+    return BUILTIN_EXT_INFO[bare] ?? { desc: 'SillyTavern 内置插件（本应用不消费）', app: '本应用暂未接入' }
   }
   return {
     desc: '第三方插件（前端脚本）',

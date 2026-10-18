@@ -31,9 +31,6 @@ const AUTOSAVE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10
 #[derive(Default)]
 pub struct AutosaveState {
     last_fire: Option<Instant>,
-    /// 预留：节流窗口内最后一次写入的文件 hash（当前用备份目录字节比对替代）
-    #[allow(dead_code)]
-    last_backup_hash: Option<u64>,
 }
 
 /// native 配置段（patch_native_config）的读-改-写串行锁：
@@ -65,6 +62,16 @@ fn settings_path(data_root: &std::path::Path) -> std::path::PathBuf {
 
 fn backups_dir(data_root: &std::path::Path) -> std::path::PathBuf {
     data_root.join("default-user").join("backups")
+}
+
+/// 4 空格 pretty —— 对齐 ST settings.js:209 的 JSON.stringify(settings, null, 4)。
+/// serde_json 的 to_string_pretty 固定 2 空格，这里显式用 PrettyFormatter 对齐
+/// ST 落盘形态（不引新依赖；与 providers::json_pretty4 同口径）。
+fn to_pretty_4(v: &Value) -> String {
+    let fmt = serde_json::ser::PrettyFormatter::with_indent(b"    ");
+    let mut ser = serde_json::Serializer::with_formatter(Vec::new(), fmt);
+    let _ = serde::Serialize::serialize(v, &mut ser);
+    String::from_utf8_lossy(&ser.into_inner()).to_string()
 }
 
 /// ST util.js generateTimestamp：`yyyymmdd-hhmmss`（本地时区）。
@@ -273,8 +280,7 @@ fn seed_default_settings(data_root: &std::path::Path) -> std::io::Result<()> {
 }
 
 /// POST /api/settings/save —— body 即 settings 本体（整体覆盖）。
-/// ⚠ 缩进实情：serde_json::to_string_pretty 为 **2 空格**，与 ST 的 4 空格
-/// （settings.js:209）存在偏差（已登记，由 webui-fix 回填文档）。
+/// 缩进：已对齐 ST 的 4 空格（settings.js:209 JSON.stringify(body, null, 4)）。
 pub fn save(
     st: &BackendState,
     svc: &SettingsService,
@@ -311,9 +317,9 @@ pub fn save(
             return super::apply_cors_resp(resp, origin);
         }
     }
-    // ⚠ 实情：serde_json::to_string_pretty 是 2 空格缩进，ST（settings.js:209）是
-    // 4 空格 —— 行为偏差已登记（前端 JSON.parse 消费，缩进不破坏兼容），不引依赖对齐
-    let pretty = serde_json::to_string_pretty(body).unwrap_or_else(|_| body.to_string());
+    // 已对齐 ST 的 4 空格（settings.js:209 JSON.stringify(body, null, 4)），
+    // 不再有 serde 默认 2 空格的偏差
+    let pretty = to_pretty_4(body);
     // 原子写：临时文件 + rename（等价 write-file-atomic；规避损坏半写）
     let tmp = p.with_extension("json.tmp");
     if let Err(e) = std::fs::write(&tmp, pretty.as_bytes()).and_then(|_| std::fs::rename(&tmp, &p))
@@ -339,51 +345,116 @@ pub fn save(
 }
 
 /* ------------------------------------------------------------------ *
- * T12 配置类 vault 的 settings 面（extension_settings.stchat_native）
+ * T12 配置类 vault 的 settings 面（extension_settings.stoc_native）
+ * 任务 B：命名空间 stchat_* → stoc_*（含 stchat_native → stoc_native），
+ * 并提供一次性幂等迁移 migrate_stchat_namespace（启动时由 vault 调用）。
  * ------------------------------------------------------------------ */
 
-/// 读 `extension_settings.stchat_native.{key}`（None = 未配置）
+/// 读 `extension_settings.stoc_native.{key}`（None = 未配置；空串按未配置）
 pub(crate) fn read_native_config(data_root: &std::path::Path, key: &str) -> Option<String> {
     let p = settings_path(data_root);
     let text = std::fs::read_to_string(p).ok()?;
     let v: Value = serde_json::from_str(&text).ok()?;
-    v.pointer(&format!("/extension_settings/stchat_native/{key}"))
+    v.pointer(&format!("/extension_settings/stoc_native/{key}"))
         .and_then(|x| x.as_str())
         .map(String::from)
         .filter(|s| !s.is_empty())
 }
 
-/// 写 `extension_settings.stchat_native.{key}`（读-改-写全程持 NATIVE_CONFIG_LOCK ——
+/// 写 `extension_settings.stoc_native.{key}`（读-改-写全程持 NATIVE_CONFIG_LOCK ——
 /// 两个写入者（store_sync / migrate_existing）并发时不得互相吞键；触发备份节流面由
-/// settings/writequeue 面管理 —— 这里只同步配置类 vault 值）
-pub(crate) fn patch_native_config(data_root: &std::path::Path, key: &str, value: &str) {
+/// settings/writequeue 面管理 —— 这里只同步配置类 vault 值）。
+/// 返回是否成功就位（false = 目录/落盘失败 → 调用方走镜像兜底，明文不得静默丢）。
+pub(crate) fn patch_native_config(data_root: &std::path::Path, key: &str, value: &str) -> bool {
     let p = settings_path(data_root);
     if let Some(parent) = p.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        if std::fs::create_dir_all(parent).is_err() {
+            return false;
+        }
     }
     let _guard = NATIVE_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut v: Value = std::fs::read_to_string(&p)
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or_else(|| json!({}));
-    let obj = v.as_object_mut().unwrap();
+    let Some(obj) = v.as_object_mut() else {
+        return false;
+    };
     let ext = obj
         .entry("extension_settings")
-        .or_insert_with(|| json!({}))
-        .as_object_mut()
-        .unwrap();
-    let native = ext
-        .entry("stchat_native")
-        .or_insert_with(|| json!({}))
-        .as_object_mut()
-        .unwrap();
+        .or_insert_with(|| json!({}));
+    let Some(ext) = ext.as_object_mut() else {
+        return false;
+    };
+    let native = ext.entry("stoc_native").or_insert_with(|| json!({}));
+    let Some(native) = native.as_object_mut() else {
+        return false;
+    };
     if native.get(key).and_then(|x| x.as_str()) == Some(value) {
-        return; // 同值免写（与前端写队列去重同语义）
+        return true; // 同值免写（与前端写队列去重同语义）
     }
     native.insert(key.to_string(), json!(value));
-    let pretty = serde_json::to_string_pretty(&v).unwrap_or_default();
+    let pretty = to_pretty_4(&v);
     let tmp = p.with_extension("json.tmp");
-    let _ = std::fs::write(&tmp, pretty.as_bytes()).and_then(|_| std::fs::rename(&tmp, &p));
+    match std::fs::write(&tmp, pretty.as_bytes()).and_then(|_| std::fs::rename(&tmp, &p)) {
+        Ok(()) => true,
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            log::error!(target: super::logx::FS, "native 配置写入失败（key={key}）：{e}");
+            false
+        }
+    }
+}
+
+/// 一次性幂等迁移：`extension_settings` 下 `stchat_*` → `stoc_*`
+///（含 stchat_native → stoc_native）。
+/// 规则：旧键值搬到新键；新键已存在则不覆盖（保留新键值）并删除旧键；
+/// 无旧键时零写入（幂等）。全程持 NATIVE_CONFIG_LOCK，4 空格 pretty + 原子写。
+/// 启动时由 `vault::migrate_existing` 调用。
+pub(crate) fn migrate_stchat_namespace(data_root: &std::path::Path) {
+    let p = settings_path(data_root);
+    let _guard = NATIVE_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let Ok(text) = std::fs::read_to_string(&p) else { return };
+    let Ok(mut v) = serde_json::from_str::<Value>(&text) else { return };
+    let Some(ext) = v
+        .get_mut("extension_settings")
+        .and_then(|e| e.as_object_mut())
+    else {
+        return;
+    };
+    let old_keys: Vec<String> = ext
+        .keys()
+        .filter(|k| k.starts_with("stchat_"))
+        .cloned()
+        .collect();
+    if old_keys.is_empty() {
+        return; // 幂等：已迁移过 / 本无旧命名空间 → 零写入
+    }
+    let mut moved = 0usize;
+    let mut kept_new = 0usize;
+    for old in old_keys {
+        let Some(suffix) = old.strip_prefix("stchat_") else {
+            continue;
+        };
+        let new_key = format!("stoc_{suffix}");
+        let Some(value) = ext.remove(&old) else { continue };
+        if ext.contains_key(&new_key) {
+            // 已有新键 → 不覆盖（保留新键值），旧键删除
+            kept_new += 1;
+            log::warn!(target: super::logx::FS, "settings 命名空间迁移：新键 {new_key} 已存在 → 保留新键值并删除旧键 {old}");
+        } else {
+            ext.insert(new_key, value);
+            moved += 1;
+        }
+    }
+    let pretty = to_pretty_4(&v);
+    let tmp = p.with_extension("json.tmp");
+    if let Err(e) = std::fs::write(&tmp, pretty.as_bytes()).and_then(|_| std::fs::rename(&tmp, &p)) {
+        let _ = std::fs::remove_file(&tmp);
+        log::error!(target: super::logx::FS, "settings 命名空间迁移写回失败：{e}");
+        return;
+    }
+    log::info!(target: super::logx::FS, "settings 命名空间迁移完成：stchat_* → stoc_*，搬移 {moved} 项、新键已存在保留 {kept_new} 项");
 }
 
 /* ------------------------------------------------------------------ *
@@ -403,7 +474,7 @@ mod tests {
     use std::sync::Arc;
 
     fn tmp_root(tag: &str) -> std::path::PathBuf {
-        let d = std::env::temp_dir().join(format!("stchat-settings-{tag}-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("stoc-settings-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         d
     }
@@ -530,6 +601,62 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// ⑤ 键迁移：extension_settings 下 stchat_speech / stchat_native → stoc_*
+    ///（已有新键不覆盖；幂等：第二次零写入）
+    #[test]
+    fn stchat_namespace_migrates_to_stoc_once() {
+        let root = tmp_root("ns-migrate");
+        let p = settings_path(&root);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(
+            &p,
+            json!({
+                "username": "船长",
+                "extension_settings": {
+                    "stchat_speech": "voice-A",
+                    "stchat_native": { "libre_url": "http://127.0.0.1:7550" },
+                    "stoc_speech": "keep-new",
+                    "other_ext": { "keep": true }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        migrate_stchat_namespace(&root);
+
+        let raw = std::fs::read_to_string(&p).unwrap();
+        let v: Value = serde_json::from_str(&raw).unwrap();
+        let ext = v["extension_settings"].as_object().unwrap();
+        assert_eq!(ext["stoc_speech"], "keep-new", "已有新键不被覆盖");
+        assert_eq!(ext["stoc_native"]["libre_url"], "http://127.0.0.1:7550");
+        assert!(!ext.contains_key("stchat_speech"), "旧键已删除：{raw}");
+        assert!(!ext.contains_key("stchat_native"), "旧 native 命名空间已删除：{raw}");
+        assert_eq!(v["username"], "船长", "无关键保留");
+        assert_eq!(ext["other_ext"]["keep"], true);
+        assert_eq!(
+            read_native_config(&root, "libre_url").as_deref(),
+            Some("http://127.0.0.1:7550"),
+            "迁移后 native 配置走 stoc_native 可读"
+        );
+        // patch 返回值：成功就位 true
+        assert!(patch_native_config(&root, "lingva_url", "https://lingva.example"));
+        assert_eq!(
+            read_native_config(&root, "lingva_url").as_deref(),
+            Some("https://lingva.example")
+        );
+
+        // 幂等：第二次调用零写入（字节级不变）
+        let after_first = std::fs::read_to_string(&p).unwrap();
+        migrate_stchat_namespace(&root);
+        assert_eq!(
+            std::fs::read_to_string(&p).unwrap(),
+            after_first,
+            "幂等：已迁移后不再重写"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn autosave_throttles_and_dedupes() {
         let root = tmp_root("autosave");
@@ -628,6 +755,39 @@ mod tests {
         // 第二次读 = 正常读文件，仍是 200
         let r2 = get(&st, None);
         assert_eq!(r2.status().as_u16(), 200);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn save_writes_four_space_indent_like_st() {
+        // ST settings.js:209 JSON.stringify(settings, null, 4) —— 落盘缩进 4 空格
+        let root = tmp_root("pretty4");
+        let st = BackendState {
+            token: Arc::new("t".into()),
+            data_root: root.clone(),
+            max_body_bytes: 1024,
+            settings_svc: Arc::new(SettingsService::new()),
+            chats_svc: new_chats(),
+            maid_tokens: new_maid(),
+            vault: std::sync::Arc::new(super::super::vault::Vault::new_memory()),
+        };
+        let svc = SettingsService::new();
+        let r = save(&st, &svc, &json!({ "a": { "b": 1 } }), None);
+        assert_eq!(r.status().as_u16(), 200);
+        let raw = std::fs::read_to_string(settings_path(&root)).unwrap();
+        let first_nested = raw.lines().nth(1).expect("落盘应为多行 pretty");
+        assert_eq!(
+            first_nested.len() - first_nested.trim_start().len(),
+            4,
+            "settings 落盘缩进应为 4 空格（ST settings.js:209）：{raw}"
+        );
+        for line in raw.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let indent = line.len() - line.trim_start().len();
+            assert_eq!(indent % 4, 0, "缩进必须是 4 的倍数（ST 口径）：{line}");
+        }
         let _ = std::fs::remove_dir_all(&root);
     }
 

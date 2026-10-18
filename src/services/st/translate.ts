@@ -1,6 +1,6 @@
 /**
  * 消息翻译（ST /api/translate/*，8 家供应商，密钥全部在 ST 服务端）
- * 设置持久化：settings.json extension_settings.stchat_translate（App 自有键）
+ * 设置持久化：settings.json extension_settings.stoc_translate（App 自有键）
  */
 import { stPostJson } from './client'
 import { getSettings } from './data'
@@ -38,7 +38,7 @@ export async function loadTranslateSettings(force = false): Promise<TranslateSet
   if (cache && !force) return cache
   const settings = await getSettings()
   const ext = settings.extension_settings as Record<string, unknown> | undefined
-  const raw = ext?.stchat_translate as Partial<TranslateSettings> | undefined
+  const raw = ext?.stoc_translate as Partial<TranslateSettings> | undefined
   cache = { ...TRANSLATE_DEFAULTS, ...(raw && typeof raw === 'object' ? raw : {}) }
   return cache
 }
@@ -47,11 +47,11 @@ export async function saveTranslateSettings(patch: Partial<TranslateSettings>): 
   const next = { ...getTranslateSettingsCached(), ...patch }
   await mutateSettings<TranslateSettings>((settings) => {
     const ext = (settings.extension_settings as Record<string, unknown> | undefined) ?? {}
-    if (JSON.stringify(ext.stchat_translate) === JSON.stringify(next)) {
+    if (JSON.stringify(ext.stoc_translate) === JSON.stringify(next)) {
       return { next: settings, skip: true, result: next }
     }
     return {
-      next: { ...settings, extension_settings: { ...ext, stchat_translate: next } },
+      next: { ...settings, extension_settings: { ...ext, stoc_translate: next } },
       result: next,
     }
   })

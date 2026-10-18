@@ -3,5 +3,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    st_chat_lib::run()
+    sillytavern_openchat_lib::run()
 }

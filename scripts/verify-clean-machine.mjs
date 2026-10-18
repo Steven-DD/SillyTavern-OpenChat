@@ -2,9 +2,9 @@
 /**
  * T23 干净机器验收环境矩阵（脚本化断言 · 验收 D6）
  *
- * 固化的两条硬性断言（`发布冒烟清单_v0.1.0-alpha` §9 的人工项替代）：
+ * 固化的两条硬性断言（`docs/发布冒烟清单_native_v1.0.md` §1/§7 的人工项替代）：
  *   D6-1 安装包/构建产物**不含 node.exe 与 ST 目录**（SillyTavern/ST 源码树）
- *   D6-2 运行期**无 node 子进程**（源码面静态断言：不 spawn node）+
+ *   D6-2 运行期**无 node 子进程**：静态源码面 = selfcheck-no-node-spawn.mjs（R18 门禁④）+
  *        运行中的 App 进程探测（可选 —— --process 面需要桌面进程在场）
  *
  * 用法：
@@ -50,7 +50,14 @@ if (!artifactDirs.length) {
 /* ---------------- D6-1：产物不含 node.exe / ST 目录 ---------------- */
 
 const DEFAULT_NODE_NAMES = new Set(['node.exe', 'node', 'node.cmd', 'npm.cmd', 'pnpm.cmd'])
-const ST_DIR_MARKERS = ['sillytavern', 'st-1.19.0', 'public/scripts']
+// 说明：原 'public/scripts' marker 已移除 —— 本仓库不存在 public/ 目录（无语义，恒不命中），
+// ST 源码树仍以目录名 'sillytavern' / 'st-1.19.0' 判定（含 zip/嵌套目录）。
+const ST_DIR_MARKERS = ['sillytavern', 'st-1.19.0']
+// R19 应用更名 SillyTavern-OpenChat 后，产物本体（exe / 安装包 / updater 包）名含 "SillyTavern"
+// 会被上面的 substring marker 误判为 ST 源码树 —— 按本应用自有产物名前缀排除。
+// ST 源码树（目录段 / sillytavern-*.zip）不以这些前缀开头，仍会被拦截。
+// 后两项为**旧版产品名**（历史构建产物），保留以兼容旧安装包 —— 不作为当前标识。
+const APP_ARTIFACT_PREFIXES = ['sillytavern-openchat', 'st-chat', 'stchat']
 
 function* walk(dir, depth = 0) {
   if (depth > 4) return // 打包目录深度兜底（防符号链接/巨树）
@@ -70,8 +77,10 @@ for (const base of artifactDirs) {
     const name = p.split(/[\\/]/).pop().toLowerCase()
     const lowerPath = p.toLowerCase()
     if (DEFAULT_NODE_NAMES.has(name)) nodeExeFound.push(p)
-    // ST 源码树目录名（作为 zip / 目录出现在产物里 = 打包错把 ST 带走）
-    if (ST_DIR_MARKERS.some((m2) => lowerPath.includes(m2))) stDirFound.push(p)
+    // ST 源码树目录名（作为 zip / 目录出现在产物里 = 打包错把 ST 带走）；
+    // 本应用自有产物（SillyTavern-OpenChat.exe 等）不算 ST 源码树标记。
+    const isAppArtifact = APP_ARTIFACT_PREFIXES.some((pre) => name.startsWith(pre))
+    if (!isAppArtifact && ST_DIR_MARKERS.some((m2) => lowerPath.includes(m2))) stDirFound.push(p)
   }
 }
 ok(nodeExeFound.length === 0, `D6-1a 产物不含 node 可执行文件（found=${nodeExeFound.length}）`)
@@ -95,32 +104,17 @@ if (stDirFound.length) {
 
 /* ---------------- D6-2：运行期无 node 子进程 ---------------- */
 
-// 2a) 静态：Rust/JS 源码不 spawn node（node 侧的构建/安装脚本不受此限 ——
-//     只断言 src-tauri 运行时源码树）
-{
-  const srcDir = join(repo, 'src-tauri', 'src')
-  const bad = []
-  for (const p of walk(srcDir, 0)) {
-    if (!p.endsWith('.rs')) continue
-    const text = (await import('node:fs')).readFileSync(p, 'utf8')
-    // spawn node 字面（Command::new("node") / "node.exe"）
-    if (/Command::new\(\s*"(node|node\.exe)"/i.test(text)) {
-      bad.push(`${p}: Command::new("node")`)
-    }
-    if (/spawn\s*\(\s*"(?:.*[\\/])?node(?:\.exe)?"?/i.test(text)) {
-      bad.push(`${p}: spawn("node...")`)
-    }
-  }
-  ok(bad.length === 0, `D6-2a src-tauri 源码树无 node 子进程调用（found=${bad.length}）`)
-  for (const b of bad.slice(0, 5)) console.error(`    ${b}`)
-}
+// 2a) 静态源码面（Rust 不 spawn node）已抽出为独立 selfcheck —— R18 门禁④：
+//     scripts/selfcheck-no-node-spawn.mjs（随 `npm run selfcheck` 跑，不依赖构建产物）。
+//     本脚本保留产物面 D6-1 与动态面 D6-2b。
 
-// 2b) 动态：检测运行中的 st-chat 进程是否有 node 子进程（--process 传入才做）
+// 2b) 动态：检测运行中的 App 进程是否有 node 子进程（--process 传入才做）
+//     进程名：新构建 SillyTavern-OpenChat%，旧构建 st-chat% / stchat% 一并兼容
 {
   const wantProcess = args.includes('--process')
   if (wantProcess) {
     const out = spawnSync('powershell', ['-NoProfile', '-Command', `
-      $app = Get-CimInstance Win32_Process -Filter "name like 'st-chat%' or name like 'stchat%'"
+      $app = Get-CimInstance Win32_Process -Filter "name like 'SillyTavern-OpenChat%' or name like 'st-chat%' or name like 'stchat%'"
       if (-not $app) { exit 2 }
       $ids = ($app | ForEach-Object { $_.ProcessId }) -join ','
       $children = Get-CimInstance Win32_Process -Filter "ParentProcessId=$($app[0].ProcessId)"
@@ -129,7 +123,7 @@ if (stDirFound.length) {
       exit 0
     `], { encoding: 'utf8' })
     if (out.status === 2) {
-      console.log('— 运行中的 st-chat 进程未找到（动态面跳过；先启动 App 再跑 --process）')
+      console.log('— 运行中的 App 进程未找到（SillyTavern-OpenChat，旧版名 st-chat；动态面跳过；先启动 App 再跑 --process）')
     } else {
       ok(out.status === 0, 'D6-2b 运行中的 App 无 node 子进程')
       if (out.stdout && out.stdout.trim()) {
@@ -137,7 +131,7 @@ if (stDirFound.length) {
       }
     }
   } else {
-    console.log('— 动态面（--process）未启用：静态断言已覆盖源码面，动态面由干净机器冒烟时跑 --process')
+    console.log('— 动态面（--process）未启用：静态源码面由 selfcheck-no-node-spawn.mjs（R18 门禁④）覆盖；动态面由干净机器冒烟时跑 --process')
   }
 }
 

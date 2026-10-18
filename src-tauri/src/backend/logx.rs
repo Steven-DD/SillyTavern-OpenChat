@@ -8,12 +8,12 @@
 //! 文件里，便于按时间线串联一次请求。
 //!
 //! ── target 约定（日志过滤与检索用）──
-//! * `stchat::boot`     启动/退出/监听端口/数据根
-//! * `stchat::api`      请求生命周期（进入、鉴权、状态码、耗时）
-//! * `stchat::fs`       数据落盘（角色卡/会话/世界书/群组/资产/扩展）
-//! * `stchat::provider` 上游出站（源/模型/流式/状态/耗时）
-//! * `stchat::vault`    密钥读写与降级
-//! * `stchat::ext`      AI extras（data-maid/翻译/TTS/向量）
+//! * `stoc::boot`     启动/退出/监听端口/数据根
+//! * `stoc::api`      请求生命周期（进入、鉴权、状态码、耗时）
+//! * `stoc::fs`       数据落盘（角色卡/会话/世界书/群组/资产/扩展）
+//! * `stoc::provider` 上游出站（源/模型/流式/状态/耗时）
+//! * `stoc::vault`    密钥读写与降级
+//! * `stoc::ext`      AI extras（data-maid/翻译/TTS/向量）
 //!
 //! ── 脱敏铁律（安全规格 S13）──
 //! 1. **绝不打印请求体/响应体原文**（可能含密钥与私密对话）
@@ -23,13 +23,13 @@
 
 use std::time::Instant;
 
-pub const API: &str = "stchat::api";
-pub const FS: &str = "stchat::fs";
-pub const PROVIDER: &str = "stchat::provider";
-pub const VAULT: &str = "stchat::vault";
-pub const BOOT: &str = "stchat::boot";
-pub const EXT: &str = "stchat::ext";
-pub const IPC: &str = "stchat::ipc";
+pub const API: &str = "stoc::api";
+pub const FS: &str = "stoc::fs";
+pub const PROVIDER: &str = "stoc::provider";
+pub const VAULT: &str = "stoc::vault";
+pub const BOOT: &str = "stoc::boot";
+pub const EXT: &str = "stoc::ext";
+pub const IPC: &str = "stoc::ipc";
 
 /// query/表单里视为敏感、值需替换为 `***` 的键（小写比对）
 const SENSITIVE_KEYS: [&str; 8] = [

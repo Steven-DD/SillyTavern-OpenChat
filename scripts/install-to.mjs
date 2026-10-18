@@ -8,7 +8,7 @@
  * 参数原样传递，没有这层转换。
  *
  * 用法：node scripts/install-to.mjs <setup.exe> <目标目录>
- * 例：  node scripts/install-to.mjs "C:\...\ST Chat_0.1.0_x64-setup.exe" "D:\STChat"
+ * 例：  node scripts/install-to.mjs "C:\...\SillyTavern-OpenChat_0.1.0_x64-setup.exe" "D:\SillyTavern-OpenChat"
  */
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'

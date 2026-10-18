@@ -15,6 +15,9 @@
 //! 闸门另以 REQUIRED_SET 断言必到位族，snapshot 与 api.rs 的字面一致性由
 //! 本注释 + code review 承担（snapshot 无法机械证明 api.rs 现状，登记为
 //! 已知限制）。
+//!
+//! 另附 IPC 面闸门：IPC_COMMANDS（Tauri 命令名集合）与 src-tauri/src/lib.rs
+//! 的 invoke_handler 注册面逐名对照（读源码文本），防两侧漂移。
 
 /// 契约基线为**本地维护**文件（`docs/` 按仓库约定不入库）：
 /// CI / 新克隆缺席时返回 None，闸门跳过并打印提示，而不是编译期失败。
@@ -96,11 +99,12 @@ const ROUTE_SNAPSHOT: &[(&str, Rule)] = &[
     ("POST", Exact("/api/secrets/write")),
     ("POST", Exact("/api/secrets/read")),
     ("POST", Exact("/api/secrets/view")),
-    // extras / data-maid / speech / vector（#54-#64 · manifest #66 不在）
+    // extras / data-maid / speech / vector（#54-#64）+ #66 classify（R4 本地实装）
     ("POST", Exact("/api/data-maid/report")),
     ("POST", Exact("/api/data-maid/finalize")),
     ("POST", Exact("/api/data-maid/delete")),
     ("GET", Exact("/api/data-maid/view")),
+    ("POST", Exact("/api/extra/classify")),
     ("POST", Exact("/api/translate/onering")),
     ("POST", Rule::TranslatePrefix),
     ("POST", Exact("/api/speech/synthesize")),
@@ -179,7 +183,8 @@ fn parse_manifest_rows(text: &str) -> Vec<(usize, String, String)> {
 
 /// 必到位族（native 已实装面；不在表内 → 红）。以 manifest 注解的
 /// 已实装 families 为准 —— 不含：#34 /scripts/extensions（ST 静态映射，
-/// 未迁移）、#66 extra/classify（未迁移）。#57 elevenlabs 已落地（批17）。
+/// 未迁移）。#66 extra/classify 已本地实装（R4 词典近似，backend/classify.rs）；
+/// #57 elevenlabs 已落地（批17）。
 const REQUIRED_SET: &[(&str, &str)] = &[
     ("POST", "/api/characters/all"),
     ("POST", "/api/characters/get"),
@@ -246,6 +251,7 @@ const REQUIRED_SET: &[(&str, &str)] = &[
     ("POST", "/api/data-maid/finalize"),
     ("POST", "/api/data-maid/delete"),
     ("GET", "/api/data-maid/view"),
+    ("POST", "/api/extra/classify"),
     ("POST", "/api/quick-replies/save"),
     ("GET", "/api/extensions/discover"),
     ("POST", "/api/extensions/install"),
@@ -258,6 +264,37 @@ const REQUIRED_SET: &[(&str, &str)] = &[
     ("GET", "/csrf-token"),
     ("POST", "/api/ping"),
 ];
+
+/// Tauri IPC 命令集合（与 src-tauri/src/lib.rs 的 invoke_handler 注册面
+/// 逐名对照；manifest §8 #78-#81 + 基础设施 backend_base）
+const IPC_COMMANDS: &[&str] = &[
+    "backend_base",
+    "chat_mutate_lines",
+    "chat_export_file",
+    "character_export_png",
+    "st_data_export",
+    "st_data_import",
+];
+
+/// 读 lib.rs 源码文本，抽出 invoke_handler(tauri::generate_handler![...]) 内的
+/// 命令名集合。文件缺席（非本仓布局）→ None，闸门跳过而非误红。
+fn ipc_commands_in_lib_rs() -> Option<Vec<String>> {
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("lib.rs");
+    let text = std::fs::read_to_string(p).ok()?;
+    let block_start = text.find("invoke_handler(tauri::generate_handler![")?;
+    let rest = &text[block_start..];
+    let block_end = rest.find("])")?;
+    let inner = rest[..block_end].split("generate_handler![").nth(1)?;
+    Some(
+        inner
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
+    )
+}
 
 /* ------------------------------------------------------------------ *
  * 闸门本体
@@ -347,6 +384,51 @@ fn manifest_gate_routes_parsed_and_covered() {
         REQUIRED_SET.len(),
         ROUTE_SNAPSHOT.len()
     );
+}
+
+/// 比较 lib.rs 实注册面与闸门清单：None = 一致，Some(差异描述) = 漂移。
+/// 抽为纯函数，便于负向用例（R18 门禁②）在无文件注入下证明「门有牙」。
+fn ipc_set_diff(found: &[String], want: &[&str]) -> Option<String> {
+    let mut got = found.to_vec();
+    got.sort();
+    let mut w: Vec<String> = want.iter().map(|s| s.to_string()).collect();
+    w.sort();
+    if got == w {
+        None
+    } else {
+        Some(format!("lib.rs invoke_handler={got:?} vs 闸门清单={w:?}"))
+    }
+}
+
+/// IPC 面闸门：闸门清单 IPC_COMMANDS 与 lib.rs 的 invoke_handler 注册面一致。
+/// lib.rs 不在本地时跳过（不误红）。
+#[test]
+fn ipc_commands_match_lib_rs_invoke_handler() {
+    let Some(found) = ipc_commands_in_lib_rs() else {
+        eprintln!("[manifest_gate] 跳过 IPC 对照：src/lib.rs 不在本地");
+        return;
+    };
+    assert!(found.len() >= 5, "IPC 注册面异常稀少：{found:?}");
+    if let Some(diff) = ipc_set_diff(&found, IPC_COMMANDS) {
+        panic!("IPC 注册面与闸门清单不一致（lib.rs invoke_handler 已漂移）：{diff}");
+    }
+}
+
+/// 负向用例（R18 门禁②）：合成漂移清单必须被判为不一致 —— 证明 IPC 断言真有牙。
+/// 纯内存合成，不依赖 lib.rs / manifest 在场（CI/新克隆同样执行）。
+#[test]
+fn ipc_gate_flags_synthetic_drift() {
+    let real: Vec<String> = IPC_COMMANDS.iter().map(|s| s.to_string()).collect();
+    // 正向：与闸门清单自身一致 → 不得误报
+    assert!(ipc_set_diff(&real, IPC_COMMANDS).is_none(), "同集合被误判为漂移");
+    // 负向 1：注册面多出一条幽灵命令（lib.rs 侧漂移）→ 必须报红
+    let mut extra = real.clone();
+    extra.push("ghost_command".to_string());
+    assert!(ipc_set_diff(&extra, IPC_COMMANDS).is_some(), "幽灵命令未被检出");
+    // 负向 2：注册面少一条（漏注册）→ 必须报红
+    let mut dropped = real.clone();
+    dropped.pop();
+    assert!(ipc_set_diff(&dropped, IPC_COMMANDS).is_some(), "缺失命令未被检出");
 }
 
 /// manifest 解析器口径单测：`\|` 转义还原、方法过滤（IPC 命令行不误入）、

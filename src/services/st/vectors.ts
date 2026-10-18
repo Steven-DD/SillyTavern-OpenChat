@@ -1,9 +1,9 @@
 /**
  * 向量记忆
  * - 服务端：/api/vector/insert|query|list（嵌入由 ST 服务端 transformers 完成）
- * - 集合：每个会话一个 collectionId（stchat-<avatar>-<file>）
+ * - 集合：每个会话一个 collectionId（stoc-<avatar>-<file>）
  * - 设置：extension_settings.vectors
- *   + App 开关 extension_settings.stchat_vectors.enabled
+ *   + App 开关 extension_settings.stoc_vectors.enabled
  */
 import { stPostJson } from './client'
 import { getSettings } from './data'
@@ -63,11 +63,11 @@ export async function saveVectorSettings(patch: Partial<VectorSettings>): Promis
   return next
 }
 
-/** App 开关（extension_settings.stchat_vectors.enabled） */
+/** App 开关（extension_settings.stoc_vectors.enabled） */
 export async function loadVectorsAppEnabled(): Promise<boolean> {
   const settings = await getSettings()
   const ext = settings.extension_settings as Record<string, unknown> | undefined
-  const raw = ext?.stchat_vectors as { enabled?: boolean } | undefined
+  const raw = ext?.stoc_vectors as { enabled?: boolean } | undefined
   return raw?.enabled === true
 }
 
@@ -77,7 +77,7 @@ export async function saveVectorsAppEnabled(enabled: boolean): Promise<void> {
     return {
       next: {
         ...settings,
-        extension_settings: { ...ext, stchat_vectors: { ...(ext.stchat_vectors as object | undefined), enabled } },
+        extension_settings: { ...ext, stoc_vectors: { ...(ext.stoc_vectors as object | undefined), enabled } },
       },
     }
   })
@@ -85,7 +85,7 @@ export async function saveVectorsAppEnabled(enabled: boolean): Promise<void> {
 
 /** 会话集合 ID（sanitize 成安全字符） */
 export function vectorsCollectionId(avatar: string, fileId: string): string {
-  const raw = `stchat-${avatar}-${fileId}`.toLowerCase()
+  const raw = `stoc-${avatar}-${fileId}`.toLowerCase()
   return raw.replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').slice(0, 96)
 }
 

@@ -24,6 +24,7 @@ pub mod assets;
 mod auth;
 pub mod characters;
 pub mod chats;
+pub mod classify;
 pub mod extensions;
 pub mod extras;
 pub mod horde;
@@ -159,21 +160,6 @@ fn is_exempt_from_auth(method: &Method, path: &str) -> bool {
     })
 }
 
-/// Builder 版 CORS 注入（构造中响应用；Response 已构造好用 apply_cors_resp）
-#[allow(dead_code)] // api.rs 现走 apply_cors_resp；本函数留给 Phase 1 流式 handler
-fn apply_cors(
-    b: axum::http::response::Builder,
-    origin: Option<HeaderValue>,
-) -> axum::http::response::Builder {
-    match origin {
-        Some(o) => b
-            .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, o)
-            .header(header::ACCESS_CONTROL_ALLOW_CREDENTIALS, "true")
-            .header(header::VARY, "Origin"),
-        None => b,
-    }
-}
-
 /// Response 版 CORS 注入（handler 已构造好 Response 时用）
 fn apply_cors_resp(mut resp: Response, origin: Option<HeaderValue>) -> Response {
     if let Some(o) = origin {
@@ -265,7 +251,7 @@ mod tests {
     #[tokio::test]
     async fn csrf_token_requires_auth() {
         // /csrf-token 不在豁免清单 —— 无 token 必 403（S3）
-        let ep = start(std::env::temp_dir().join("stchat-backend-test-csrf"))
+        let ep = start(std::env::temp_dir().join("stoc-backend-test-csrf"))
             .await
             .expect("启动失败");
         let c = reqwest::Client::builder().no_proxy().build().unwrap();
@@ -288,7 +274,7 @@ mod tests {
     #[tokio::test]
     async fn unimplemented_endpoints_return_501_json_error() {
         // S20：未迁移端点返回可判定的错误，禁止 200+空结果
-        let ep = start(std::env::temp_dir().join("stchat-backend-test-501"))
+        let ep = start(std::env::temp_dir().join("stoc-backend-test-501"))
             .await
             .expect("启动失败");
         let c = reqwest::Client::builder().no_proxy().build().unwrap();
@@ -313,7 +299,7 @@ mod tests {
 
     #[tokio::test]
     async fn auth_enforced_on_all_non_exempt() {
-        let ep = start(std::env::temp_dir().join("stchat-backend-test-auth"))
+        let ep = start(std::env::temp_dir().join("stoc-backend-test-auth"))
             .await
             .expect("启动失败");
         let c = reqwest::Client::builder().no_proxy().build().unwrap();
@@ -362,7 +348,7 @@ mod tests {
         // Phase 1 族一验收（评审 A3/D3 + manifest #28/#29）：
         // 200+ 未知键读-改-写零丢失；保存语义为整体覆盖；401/403 面不被打开
         let root =
-            std::env::temp_dir().join(format!("stchat-backend-settings-{}", std::process::id()));
+            std::env::temp_dir().join(format!("stoc-backend-settings-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let ep = start(root.clone()).await.expect("启动失败");
         let c = reqwest::Client::builder().no_proxy().build().unwrap();
@@ -385,7 +371,7 @@ mod tests {
         }
         body.insert(
             "extension_settings".into(),
-            serde_json::json!({ "stchat_quick_replies": [{ "label": "qr" }] }),
+            serde_json::json!({ "stoc_quick_replies": [{ "label": "qr" }] }),
         );
 
         // 模块 A 写入（QR）
@@ -434,7 +420,7 @@ mod tests {
 
         assert_eq!(final_settings["username"], "老板");
         assert!(
-            final_settings["extension_settings"]["stchat_quick_replies"].is_array(),
+            final_settings["extension_settings"]["stoc_quick_replies"].is_array(),
             "模块 A 的键保留"
         );
         assert!(

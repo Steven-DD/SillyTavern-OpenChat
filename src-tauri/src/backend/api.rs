@@ -6,6 +6,9 @@
 //!   收下不校验：本地单用户无 CSRF 面，X-Relay-Auth 即鉴权）。
 //! - `/api/ping`（POST）：健康检查。
 //!
+//! - `/api/extra/classify`（POST）：GoEmotions 28 类情感分类（R4 本地实装：
+//!   无 ML 词典近似，见 backend/classify.rs；响应 `[{label, score}]`）。
+//!
 //! 未实现：fallback 统一 501 + `{error:{message}}`（S20 降级契约：
 //! 可判定的「未迁移」错误，禁止 200+空结果伪造成功）。
 
@@ -338,6 +341,13 @@ async fn route(
         ("GET", "/api/data-maid/view") => {
             let q = path_q.split_once('?').map(|(_, q)| q).unwrap_or("");
             super::extras::maid_view(&st, &st.maid_tokens, q, origin)
+        }
+        // extra classify（manifest #66 · R4 本地实装：无 ML 词典近似）
+        ("POST", "/api/extra/classify") => {
+            match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+                Ok(v) => super::classify::handle(&v, origin),
+                Err(_) => bad_json(origin),
+            }
         }
         // 翻译族（Phase 2 批6 · manifest #54/#55：八家全量出站）
         ("POST", "/api/translate/onering") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {

@@ -2,12 +2,12 @@
  * TTS 朗读多供应商框架（P10 对齐网页端 TTS 扩展的核心子集）：
  * - speecht5：ST /api/speech/synthesize（服务端本地 transformers 引擎，原有路径）
  * - system：Web Speech API（纯前端，零配置）
- * - edge：ST 服务端 /api/edge-tts/generate（无需密钥）
+ * - edge：native 模式不可用（原 ST 端 edge-tts 插件路径已移除；不依赖 ST 端插件，需自研 TTS）
  * - openai：ST 服务端 /api/openai/generate-voice（用服务端托管的 OpenAI 密钥）
  * - elevenlabs：ST 服务端 /api/speech/elevenlabs/synthesize 代理（密钥不出服务端）
- * 设置持久化：settings.json extension_settings.stchat_tts / stchat_speech（App 自有键）
+ * 设置持久化：settings.json extension_settings.stoc_tts / stoc_speech（App 自有键）
  */
-import { stGet, stPost } from './client'
+import { stPost } from './client'
 import { getSettings } from './data'
 import { mutateSettings } from './settings-writequeue'
 
@@ -25,7 +25,7 @@ export type TtsProvider = 'speecht5' | 'system' | 'edge' | 'openai' | 'elevenlab
 export const TTS_PROVIDERS: { id: TtsProvider; label: string }[] = [
   { id: 'speecht5', label: '本地（SpeechT5，首次下载模型）' },
   { id: 'system', label: '系统语音（Web Speech API）' },
-  { id: 'edge', label: 'Edge（服务端，无需密钥）' },
+  { id: 'edge', label: 'Edge（native 模式不可用，需自研 TTS）' },
   { id: 'openai', label: 'OpenAI（服务端，用已配密钥）' },
   { id: 'elevenlabs', label: 'ElevenLabs（服务端代理，用已配密钥）' },
 ]
@@ -50,7 +50,7 @@ export async function loadSpeechSettings(force = false): Promise<SpeechSettings>
   if (cache && !force) return cache
   const settings = await getSettings()
   const ext = settings.extension_settings as Record<string, unknown> | undefined
-  const raw = ext?.stchat_speech as Partial<SpeechSettings> | undefined
+  const raw = ext?.stoc_speech as Partial<SpeechSettings> | undefined
   cache = { ...SPEECH_DEFAULTS, ...(raw && typeof raw === 'object' ? raw : {}) }
   return cache
 }
@@ -59,10 +59,10 @@ export async function saveSpeechSettings(patch: Partial<SpeechSettings>): Promis
   const next = { ...(cache ?? SPEECH_DEFAULTS), ...patch }
   await mutateSettings((settings) => {
     const ext = (settings.extension_settings as Record<string, unknown> | undefined) ?? {}
-    if (JSON.stringify(ext.stchat_speech) === JSON.stringify(next)) {
+    if (JSON.stringify(ext.stoc_speech) === JSON.stringify(next)) {
       return { next: settings, skip: true }
     }
-    return { next: { ...settings, extension_settings: { ...ext, stchat_speech: next } } }
+    return { next: { ...settings, extension_settings: { ...ext, stoc_speech: next } } }
   })
   cache = next
   return next
@@ -74,7 +74,7 @@ export async function loadTtsSettings(force = false): Promise<TtsProviderSetting
   if (ttsCache && !force) return ttsCache
   const settings = await getSettings()
   const ext = settings.extension_settings as Record<string, unknown> | undefined
-  const raw = ext?.stchat_tts as Partial<TtsProviderSettings> | undefined
+  const raw = ext?.stoc_tts as Partial<TtsProviderSettings> | undefined
   ttsCache = {
     ...TTS_DEFAULTS,
     ...(raw && typeof raw === 'object' ? raw : {}),
@@ -95,39 +95,29 @@ export async function saveTtsSettings(patch: Partial<TtsProviderSettings>): Prom
   }
   await mutateSettings((settings) => {
     const ext = (settings.extension_settings as Record<string, unknown> | undefined) ?? {}
-    if (JSON.stringify(ext.stchat_tts) === JSON.stringify(next)) {
+    if (JSON.stringify(ext.stoc_tts) === JSON.stringify(next)) {
       return { next: settings, skip: true }
     }
-    return { next: { ...settings, extension_settings: { ...ext, stchat_tts: next } } }
+    return { next: { ...settings, extension_settings: { ...ext, stoc_tts: next } } }
   })
   ttsCache = next
   return next
 }
 
-/** Edge 语音列表（ST 服务端 /api/edge-tts/list；需要 ST 端启用 edge-tts 插件） */
+/**
+ * Edge 语音列表：native 模式不可用（D4 降级）。
+ * 不再请求 ST 端 edge-tts 插件端点，直接返回空列表；调用方据此显示 native 降级说明。
+ */
 export async function loadEdgeVoices(): Promise<string[]> {
-  const data = await stGet<{ ShortName?: string; shortName?: string }[] | { voices?: unknown }>(
-    '/api/edge-tts/list',
-  )
-  const list = Array.isArray(data) ? data : ((data as { voices?: unknown }).voices as typeof data) ?? []
-  const names = (list as { ShortName?: string; shortName?: string }[])
-    .map((v) => String(v?.ShortName ?? v?.shortName ?? '').trim())
-    .filter(Boolean)
-  return [...new Set(names)].sort((a, b) => a.localeCompare(b))
+  return []
 }
 
 /** 各供应商合成 → 音频 Blob（system 走 Web Speech API，不经此函数） */
 async function synthesize(text: string, tts: TtsProviderSettings): Promise<Blob> {
   switch (tts.provider) {
-    case 'edge': {
-      const res = await stPost('/api/edge-tts/generate', {
-        text,
-        voice: tts.edge.voice || TTS_DEFAULTS.edge.voice,
-        rate: Number(tts.edge.rate) || 0,
-      })
-      if (!res.ok) throw new Error(`Edge TTS 合成失败（HTTP ${res.status}）`)
-      return res.blob()
-    }
+    // D4 降级：native 模式不接 ST 端 edge-tts 插件端点（不依赖 ST 端插件，需自研 TTS 后端）
+    case 'edge':
+      throw new Error('Edge 语音在 native 模式不可用（需自研 TTS），不依赖 ST 端插件')
     case 'openai': {
       const res = await stPost('/api/openai/generate-voice', {
         text,

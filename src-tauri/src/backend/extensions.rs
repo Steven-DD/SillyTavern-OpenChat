@@ -879,9 +879,6 @@ pub fn qr_save(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> 
     }
 }
 
-#[allow(dead_code)]
-fn _witness(_: axum::body::Body) {}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -889,7 +886,7 @@ mod tests {
     use std::sync::Arc;
 
     fn st_with(tag: &str) -> BackendState {
-        let root = std::env::temp_dir().join(format!("stchat-ext-{tag}-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("stoc-ext-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         BackendState {
             token: Arc::new("t".into()),
@@ -967,7 +964,7 @@ mod tests {
     }
 
     fn empty_cfg_dir(tag: &str) -> std::path::PathBuf {
-        let d = std::env::temp_dir().join(format!("stchat-ext-emptycfg-{tag}-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("stoc-ext-emptycfg-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
@@ -992,7 +989,7 @@ mod tests {
     fn insteadof_predicate_detects_rewrite_rules() {
         // S19 谓词：可写 config 注入 insteadOf → 命中；纯普通键 → 不命中
         let dir =
-            std::env::temp_dir().join(format!("stchat-ext-insteadof-{}", std::process::id()));
+            std::env::temp_dir().join(format!("stoc-ext-insteadof-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let cfg_path = dir.join("gitconfig");
@@ -1067,7 +1064,7 @@ mod tests {
         // clone/fetch/落盘之前
         let _g = GIT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let home =
-            std::env::temp_dir().join(format!("stchat-ext-home-{}", std::process::id()));
+            std::env::temp_dir().join(format!("stoc-ext-home-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).unwrap();
         std::fs::write(

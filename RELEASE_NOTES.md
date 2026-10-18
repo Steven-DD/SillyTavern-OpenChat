@@ -1,11 +1,11 @@
-# ST Chat v0.1.0-alpha
+# SillyTavern-OpenChat v0.1.0-alpha
 
 自包含 Rust 后端的桌面聊天客户端首个公开测试版。数据以 SillyTavern 兼容格式保存，
 可与 ST 生态互通。
 
 ## 安装
 
-下载 `ST Chat_0.1.0_x64-setup.exe`（NSIS 安装包），双击安装即可。
+下载 `SillyTavern-OpenChat_0.1.0_x64-setup.exe`（NSIS 安装包），双击安装即可。
 启动即拉起内置本地后端，**无需下载或安装 Node / SillyTavern**。
 
 ## 本版本包含

@@ -4,9 +4,9 @@
 //!
 //! 断言"自建后端的全量日志确实进了 `log` crate"（release GUI 无控制台时，
 //! 这是唯一可诊断通道）：
-//! 1. 启动日志（`stchat::boot`）
-//! 2. 成功请求一行 `← 200 … /api/ping`（`stchat::api`）
-//! 3. 鉴权拒绝 403 的 warn（`stchat::api`）
+//! 1. 启动日志（`stoc::boot`）
+//! 2. 成功请求一行 `← 200 … /api/ping`（`stoc::api`）
+//! 3. 鉴权拒绝 403 的 warn（`stoc::api`）
 //! 4. 未实现端点 501 的 warn
 //!
 //! 用进程内捕获 logger（不落盘、不出网）—— 与 tauri-plugin-log 无关，
@@ -43,9 +43,9 @@ async fn backend_request_lifecycle_is_logged() {
     log::set_max_level(log::LevelFilter::Info);
     LINES.get_or_init(|| Mutex::new(Vec::new()));
 
-    let root = std::env::temp_dir().join(format!("stchat-logtest-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("stoc-logtest-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
-    let ep = st_chat_lib::backend::start(root.clone())
+    let ep = sillytavern_openchat_lib::backend::start(root.clone())
         .await
         .expect("backend 启动失败");
     let c = reqwest::Client::builder().no_proxy().build().unwrap();
@@ -76,25 +76,25 @@ async fn backend_request_lifecycle_is_logged() {
     let lines = captured();
     let api: Vec<&String> = lines
         .iter()
-        .filter(|l| l.starts_with("stchat::api|"))
+        .filter(|l| l.starts_with("stoc::api|"))
         .collect();
 
     assert!(
-        lines.iter().any(|l| l.starts_with("stchat::boot|")),
-        "缺启动日志（stchat::boot）：{lines:?}"
+        lines.iter().any(|l| l.starts_with("stoc::boot|")),
+        "缺启动日志（stoc::boot）：{lines:?}"
     );
     assert!(
         api.iter()
             .any(|l| l.contains("← 200") && l.contains("/api/ping")),
-        "缺成功请求日志（stchat::api ← 200 /api/ping）：{api:?}"
+        "缺成功请求日志（stoc::api ← 200 /api/ping）：{api:?}"
     );
     assert!(
         api.iter().any(|l| l.contains("403") && l.contains("auth 拒绝")),
-        "缺鉴权拒绝日志（stchat::api 403）：{api:?}"
+        "缺鉴权拒绝日志（stoc::api 403）：{api:?}"
     );
     assert!(
         api.iter().any(|l| l.contains("501") && l.contains("未实现端点")),
-        "缺未实现端点日志（stchat::api 501）：{api:?}"
+        "缺未实现端点日志（stoc::api 501）：{api:?}"
     );
 
     let _ = std::fs::remove_dir_all(&root);

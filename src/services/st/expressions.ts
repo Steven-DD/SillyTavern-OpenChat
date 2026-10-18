@@ -1,8 +1,8 @@
 /**
  * 表情立绘（sprites.js + classify.js）
  * - 立绘：GET /api/sprites/get?name=<charName> → [{label, path:'/characters/...'}]
- * - 情感分类：POST /api/extra/classify {text} → [{label, score}]（需 ST extra 模块启用；
- *   不可用时静默失败，UI 降级为手动选择）
+ * - 情感分类：POST /api/extra/classify {text} → [{label, score}]（已由本地后端实装，
+ *   取 r[0].label；不可用/超时静默失败，UI 降级为手动选择）
  */
 import { stGet, stPostJson, stBase } from './client'
 
@@ -25,7 +25,7 @@ export function spriteUrl(relPath: string): string {
 }
 
 /**
- * 情感分类（extra 模块的 classify 管线，不可用/超时 → null，调用方降级）
+ * 情感分类（本地后端 classify 管线，不可用/超时 → null，调用方降级）
  * 返回 top1 的规范化 label（ST 的 emotion labels，如 neutral/joy/sadness/anger/...）
  */
 export async function classifyEmotion(text: string): Promise<string | null> {

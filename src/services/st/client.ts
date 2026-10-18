@@ -12,14 +12,14 @@
 
 /** 读取当前基地址 */
 export function stBase(): string {
-  return localStorage.getItem('st.base') ?? ''
+  return localStorage.getItem('stoc.base') ?? ''
 }
 
 /** 设置基地址（Tauri 启动 / 设置页手动填写时调用） */
 export function setStBase(url: string): void {
   const v = url.trim()
-  if (v) localStorage.setItem('st.base', v)
-  else localStorage.removeItem('st.base')
+  if (v) localStorage.setItem('stoc.base', v)
+  else localStorage.removeItem('stoc.base')
   // 换基地址必须作废旧令牌，否则新会话会 403
   csrfToken = null
   csrfPending = null
@@ -30,8 +30,8 @@ export function setStBase(url: string): void {
  * token 本就每次启动重新生成，sessionStorage 与其生命周期一致。 */
 export function setApiToken(t: string): void {
   const v = t.trim()
-  if (v) sessionStorage.setItem('st.apiToken', v)
-  else sessionStorage.removeItem('st.apiToken')
+  if (v) sessionStorage.setItem('stoc.apiToken', v)
+  else sessionStorage.removeItem('stoc.apiToken')
 }
 
 /**
@@ -40,7 +40,7 @@ export function setApiToken(t: string): void {
  * （读取兼容 localStorage —— 桥接旧会话残留 token 的回退；写入只走上面）
  */
 function authHeaders(): Record<string, string> {
-  const t = sessionStorage.getItem('st.apiToken') ?? localStorage.getItem('st.apiToken') ?? ''
+  const t = sessionStorage.getItem('stoc.apiToken') ?? localStorage.getItem('stoc.apiToken') ?? ''
   return t ? { 'X-Relay-Auth': t } : {}
 }
 

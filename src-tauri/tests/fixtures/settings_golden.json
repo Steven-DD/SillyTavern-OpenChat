@@ -11,7 +11,7 @@
     "url": "回声_码头.png"
   },
   "extension_settings": {
-    "stchat_quick_replies": [
+    "stoc_quick_replies": [
       {
         "label": "速答 · 中文",
         "message": "请继续推进任务。",
@@ -30,7 +30,7 @@
         "replace": "整段成文"
       }
     ],
-    "stchat_native": {
+    "stoc_native": {
       "quarter_turns": 3
     }
   },

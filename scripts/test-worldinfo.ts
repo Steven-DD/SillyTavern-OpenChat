@@ -1,13 +1,21 @@
 /**
- * 世界书扫描注入测试（node 端，esbuild 打包后运行）
+ * 世界书扫描注入测试（开发期可选脚本 · node 端，esbuild 打包后运行）
+ *
+ * ⚠ 开发期可选脚本：不在 npm run selfcheck 内（run-selfchecks 只收 selfcheck-*.mjs）。
+ *
+ * 三态口径（R9）：
+ *   PASS  断言通过（计入「通过」）
+ *   FAIL  非连接类断言失败 → 退出码非 0（含 ST 已应答后的任何断言/请求失败）
+ *   SKIP  ST 缺席或连接失败 → 显式打印 SKIP 行，不计入通过数
  *
  * 用法：
  *   npx esbuild scripts/test-worldinfo.ts --bundle --format=esm --platform=node \
  *     --outfile=node_modules/.tmp/test-wi.mjs && node node_modules/.tmp/test-wi.mjs
  *
- * 两部分：
- *   A. 单元测试——合成条目验证匹配/逻辑/预算/位置
- *   B. 集成测试——从运行中的 ST 拉真实世界书（青江大学校园世界书）扫描验证（需 8000 端口，可选）
+ * 三部分：
+ *   A–E. 单元测试——合成条目验证匹配/逻辑/预算/位置（不依赖 ST）
+ *   G.   native 世界书读链形态——ST 兼容 {entries:{uid:…}} 到 WiEntry[] 的扫描/注入（不依赖 ST）
+ *   F.   集成测试——从运行中的 ST 拉真实世界书扫描验证（需 8000 端口，可选；ST 缺席 → SKIP）
  */
 // node 无 localStorage（client.ts 请求时才会用到），先补桩
 ;(globalThis as Record<string, unknown>).localStorage = {
@@ -22,6 +30,12 @@ import type { StCharacter } from '../src/services/st/types'
 
 let pass = 0
 let fail = 0
+let skip = 0
+/** ST 缺席/不可连接：显式 SKIP 行，不计入「通过」 */
+function skipInfo(name: string): void {
+  skip++
+  console.log('  ↷ SKIP ' + name)
+}
 function ok(cond: boolean, name: string): void {
   if (cond) {
     pass++
@@ -236,50 +250,130 @@ console.log('\n[E] 位置分桶与 buildPrompt 注入')
   )
 }
 
-/* ================= B. 集成测试（真实 ST 世界书，可选） ================= */
+/* ================= G. native 世界书读链形态（不依赖 ST） ================= */
+console.log('\n[G] native 世界书读链形态（ST 兼容 {entries:{uid:...}}，不依赖 ST）')
+{
+  // native 后端 /api/worldinfo/get 与 ST 同形：{ entries: { "<uid>": {...} } }。
+  // 直接构造该读链产物（等价 data.ts getWorldInfo 的返回），贯通「读链 → 扫描 → prompt 注入」。
+  const bookEntries: Record<string, Record<string, unknown>> = {
+    '0': { ...mk({ uid: 0, key: ['图书馆'], content: 'native 关键词条目' }) },
+    '1': { ...mk({ uid: 1, constant: true, content: 'native 常驻条目' }) },
+    '2': { ...mk({ uid: 2, key: ['图书馆'], content: 'native 深度条目', position: 4, depth: 1 }) },
+  }
+  const nativeEntries: WiEntry[] = Object.entries(bookEntries).map(([uid, e]) => ({
+    ...(e as object),
+    uid: Number(uid),
+    world: 'native-book',
+  })) as WiEntry[]
+  ok(nativeEntries.length === 3, 'native 读链键值表归一化为 3 条')
+
+  const r = checkWorldInfo(['我去图书馆借书'], nativeEntries, 8192)
+  ok(
+    r.before.includes('native 常驻条目') && r.before.includes('native 关键词条目'),
+    'native 关键词/常驻条目激活（before）',
+  )
+  ok(r.depthEntries.length === 1 && r.depthEntries[0].content === 'native 深度条目', 'native @Depth 条目进入 depthEntries')
+  ok(r.activated.length === 3, 'native 激活计数 = 3')
+
+  const char: StCharacter = {
+    name: '测试角色',
+    description: '角色描述',
+    personality: '性格',
+    scenario: '场景',
+    first_mes: '开场',
+    mes_example: '',
+    avatar: 'test.png',
+    chat: '',
+    create_date: '',
+    talkativeness: 0.5,
+    fav: false,
+  }
+  const built = buildPrompt({
+    character: char,
+    history: [{ name: '我', is_user: true, mes: '我去图书馆借书', send_date: '2026-01-01', extra: {} }] as never,
+    userName: '我',
+    maxContext: 8192,
+    worldInfo: { before: r.before, after: r.after, depthEntries: r.depthEntries },
+  })
+  ok(
+    built.messages.some((m) => typeof m.content === 'string' && m.content.includes('native 关键词条目')),
+    'native 扫描结果经 buildPrompt 注入 messages',
+  )
+}
+
+/* ================= F. 集成测试（真实 ST 世界书，可选） ================= */
+const ST_BASE = 'http://127.0.0.1:8000'
+
+type ProbeResult = { ok: true; token: string; cookie: string } | { ok: false; absent: boolean; error: string }
+
+/** 连接探测：区分「ST 缺席（连接失败 → SKIP）」与「ST 已应答但异常（→ FAIL）」 */
+async function probeSt(): Promise<ProbeResult> {
+  let r1: Response
+  try {
+    r1 = await fetch(ST_BASE + '/csrf-token', { signal: AbortSignal.timeout(3000) })
+  } catch (e) {
+    return { ok: false, absent: true, error: e instanceof Error ? e.message : String(e) }
+  }
+  if (!r1.ok) return { ok: false, absent: false, error: '/csrf-token 返回 ' + r1.status }
+  const csrf = (await r1.json()) as { token: string }
+  // CSRF 会话 = 2 个 Cookie，必须合并携带（Node fetch 不自动管 Cookie）
+  const cookie = r1.headers.getSetCookie().map((c) => c.split(';')[0]).join('; ')
+  return { ok: true, token: csrf.token, cookie }
+}
+
 async function integration(): Promise<void> {
   console.log('\n[F] 集成：真实 ST 世界书（青江大学校园世界书）')
-  try {
-    const base = 'http://127.0.0.1:8000'
-    // CSRF 会话 = 2 个 Cookie，必须合并携带（Node fetch 不自动管 Cookie）
-    const r1 = await fetch(`${base}/csrf-token`)
-    const csrf = (await r1.json()) as { token: string }
-    const cookie = r1.headers
-      .getSetCookie()
-      .map((c) => c.split(';')[0])
-      .join('; ')
-    const book = (await (
-      await fetch(`${base}/api/worldinfo/get`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf.token, Cookie: cookie },
-        body: JSON.stringify({ name: '青江大学校园世界书' }),
-      })
-    ).json()) as { entries: Record<string, Record<string, unknown>> }
-
-    const entries: WiEntry[] = Object.values(book.entries ?? {}).map((e) => ({
-      ...(e as object),
-      world: '青江大学校园世界书',
-    })) as WiEntry[]
-    console.log(`  真实条目数：${entries.length}`)
-    ok(entries.length > 0, '真实世界书可加载')
-
-    // 用第一条关键词构造历史，验证能激活出真实内容
-    const first = entries.find((e) => !e.disable && Array.isArray(e.key) && e.key.length && (e.content ?? '').trim())
-    if (first) {
-      const kw = first.key.find((k) => k.trim()) ?? ''
-      const texts = [`我们来聊聊${kw}吧`]
-      const r = checkWorldInfo(texts, entries, 8192)
-      const all = r.before + r.after + r.depthEntries.map((d) => d.content).join('')
-      ok(all.includes(String(first.content).slice(0, 20).trim()), `真实条目激活（关键词「${kw}」）`)
-      console.log(`  激活条目数：${r.activated.length}，估算 ${r.usedTokens} tok`)
-    } else {
-      console.log('  （书中无可测条目，跳过激活断言）')
+  const probe = await probeSt()
+  if (!probe.ok) {
+    if (probe.absent) {
+      skipInfo('ST 未运行/不可连接（' + ST_BASE + '）→ 集成面跳过：' + probe.error)
+      return
     }
-  } catch (e) {
-    console.log(`  ⚠ ST 未运行或拉取失败，跳过集成测试：${e instanceof Error ? e.message : e}`)
+    fail++
+    console.error('  ✗ ST 已应答但 /csrf-token 异常：' + probe.error)
+    return
+  }
+  // 已连上 ST：此后任何失败都按断言失败计（退出码非 0），不再吞成 SKIP
+  const book = (await (
+    await fetch(ST_BASE + '/api/worldinfo/get', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': probe.token, Cookie: probe.cookie },
+      body: JSON.stringify({ name: '青江大学校园世界书' }),
+      signal: AbortSignal.timeout(5000),
+    })
+  ).json()) as { entries?: Record<string, Record<string, unknown>>; error?: unknown }
+
+  if (book?.error) {
+    fail++
+    console.error('  ✗ 真实世界书返回错误：' + JSON.stringify(book.error))
+    return
+  }
+  const entries: WiEntry[] = Object.values(book.entries ?? {}).map((e) => ({
+    ...(e as object),
+    world: '青江大学校园世界书',
+  })) as WiEntry[]
+  console.log('  真实条目数：' + entries.length)
+  ok(entries.length > 0, '真实世界书可加载')
+
+  // 用第一条关键词构造历史，验证能激活出真实内容
+  const first = entries.find((e) => !e.disable && Array.isArray(e.key) && e.key.length && (e.content ?? '').trim())
+  if (first) {
+    const kw = first.key.find((k) => k.trim()) ?? ''
+    const texts = ['我们来聊聊' + kw + '吧']
+    const r = checkWorldInfo(texts, entries, 8192)
+    const all = r.before + r.after + r.depthEntries.map((d) => d.content).join('')
+    ok(all.includes(String(first.content).slice(0, 20).trim()), '真实条目激活（关键词「' + kw + '」）')
+    console.log('  激活条目数：' + r.activated.length + '，估算 ' + r.usedTokens + ' tok')
+  } else {
+    skipInfo('书中无可测条目 → 激活断言跳过')
   }
 }
 
-await integration()
-console.log(`\n结果：${pass} 通过 / ${fail} 失败`)
+try {
+  await integration()
+} catch (e) {
+  fail++
+  console.error('  ✗ [F] 集成面异常（ST 已应答，按失败计）：' + (e instanceof Error ? e.message : String(e)))
+}
+console.log('\n结果：' + pass + ' 通过 / ' + fail + ' 失败 / ' + skip + ' 跳过')
 process.exit(fail ? 1 : 0)

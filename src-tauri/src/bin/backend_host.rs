@@ -12,10 +12,10 @@
 fn main() {
     let data_root = std::env::args()
         .nth(1)
-        .unwrap_or_else(|| std::env::temp_dir().join("stchat-smoke-root").display().to_string());
+        .unwrap_or_else(|| std::env::temp_dir().join("stoc-smoke-root").display().to_string());
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
     let handle = rt
-        .block_on(st_chat_lib::backend::start(std::path::PathBuf::from(&data_root)))
+        .block_on(sillytavern_openchat_lib::backend::start(std::path::PathBuf::from(&data_root)))
         .expect("backend 启动失败");
     println!("[backend] data_root = {}", data_root);
     println!("META BACKEND port={} token={}", handle.port, handle.token);

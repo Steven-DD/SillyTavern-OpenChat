@@ -7,7 +7,7 @@
  *      并经 native REST 写入「冒烟角色」+ 密钥（vault 面真实写）
  *   3. 起 vite（1420 固定端口——后端 CORS 白名单只认 1420）→
  *      puppeteer(msedge headless) 打开页面，localStorage 预置三段契约：
- *      st.base/st.relayToken（后端直连）、app.gen+st.source（生成通道/模型）、
+ *      stoc.base/stoc.apiToken（后端直连）、app.gen+stoc.source（生成通道/模型）、
  *      app.gen.conn={custom:{customUrl}}（按源分桶连接配置，customUrl 以 /v1 结尾）
  *   4. UI 断言：
  *      A. App 进聊天页（输入区出现）
@@ -66,7 +66,7 @@ console.log(`[mock] OpenAI 上游 127.0.0.1:${upPort}`)
 
 /* ---------------- 2) native 后端 + 数据种子 ---------------- */
 
-const dataRoot = mkdtempSync(join(tmpdir(), 'stchat-smoke-'))
+const dataRoot = mkdtempSync(join(tmpdir(), 'stoc-smoke-'))
 console.log(`[data] ${dataRoot}`)
 const backend = spawn(EXE, [dataRoot], { stdio: ['ignore', 'pipe', 'pipe'] })
 let port = 0, token = ''
@@ -209,15 +209,17 @@ page.on('response', (r) => { if (r.url().includes('/api/') && r.status() >= 400)
 await page.setViewport({ width: 1400, height: 900 })
 page.on('dialog', async (d) => { await d.accept() })
 await page.evaluateOnNewDocument((cfg) => {
-  // native 后端直连（bridge.ts 语义：base + relayToken 指向 backend-host）
-  localStorage.setItem('st.base', cfg.base)
-  localStorage.setItem('st.relayToken', cfg.token)
+  // native 后端直连（bridge.ts 语义：base + apiToken 指向 backend-host；旧键 st.base/st.relayToken 已废弃）
+  localStorage.setItem('stoc.base', cfg.base)
+  // apiToken 主存 sessionStorage（client.ts setApiToken）；再写 localStorage 回落面
+  sessionStorage.setItem('stoc.apiToken', cfg.token)
+  localStorage.setItem('stoc.apiToken', cfg.token)
   // 生成通道/模型 = settings store 的 app.gen JSON（ChatsMain 状态条 gen.model/gen.source）
   localStorage.setItem('app.gen', cfg.gen)
   // 连接配置 = 按源分桶的 map（api.ts getConnConfig(source)）
   localStorage.setItem('app.gen.conn', cfg.conn)
-  // api.ts 兜底面（currentSource）
-  localStorage.setItem('st.source', 'custom')
+  // api.ts 兜底面（currentSource；键已随 task-10 迁移为 stoc.source）
+  localStorage.setItem('stoc.source', 'custom')
   localStorage.setItem('app.gen.stream', '1')
 }, { base: BE, token, gen: JSON.stringify({ source: 'custom', model: 'mock-model' }), conn: JSON.stringify({ custom: { customUrl: `http://127.0.0.1:${upPort}/v1` } }) })
 

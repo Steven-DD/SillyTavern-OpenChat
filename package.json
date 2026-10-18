@@ -1,5 +1,5 @@
 {
-  "name": "st-chat",
+  "name": "sillytavern-openchat",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -11,7 +11,7 @@
     "selfcheck": "node scripts/run-selfchecks.mjs",
     "preview": "vite preview",
     "icons": "node scripts/gen-app-icon.mjs && tauri icon src-tauri/icons/app-icon.png",
-    "tauri": "tauri dev "
+    "tauri": "tauri"
   },
   "engines": {
     "node": ">=20"

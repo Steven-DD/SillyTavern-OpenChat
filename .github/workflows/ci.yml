@@ -22,6 +22,8 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
+      # R18 门禁 ①③④⑤：selfcheck-no-st-direct（①）/ selfcheck-contract（③⑤）/
+      # selfcheck-no-node-spawn（④）—— 由 run-selfchecks.mjs 自动发现，并硬断言模块存在
       - run: npm run selfcheck
       # 去 ST 化硬约束（D6）：构建产物不含 node 可执行文件 / ST 源码树标记
       - run: node scripts/verify-clean-machine.mjs
@@ -39,4 +41,6 @@ jobs:
           workspaces: src-tauri
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings
       # 契约基线 docs/ 不入库：manifest 闸门在 CI 自动跳过契约对照，仅跑路由快照红线
+      # R18 门禁②：manifest_gate.rs 的 IPC 断言（lib.rs invoke_handler ↔ IPC_COMMANDS）
+      # 与合成漂移负向用例由本步执行
       - run: cargo test --manifest-path src-tauri/Cargo.toml --locked

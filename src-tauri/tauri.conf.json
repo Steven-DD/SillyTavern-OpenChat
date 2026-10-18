@@ -1,8 +1,9 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "ST Chat",
+  "productName": "SillyTavern-OpenChat",
+  "mainBinaryName": "SillyTavern-OpenChat",
   "version": "0.1.0",
-  "identifier": "io.github.stevendd.stchat",
+  "identifier": "io.github.stevendd.sillytavernopenchat",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:1420",
@@ -12,7 +13,7 @@
   "app": {
     "windows": [
       {
-        "title": "ST Chat",
+        "title": "SillyTavern-OpenChat",
         "width": 1280,
         "height": 800,
         "minWidth": 960,

@@ -8,8 +8,9 @@
  *
  * 关闭路径：取消按钮 / 点遮罩 / Esc —— 均只发 cancel；确认按钮发 confirm。
  * Enter 确认不做（避免上一秒刚按下的回车残留在输入法里误触危险操作）。
+ * 高风险操作可传 requireText：必须原样输入确认词，确认按钮才可用。
  */
-import { onMounted, onUnmounted } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 const props = defineProps<{
   open: boolean
@@ -22,9 +23,29 @@ const props = defineProps<{
   danger?: boolean
   /** 确认进行中（按钮转圈禁用） */
   busy?: boolean
+  /** 高风险二次确认：必须原样输入该确认词才能点确认（不传 = 沿用按钮确认） */
+  requireText?: string
 }>()
 
 const emit = defineEmits<{ cancel: []; confirm: [] }>()
+
+/** 确认词输入框（requireText 模式下生效；每次打开/关闭都复位） */
+const typed = ref('')
+const inputEl = ref<HTMLInputElement | null>(null)
+const canConfirm = computed(
+  () => !props.requireText || typed.value.trim() === props.requireText.trim(),
+)
+
+watch(
+  () => props.open,
+  (open) => {
+    if (!open) {
+      typed.value = ''
+      return
+    }
+    if (props.requireText) void nextTick(() => inputEl.value?.focus())
+  },
+)
 
 function onKey(e: KeyboardEvent) {
   if (!props.open) return
@@ -41,6 +62,16 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
         <div class="dlg" role="alertdialog" aria-modal="true">
           <h5>{{ title }}</h5>
           <p class="msg">{{ message }}</p>
+          <input
+            v-if="requireText"
+            ref="inputEl"
+            v-model="typed"
+            class="ctext"
+            type="text"
+            :disabled="busy"
+            :placeholder="`输入「${requireText}」以继续`"
+            @keydown.esc.stop="emit('cancel')"
+          />
           <div class="btns">
             <button class="btn" :disabled="busy" @click="emit('cancel')">
               {{ cancelText ?? '取消' }}
@@ -48,7 +79,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
             <button
               class="btn"
               :class="danger ? 'btn-danger' : 'btn-primary'"
-              :disabled="busy"
+              :disabled="busy || !canConfirm"
               @click="emit('confirm')"
             >
               {{ busy ? '处理中…' : (confirmText ?? '确认') }}
@@ -97,6 +128,21 @@ h5 {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
+}
+
+.ctext {
+  width: 100%;
+  margin-top: 10px;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--c-text);
+  background: transparent;
+  border: 1px solid var(--c-border);
+  border-radius: 6px;
+  outline: none;
+}
+.ctext:focus {
+  border-color: var(--c-text-2);
 }
 
 /* 过渡 */

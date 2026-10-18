@@ -1,6 +1,6 @@
 //! st_data —— 数据目录路径与数据袋（导入/导出）
 //!
-//! native 架构下数据由应用自包含维护在应用数据目录（`<config>/st-runtime/data`），
+//! native 架构下数据由应用自包含维护在应用数据目录（`<config>/stoc-runtime/data`），
 //! 保持与 ST 兼容的目录结构（角色卡 /JSONL 会话 / 世界书 / settings.json），
 //! 便于继续与 ST 生态互通。
 
@@ -9,7 +9,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// 应用数据根目录名（位于应用配置目录下）
-pub const RUNTIME_DIR: &str = "st-runtime";
+pub const RUNTIME_DIR: &str = "stoc-runtime";
+
+/// 旧数据根目录名（改名前的值；仅用于一次性采用）
+const LEGACY_RUNTIME_DIR: &str = "st-runtime";
+
+/// 历史应用标识符（config_dir 的同级目录名；新→旧顺序）
+const LEGACY_IDENTIFIERS: [&str; 2] = ["io.github.stevendd.stchat", "com.datago.st-chat"];
 
 pub fn external_root(config_dir: &Path) -> PathBuf {
     config_dir.join(RUNTIME_DIR)
@@ -31,6 +37,47 @@ pub fn external_data_root(config_dir: &Path) -> PathBuf {
 
 pub fn external_config_path(config_dir: &Path) -> PathBuf {
     external_root(config_dir).join("config.yaml")
+}
+
+/// 旧数据根一次性采用（best-effort，失败不阻断启动）：
+/// 新数据根不存在、且某个旧标识符目录下的旧 `st-runtime` 存在时，把整个旧根
+/// rename 到新位置（data/、config.yaml、backups 一起搬）；成功返回旧根路径。
+/// 新根已存在 → 不动（幂等，不覆盖新数据）。
+pub fn adopt_legacy_root(config_dir: &Path) -> Option<PathBuf> {
+    let new_root = external_root(config_dir);
+    if new_root.exists() {
+        return None;
+    }
+    let parent = config_dir.parent()?;
+    for id in LEGACY_IDENTIFIERS {
+        let old = parent.join(id).join(LEGACY_RUNTIME_DIR);
+        if !old.is_dir() {
+            continue;
+        }
+        if let Some(p) = new_root.parent() {
+            let _ = fs::create_dir_all(p);
+        }
+        match fs::rename(&old, &new_root) {
+            Ok(()) => {
+                log::info!(
+                    target: crate::backend::logx::FS,
+                    "旧数据根一次性采用：{} → {}（identifier={id}）",
+                    display_path(&old),
+                    display_path(&new_root)
+                );
+                return Some(old);
+            }
+            Err(e) => {
+                log::warn!(
+                    target: crate::backend::logx::FS,
+                    "旧数据根采用失败（不阻断启动）：{} → {}：{e}",
+                    display_path(&old),
+                    display_path(&new_root)
+                );
+            }
+        }
+    }
+    None
 }
 
 /* ------------------------------------------------------------------ *
@@ -81,6 +128,30 @@ pub struct DataBagResult {
     pub message: String,
 }
 
+/// 明文密钥面判定（R2 加固）：include_secrets=false 时命中即排除。
+///
+/// 覆盖三类，防止历史备份绕过排除清单：
+/// 1. 精确相对路径 `default-user/secrets.json` / `cookie-secret.txt`（ST 字面位置）；
+/// 2. **任意层级**的同名文件（如 `backups/20260101/secrets.json`）；
+/// 3. 其备份/临时副本（`secrets.json.bak`、`secrets.json.bak-20260101`、
+///    `cookie-secret.txt.tmp` —— 前缀 + `.` 即视为同族）。
+///
+/// 反例（**不**排除）：`characters.json.bak`、`secrets.json5`。
+pub fn is_secret_path(rel_norm: &str) -> bool {
+    const SECRET_FILES: [&str; 2] = ["default-user/secrets.json", "cookie-secret.txt"];
+    if SECRET_FILES.contains(&rel_norm) {
+        return true;
+    }
+    let name = rel_norm.rsplit('/').next().unwrap_or(rel_norm);
+    ["secrets.json", "cookie-secret.txt"].iter().any(|s| {
+        name == *s
+            || name
+                .strip_prefix(s)
+                .map(|rest| rest.starts_with('.'))
+                .unwrap_or(false)
+    })
+}
+
 /// 导出：把数据目录内容 + config.yaml 打成一个 zip（zip 布局 = 数据内容在根 + config.yaml）。
 /// 同步实现，调用方放阻塞线程执行。
 pub fn export_bag(
@@ -105,9 +176,7 @@ pub fn export_bag(
     let mut files = 0u64;
     let mut bytes = 0u64;
     let mut excluded = 0u64;
-    // 明文密钥面排除清单（secrets.json = API 密钥多值结构；
-    // cookie-secret.txt = 会话签名密钥）。include_secrets=false 时跳过。
-    const SECRET_FILES: [&str; 2] = ["default-user/secrets.json", "cookie-secret.txt"];
+    // 明文密钥面：include_secrets=false 时按下述判定跳过（见 is_secret_path）。
     let mut stack = vec![data_root.to_path_buf()];
     while let Some(dir) = stack.pop() {
         let rd = fs::read_dir(&dir).map_err(|e| format!("读取目录失败 {}: {e}", dir.display()))?;
@@ -121,7 +190,7 @@ pub fn export_bag(
                 stack.push(p);
                 continue;
             }
-            if !include_secrets && SECRET_FILES.iter().any(|s| rel_norm == *s) {
+            if !include_secrets && is_secret_path(&rel_norm) {
                 excluded += 1;
                 continue;
             }
@@ -209,7 +278,7 @@ pub fn import_bag(
             let bak = data_root.with_extension(format!("bak-{ts}"));
             fs::rename(data_root, &bak).map_err(|e| format!("备份现有数据失败：{e}"))?;
             log::info!(
-                target: "stchat::fs",
+                target: crate::backend::logx::FS,
                 "数据袋导入前备份 → {}（{} 文件）",
                 display_path(&bak),
                 st.files
@@ -232,7 +301,7 @@ pub fn import_bag(
         };
         let rel = rel.to_path_buf();
 
-        // config.yaml 单独处理（放 st-runtime 根，不放数据目录）
+        // config.yaml 单独处理（放 stoc-runtime 根，不放数据目录）
         let is_config = rel.file_name().map(|f| f == "config.yaml").unwrap_or(false)
             && rel
                 .parent()
@@ -297,7 +366,7 @@ mod tests {
 
     #[test]
     fn stat_tree_counts_files_and_bytes() {
-        let base = std::env::temp_dir().join(format!("stchat-data-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("stoc-data-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         fs::create_dir_all(base.join("sub")).unwrap();
         fs::write(base.join("a.txt"), b"hello").unwrap();
@@ -311,13 +380,13 @@ mod tests {
 
     #[test]
     fn export_import_roundtrip() {
-        let base = std::env::temp_dir().join(format!("stchat-bag-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("stoc-bag-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
-        let data = base.join("st-runtime/data");
+        let data = base.join("stoc-runtime/data");
         fs::create_dir_all(data.join("default-user/characters")).unwrap();
         fs::write(data.join("default-user/characters/c1.png"), b"png1").unwrap();
         fs::write(data.join("cookie-secret.txt"), b"secret").unwrap();
-        let config = base.join("st-runtime/config.yaml");
+        let config = base.join("stoc-runtime/config.yaml");
         fs::write(&config, b"port: 8000\n").unwrap();
 
         // 导出（含密钥）
@@ -347,12 +416,98 @@ mod tests {
         fs::write(data.join("stale.txt"), b"old").unwrap();
         let r2 = import_bag(&zip_path, &data, Some(&config)).expect("import 2 ok");
         assert_eq!(r2.files, 3);
-        let has_bak = fs::read_dir(base.join("st-runtime"))
+        let has_bak = fs::read_dir(base.join("stoc-runtime"))
             .unwrap()
             .flatten()
             .any(|e| e.file_name().to_string_lossy().starts_with("data.bak-"));
         assert!(has_bak, "导入前必须把现有数据备份成 data.bak-*");
 
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn export_excludes_secret_backups_at_any_depth() {
+        let base = std::env::temp_dir().join(format!("stoc-secretbag-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let data = base.join("data");
+        fs::create_dir_all(data.join("default-user")).unwrap();
+        fs::create_dir_all(data.join("backups").join("20260101")).unwrap();
+        fs::write(data.join("default-user/secrets.json"), b"{}").unwrap();
+        fs::write(data.join("default-user/secrets.json.bak"), b"{}").unwrap();
+        fs::write(data.join("backups/20260101/secrets.json"), b"{}").unwrap();
+        fs::write(data.join("cookie-secret.txt"), b"cookie").unwrap();
+        // 反例：非密钥文件不得被误排除
+        fs::write(data.join("default-user/characters.json.bak"), b"keep").unwrap();
+
+        let zip_path = base.join("safe.zip");
+        let out = export_bag(&data, None, &zip_path, false).expect("export ok");
+        assert_eq!(out.files, 1, "只应保留非密钥文件 1 个");
+        assert!(out.message.contains("已排除"), "排除面消息必须带提示");
+
+        let file = fs::File::open(&zip_path).unwrap();
+        let mut z = zip::ZipArchive::new(file).unwrap();
+        let mut names = Vec::new();
+        for i in 0..z.len() {
+            names.push(z.by_index(i).unwrap().name().to_string());
+        }
+        assert_eq!(names, vec!["default-user/characters.json.bak".to_string()], "zip 内不得含任何密钥或其备份");
+
+        assert!(is_secret_path("default-user/secrets.json"));
+        assert!(is_secret_path("backups/20260101/secrets.json"));
+        assert!(is_secret_path("x/y/secrets.json.bak-20260101"));
+        assert!(is_secret_path("cookie-secret.txt.tmp"));
+        assert!(!is_secret_path("characters.json.bak"));
+        assert!(!is_secret_path("secrets.json5"));
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn runtime_dir_is_renamed() {
+        assert_eq!(RUNTIME_DIR, "stoc-runtime");
+        assert_eq!(
+            external_root(Path::new("cfg")),
+            Path::new("cfg").join(RUNTIME_DIR)
+        );
+    }
+
+    #[test]
+    fn adopt_legacy_root_moves_old_dir_once() {
+        let base = std::env::temp_dir().join(format!("stoc-adopt-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let config_dir = base.join("io.github.stevendd.sillytavernopenchat");
+        fs::create_dir_all(&config_dir).unwrap();
+        let old = base.join("io.github.stevendd.stchat").join("st-runtime");
+        fs::create_dir_all(old.join("data/default-user")).unwrap();
+        fs::write(old.join("data/default-user/settings.json"), b"{}").unwrap();
+        fs::write(old.join("config.yaml"), b"port: 8000\n").unwrap();
+
+        let adopted = adopt_legacy_root(&config_dir).expect("旧根应被采用");
+        assert_eq!(adopted, old);
+        assert!(!old.exists(), "旧根应已移走");
+        let new_root = external_root(&config_dir);
+        assert!(
+            new_root.join("data/default-user/settings.json").is_file(),
+            "内容随根整体搬迁"
+        );
+        assert!(new_root.join("config.yaml").is_file());
+        // 幂等：新根已存在 → 不再动
+        assert!(adopt_legacy_root(&config_dir).is_none());
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn adopt_legacy_root_handles_earliest_identifier() {
+        let base = std::env::temp_dir().join(format!("stoc-adopt-old-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let config_dir = base.join("io.github.stevendd.sillytavernopenchat");
+        fs::create_dir_all(&config_dir).unwrap();
+        // 更早的标识符目录（com.datago.st-chat）
+        let old = base.join("com.datago.st-chat").join("st-runtime");
+        fs::create_dir_all(old.join("data")).unwrap();
+        fs::write(old.join("data/x.json"), b"1").unwrap();
+
+        assert!(adopt_legacy_root(&config_dir).is_some());
+        assert!(external_root(&config_dir).join("data/x.json").is_file());
         let _ = fs::remove_dir_all(&base);
     }
 }
