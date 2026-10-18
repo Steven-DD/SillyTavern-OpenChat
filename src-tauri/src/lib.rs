@@ -631,6 +631,122 @@ fn st_pause_for_migration(app: tauri::AppHandle) -> Result<String, String> {
 }
 
 /* ================================================================== *
+ * native backend 命令（T6 闸门接线）
+ * ================================================================== */
+
+/// backend 控制槽：setup 注册；native backend 启动后的 BackendHandle 存这里
+type NativeBackendSlot = std::sync::Mutex<Option<backend::BackendHandle>>;
+
+#[derive(serde::Serialize)]
+struct NativeBackendStartOut {
+    port: u16,
+}
+
+/// native 数据根目录裁决：与本应用的数据迁移同一来源（host.data_paths 绑定值；
+/// ST 未就绪时回退到外移根目录 —— 与 data_bag_context 同口径）。
+fn native_data_root(host: &plugin::PluginHost) -> PathBuf {
+    match host.resolve() {
+        Ok(r) => host.data_paths(&r.st_dir).0,
+        Err(_) => st_data::external_root(&host.config_dir),
+    }
+}
+
+/// 启动 native backend（T6 闸门三分支）：
+///   外部 ST 在跑 → 可读拒绝；托管 ST 在跑 → 先经 prepare_for_migration
+///   停止并等端口释放；都未跑 → 放行。随后以数据迁移同一裁决的 data_root
+///   调 backend::start，handle 存 NativeBackendSlot，返回端口。
+/// 幂等：已有活动实例时直接返回现有端口（不重叠拉第二个 backend）。
+#[tauri::command]
+async fn native_backend_start(
+    app: tauri::AppHandle,
+    host: Host<'_>,
+) -> Result<NativeBackendStartOut, String> {
+    // 闸门探测 + 托管实例的停止等待（轮询 sleep 可能阻塞数秒）放阻塞线程池
+    let app2 = app.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let (port, managed) = app2
+            .try_state::<st_sidecar::SidecarState>()
+            .map(|s| (s.port, s.managed()))
+            .unwrap_or((st_sidecar::DEFAULT_ST_PORT, false));
+
+        let mut presence = backend::gate::StPresence::probe(port, managed);
+        if matches!(presence, backend::gate::StPresence::Managed(_)) {
+            // 复用与数据迁移同一份停止语义：停掉托管实例并等端口真正释放
+            st_sidecar::prepare_for_migration(&app2)?;
+            // 停止后按同端口再探一次；仍有人在听（无论归属）一律被下述拒绝
+            presence = backend::gate::StPresence::probe(port, managed);
+        }
+        backend::gate::require_st_stopped(presence).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("闸门任务异常终止：{e}"))??;
+
+    // 已有活动实例 → 幂等返回现有端口
+    let slot = app.state::<NativeBackendSlot>();
+    {
+        let g = slot.lock().map_err(|_| "backend 控制槽被污染".to_string())?;
+        if let Some(h) = &*g {
+            return Ok(NativeBackendStartOut { port: h.port });
+        }
+    }
+
+    let handle = backend::start(native_data_root(&host))
+        .await
+        .map_err(|e| format!("native backend 启动失败：{e}"))?;
+    let out = NativeBackendStartOut { port: handle.port };
+    slot.lock()
+        .map_err(|_| "backend 控制槽被污染".to_string())?
+        .replace(handle);
+    Ok(out)
+}
+
+#[derive(serde::Serialize)]
+struct NativeRollbackCheckOut {
+    ok: bool,
+    failures: Vec<String>,
+}
+
+/// 切回 st 模式的前置校验（T6/RB1）：数据目录里 native 写出的文件
+/// ST 是否仍读得出来（抽样快检，失败清单如实返回）。
+#[tauri::command]
+fn native_pre_rollback_check(host: Host<'_>) -> Result<NativeRollbackCheckOut, String> {
+    let r = backend::gate::pre_rollback_check(&native_data_root(&host));
+    Ok(NativeRollbackCheckOut {
+        ok: r.ok,
+        failures: r.failures,
+    })
+}
+
+#[derive(serde::Serialize)]
+struct NativeBackendStopOut {
+    running: bool,
+    message: String,
+}
+
+/// native backend 停止（**如实语义，不伪造**）：本版本 backend server 依托
+/// 进程生命周期运行（axum 服务无独立关闭通道），这里只如实报告现状与说明，
+/// 不假装「已停止」；仍在跑的控制槽保持不动，保证状态口径与真实一致。
+#[tauri::command]
+fn native_backend_stop(app: tauri::AppHandle) -> Result<NativeBackendStopOut, String> {
+    let slot = app.state::<NativeBackendSlot>();
+    let g = slot.lock().map_err(|_| "backend 控制槽被污染".to_string())?;
+    match &*g {
+        Some(h) => Ok(NativeBackendStopOut {
+            running: true,
+            message: format!(
+                "native backend（127.0.0.1:{}）以进程生命周期为停止准则，\
+                 当前版本没有独立停止通道；如需停止请退出本应用",
+                h.port
+            ),
+        }),
+        None => Ok(NativeBackendStopOut {
+            running: false,
+            message: "native backend 未启动，无需停止".into(),
+        }),
+    }
+}
+
+/* ================================================================== *
  * 应用设置命令（代理 / 安装目录）
  * ================================================================== */
 
@@ -830,42 +946,58 @@ async fn chat_mutate_lines(
     ops: Vec<ChatLineOp>,
 ) -> Result<(), String> {
     let path = chat_jsonl_path(&*host, &avatar, &file)?;
-    tauri::async_runtime::spawn_blocking(move || {
-        let raw = std::fs::read_to_string(&path).map_err(|e| format!("读取会话失败：{e}"))?;
-        let mut lines: Vec<String> = raw.lines().map(|s| s.to_string()).collect();
-        for op in ops {
-            match op {
-                ChatLineOp::Replace { index, json } => {
-                    if index >= lines.len() {
-                        return Err(format!("行号越界：{index}（共 {} 行）", lines.len()));
-                    }
-                    serde_json::from_str::<serde_json::Value>(&json)
-                        .map_err(|e| format!("第 {index} 行不是合法 JSON：{e}"))?;
-                    lines[index] = json;
+    tauri::async_runtime::spawn_blocking(move || chat_apply_ops_to_file(&path, ops))
+        .await
+        .map_err(|e| format!("任务异常：{e}"))?
+}
+
+/// T15 可测内核：读文件 → 行级操作 → 原子写回。
+/// 整体失败语义：任一操作非法即整批失败 —— 不产生半成品写入
+/// （.tmp 要么从未创建，要么留在原地但目标文件逐字节未动）。
+fn chat_apply_ops_to_file(path: &Path, ops: Vec<ChatLineOp>) -> Result<(), String> {
+    let raw = std::fs::read_to_string(path).map_err(|e| format!("读取会话失败：{e}"))?;
+    let lines = raw.lines().map(|s| s.to_string()).collect::<Vec<_>>();
+    let lines = chat_ops_apply(lines, ops)?;
+    chat_write_atomic(path, &lines)
+}
+
+/// 纯内核（T15）：对行向量施加操作，不触碰文件系统。
+/// Replace 越界 / Delete 越界 → 拒绝（append 语义归 Insert）；Insert 越界
+/// 钳制到末尾；每批写回前各自校验合法 JSON。
+fn chat_ops_apply(mut lines: Vec<String>, ops: Vec<ChatLineOp>) -> Result<Vec<String>, String> {
+    for op in ops {
+        match op {
+            ChatLineOp::Replace { index, json } => {
+                if index >= lines.len() {
+                    return Err(format!("行号越界：{index}（共 {} 行）", lines.len()));
                 }
-                ChatLineOp::Delete { index } => {
-                    if index >= lines.len() {
-                        return Err(format!("行号越界：{index}（共 {} 行）", lines.len()));
-                    }
-                    lines.remove(index);
+                serde_json::from_str::<serde_json::Value>(&json)
+                    .map_err(|e| format!("第 {index} 行不是合法 JSON：{e}"))?;
+                lines[index] = json;
+            }
+            ChatLineOp::Delete { index } => {
+                if index >= lines.len() {
+                    return Err(format!("行号越界：{index}（共 {} 行）", lines.len()));
                 }
-                ChatLineOp::Insert { index, json } => {
-                    serde_json::from_str::<serde_json::Value>(&json)
-                        .map_err(|e| format!("插入内容不是合法 JSON：{e}"))?;
-                    let index = index.min(lines.len());
-                    lines.insert(index, json);
-                }
+                lines.remove(index);
+            }
+            ChatLineOp::Insert { index, json } => {
+                serde_json::from_str::<serde_json::Value>(&json)
+                    .map_err(|e| format!("插入内容不是合法 JSON：{e}"))?;
+                let index = index.min(lines.len());
+                lines.insert(index, json);
             }
         }
-        // 原子写回：临时文件 + rename，防中途崩溃损坏会话
-        let tmp = path.with_extension("jsonl.tmp");
-        std::fs::write(&tmp, format!("{}\n", lines.join("\n")))
-            .map_err(|e| format!("写入临时文件失败：{e}"))?;
-        std::fs::rename(&tmp, &path).map_err(|e| format!("替换会话文件失败：{e}"))?;
-        Ok::<(), String>(())
-    })
-    .await
-    .map_err(|e| format!("任务异常：{e}"))?
+    }
+    Ok(lines)
+}
+
+/// 原子写回：临时文件 + rename，防中途崩溃损坏会话（T15：抽出供验证无 .tmp 残留）。
+fn chat_write_atomic(path: &Path, lines: &[String]) -> Result<(), String> {
+    let tmp = path.with_extension("jsonl.tmp");
+    std::fs::write(&tmp, format!("{}\n", lines.join("\n")))
+        .map_err(|e| format!("写入临时文件失败：{e}"))?;
+    std::fs::rename(&tmp, path).map_err(|e| format!("替换会话文件失败：{e}"))
 }
 
 /// 导出会话原版 jsonl 到指定路径（与 ST 文件互通）
@@ -1174,6 +1306,9 @@ pub fn run() {
             st_data_rollback,
             st_data_remove_external,
             st_pause_for_migration,
+            native_backend_start,
+            native_pre_rollback_check,
+            native_backend_stop,
             st_data_export,
             st_data_import,
             chat_mutate_lines,
@@ -1260,6 +1395,9 @@ pub fn run() {
                 handle: relay_ep.handle,
             });
 
+            // 3) native backend 控制槽（T6：BackendHandle 存这里；None = 未启动）
+            app.manage(NativeBackendSlot::new(None));
+
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -1271,4 +1409,175 @@ pub fn run() {
             st_sidecar::stop_sillytavern(handle);
         }
     });
+}
+
+/* ================================================================== *
+ * T15 会话行级操作测试（文件面断言）
+ * ================================================================== */
+
+#[cfg(test)]
+mod chat_line_tests {
+    use super::*;
+    use ChatLineOp::{Delete, Insert, Replace};
+
+    fn lines_of(raw: &str) -> Vec<String> {
+        raw.lines().map(|s| s.to_string()).collect()
+    }
+
+    fn tmp_dir(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("stchat-t15-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    /// Replace 越界（index == len 与 index > len）必须拒绝，不静默钳制成 append
+    #[test]
+    fn replace_out_of_bounds_is_rejected() {
+        let err = chat_ops_apply(
+            vec![r#"{"n":0}"#.into(), r#"{"n":1}"#.into()],
+            vec![Replace {
+                index: 2,
+                json: r#"{"n":9}"#.into(),
+            }],
+        )
+        .unwrap_err();
+        assert!(err.contains("行号越界"), "{err}");
+        assert!(err.contains("共 2 行"), "{err}");
+
+        let err = chat_ops_apply(
+            vec![r#"{"n":0}"#.into()],
+            vec![Replace {
+                index: 1,
+                json: r#"{"n":9}"#.into(),
+            }],
+        )
+        .unwrap_err();
+        assert!(err.contains("行号越界"), "{err}");
+    }
+
+    /// Insert 头部 / 中部 / 尾部（含越界钳制到尾部）各落到位
+    #[test]
+    fn insert_head_middle_tail() {
+        let out = chat_ops_apply(
+            vec![r#"{"a":1}"#.into(), r#"{"c":3}"#.into()],
+            vec![
+                Insert { index: 1, json: r#"{"b":2}"#.into() },
+                Insert { index: 0, json: r#"{"h":0}"#.into() },
+                Insert { index: 4, json: r#"{"t":4}"#.into() },
+                Insert { index: 999, json: r#"{"x":5}"#.into() },
+            ],
+        )
+        .unwrap();
+        let keys: Vec<String> = out
+            .iter()
+            .map(|l| {
+                let v: serde_json::Value = serde_json::from_str(l).unwrap();
+                v.as_object().unwrap().keys().next().unwrap().clone()
+            })
+            .collect();
+        assert_eq!(
+            keys,
+            ["h", "a", "b", "c", "t", "x"].map(|s| s.to_string())
+        );
+    }
+
+    /// Delete 后物理行号与 get 下标一一对应（第 i 个物理行 = 下标 i 的内容）
+    #[test]
+    fn delete_keeps_physical_line_numbers_matching_get_index() {
+        let raw = "{\"h\":0}\n{\"a\":1}\n{\"b\":2}\n{\"c\":3}\n";
+        let out = chat_ops_apply(lines_of(raw), vec![Delete { index: 1 }]).unwrap();
+        assert_eq!(out.len(), 3, "物理行数应减 1");
+        assert_eq!(out[0], "{\"h\":0}");
+        assert_eq!(out[1], "{\"b\":2}");
+        assert_eq!(out[2], "{\"c\":3}");
+    }
+
+    /// 未触碰行的未知字段（swipes/extra 等扩展）逐字节保真
+    #[test]
+    fn unknown_fields_survive_untouched_lines() {
+        let raw = concat!(
+            "{\"chat_metadata\":{}}\n",
+            "{\"mes\":\"a\",\"swipes\":[\"x\",\"y\"],\"extra\":{\"k\":1}}\n",
+            "{\"mes\":\"b\"}\n"
+        );
+        let out = chat_ops_apply(
+            lines_of(raw),
+            vec![Replace { index: 2, json: "{\"mes\":\"b2\"}".into() }],
+        )
+        .unwrap();
+        assert_eq!(out[0], "{\"chat_metadata\":{}}");
+        assert_eq!(
+            out[1],
+            "{\"mes\":\"a\",\"swipes\":[\"x\",\"y\"],\"extra\":{\"k\":1}}",
+            "未触碰行的原始字节必须原样保留"
+        );
+        assert_eq!(out[2], "{\"mes\":\"b2\"}");
+    }
+
+    /// .tmp 原子写：内容完整、结尾换行、rename 后无 .tmp 残留
+    #[test]
+    fn atomic_write_leaves_no_tmp_residue() {
+        let dir = tmp_dir("atomic");
+        let path = dir.join("chat.jsonl");
+        chat_write_atomic(
+            &path,
+            &["{\"h\":0}".to_string(), "{\"a\":1}".to_string()],
+        )
+        .unwrap();
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(raw, "{\"h\":0}\n{\"a\":1}\n");
+        assert!(
+            !path.with_extension("jsonl.tmp").exists(),
+            "rename 后 .tmp 不许残留"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 首行 chat_metadata header 在行级操作后必须原样完整
+    #[test]
+    fn chat_metadata_header_survives_line_ops() {
+        let raw = "{\"chat_metadata\":{\"id\":\"01J\"}}\n{\"mes\":\"a\"}\n";
+        let out = chat_ops_apply(
+            lines_of(raw),
+            vec![
+                Replace { index: 1, json: "{\"mes\":\"b\"}".into() },
+                Insert { index: 2, json: "{\"mes\":\"c\"}".into() },
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            out[0],
+            "{\"chat_metadata\":{\"id\":\"01J\"}}",
+            "首行 header 不许被行级操作改写"
+        );
+        assert_eq!(out.last().unwrap(), "{\"mes\":\"c\"}");
+    }
+
+    /// abort 语义：批内任一 op 非法 → 整批失败，物理文件逐字节未动、无 .tmp 半成品
+    #[test]
+    fn aborted_batch_does_not_damage_jsonl() {
+        let dir = tmp_dir("abort");
+        let path = dir.join("chat.jsonl");
+        let raw = "{\"chat_metadata\":{}}\n{\"mes\":\"行1\",\"指纹\":\"keep\"}\n";
+        std::fs::write(&path, raw).unwrap();
+
+        let err = chat_apply_ops_to_file(
+            &path,
+            vec![
+                Replace { index: 0, json: "{\"chat_metadata\":{\"x\":1}}".into() },
+                Replace { index: 1, json: "not-json{".into() },
+            ],
+        )
+        .unwrap_err();
+        assert!(err.contains("不是合法 JSON"), "{err}");
+
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(after, raw, "失败批不得损坏目标 JSONL");
+        assert!(
+            !path.with_extension("jsonl.tmp").exists(),
+            "失败批不得留下 .tmp 半成品"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

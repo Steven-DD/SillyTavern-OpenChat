@@ -342,8 +342,14 @@ fn get_chat_info(
 
     let lines: Vec<&str> = text.lines().collect();
     let mut items = 0usize;
-    let mut has_match = fragments.is_none();
     let mut last_mes = String::new();
+    // matchBuffer 语义对齐 ST（chats.js:457-478 已逐行核对）：缓冲**累积全部**
+    // 消息行的 mes（元数据行除外），matcher（hasTextMatch，chats.js:1013-1018）
+    // 要求「每个片段命中缓冲中任一文本」；缓冲单调增长、命中即闩锁 ——
+    // 等价判定：每个片段在整个会话的全部消息里至少命中一条 mes。
+    // （不同片段允许命中不同消息——这就是 ST 的跨行搜索；片段本身仍须
+    // 落在单条 mes 内，跨消息拼接不算命中。）
+    let mut all_mes: Vec<String> = Vec::new();
     for (idx, line) in lines.iter().enumerate() {
         if with_metadata && idx == 0 {
             if let Ok(head) = serde_json::from_str::<Value>(line) {
@@ -357,21 +363,18 @@ fn get_chat_info(
         if let Ok(msg) = serde_json::from_str::<Value>(line) {
             let mes = msg.get("mes").and_then(|m| m.as_str()).unwrap_or("");
             if idx > 0 {
-                if let Some(frags) = fragments {
-                    if !has_match {
-                        // matcher（chats.js:1013-1018）：每个片段至少命中任一文本
-                        let mut buf: Vec<String> = vec![mes.to_string()];
-                        buf.extend(last_mes_lines(&lines, idx));
-                        has_match = frags
-                            .iter()
-                            .all(|f| buf.iter().any(|t| t.to_lowercase().contains(f)));
-                    }
-                }
+                all_mes.push(mes.to_string());
             }
             last_mes = mes.to_string();
         }
         items += 1;
     }
+    let has_match = match fragments {
+        None => true,
+        Some(frags) => frags
+            .iter()
+            .all(|f| all_mes.iter().any(|t| t.to_lowercase().contains(f))),
+    };
     let last_line = lines.last().copied().unwrap_or("");
     let last_ok = serde_json::from_str::<Value>(last_line)
         .map(|v| {
@@ -409,20 +412,8 @@ fn get_chat_info(
     out
 }
 
-/// matcher 的文本缓冲：当前行 + 此前行（简化版 hasTextMatch 的滑动窗口 ——
-/// ST 的 matchBuffer 跨行累积，这里以「当前+上一行」覆盖主要场景；
-/// 完整滑动窗口由调用方 hasTextMatch(fragments) 直接全文匹配兜底）
-fn last_mes_lines<'a>(lines: &[&'a str], idx: usize) -> Vec<String> {
-    let mut v = Vec::new();
-    if idx >= 1 {
-        if let Ok(p) = serde_json::from_str::<Value>(lines[idx - 1]) {
-            if let Some(m) = p.get("mes").and_then(|m| m.as_str()) {
-                v.push(m.to_string());
-            }
-        }
-    }
-    v
-}
+/// matcher 的文本缓冲已并入 get_chat_info 主扫描（全量 mes 收集后统一判定，
+/// 语义见该函数内注释）—— 原「当前+上一行」窗口辅助函数 last_mes_lines 已删。
 
 fn iso_utc(secs: i64) -> String {
     let (y, mth, d, h, mi, s) = super::settings::civil_utc(secs);
@@ -517,8 +508,13 @@ pub fn get(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Resp
     let Some(file_name) = body.get("file_name").and_then(|v| v.as_str()) else {
         return ok_json(origin, json!({}));
     };
+    // S7：穿越/含分隔符的 file_name 显式 403（原实现静默 {} —— 与 save/rename/delete
+    // 的 403 面不一致，且掩盖攻击探测）
     let Ok(safe_file) = crate::pathguard::component(&format!("{file_name}.jsonl")) else {
-        return ok_json(origin, json!({}));
+        return apply_cors_resp(
+            err_json(StatusCode::FORBIDDEN, "非法文件名").into_response(),
+            origin,
+        );
     };
     ok_json(origin, Value::Array(get_chat_data(&dir.join(safe_file))))
 }
@@ -1212,6 +1208,101 @@ mod tests {
             .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v.as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn search_matches_fragments_across_lines_full_buffer() {
+        // matchBuffer 对齐 ST（chats.js:457-478）：全量 buffer —— 不同片段允许
+        // 命中**不同消息行**（旧实现只看「当前+上一行」窗口，片段落在相隔多行
+        // 的两条消息时漏检）。
+        let st = st_with("crossline");
+        let s = svc();
+        save(
+            &st,
+            &s,
+            &json!({ "avatar_url": "chara.png", "file_name": "far", "chat": json!([
+            { "name": "U", "is_user": true, "chat_metadata": {} },
+            { "name": "C", "mes": "alpha begins the talk" },
+            { "name": "C", "mes": "filler one" },
+            { "name": "C", "mes": "filler two" },
+            { "name": "C", "mes": "omega ends the talk" },
+        ]) }),
+            None,
+        );
+        // 「alpha」在第 1 条消息、「omega」在第 4 条 —— 必须命中
+        let r = search(
+            &st,
+            &json!({ "avatar_url": "chara.png", "query": "alpha omega" }),
+            None,
+        );
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
+        let v: Value = serde_json::from_slice(&bytes).unwrap();
+        let arr = v.as_array().unwrap();
+        assert_eq!(
+            arr.len(),
+            1,
+            "相隔多行的片段 AND 命中（ST matchBuffer 全量语义）"
+        );
+        assert_eq!(arr[0]["file_name"], "far");
+        // 全不命中的查询 → 空结果（对照面）
+        let r = search(
+            &st,
+            &json!({ "avatar_url": "chara.png", "query": "zeta" }),
+            None,
+        );
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
+        let v: Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(v.as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn traversal_names_are_rejected_and_leave_no_files() {
+        // S7：get(file_name)/delete(chatfile)/rename(renamed_file) 的 handler 级
+        // 穿越断言 —— 403 且数据目录外无任何新文件
+        //（断言确定性目标路径而非目录快照 —— 快照对并行测试不抗扰）
+        let st = st_with("traversal");
+        let outside = st.data_root.parent().unwrap().join("evil.jsonl");
+        let inside_top = st.data_root.join("evil.jsonl");
+        let _ = std::fs::remove_file(&outside);
+        let _ = std::fs::remove_file(&inside_top);
+
+        // get：file_name 穿越 → 403
+        let r = get(
+            &st,
+            &json!({ "avatar_url": "chara.png", "file_name": "../../../evil" }),
+            None,
+        );
+        assert_eq!(r.status().as_u16(), 403, "get file_name 穿越 403");
+        // delete：chatfile 穿越 → 403
+        let r = delete(
+            &st,
+            &json!({ "avatar_url": "chara.png", "chatfile": "../../../evil.jsonl" }),
+            None,
+        );
+        assert_eq!(r.status().as_u16(), 403, "delete chatfile 穿越 403");
+        // rename：renamed_file 穿越 → 403
+        let r = rename(
+            &st,
+            &json!({ "avatar_url": "chara.png", "original_file": "c1", "renamed_file": "../../../evil" }),
+            None,
+        );
+        assert_eq!(r.status().as_u16(), 403, "rename renamed_file 穿越 403");
+        // rename：original_file 穿越同样 403
+        let r = rename(
+            &st,
+            &json!({ "avatar_url": "chara.png", "original_file": "../../evil", "renamed_file": "ok" }),
+            None,
+        );
+        assert_eq!(r.status().as_u16(), 403, "rename original_file 穿越 403");
+
+        // 数据目录外/顶层均无新文件（未发生任何落盘/改名）
+        assert!(!outside.exists(), "数据目录外不得有穿越落盘");
+        assert!(!inside_top.exists(), "数据根顶层不得有穿越落盘");
+        assert!(!chats_dir(&st).join("chara").join("ok.jsonl").exists(), "越权 rename 不生效");
     }
 
     #[test]

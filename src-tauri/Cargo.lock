@@ -4195,6 +4195,7 @@ dependencies = [
  "jsonwebtoken",
  "keyring",
  "multer",
+ "percent-encoding",
  "regex",
  "reqwest 0.12.28",
  "serde",

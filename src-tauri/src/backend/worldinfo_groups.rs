@@ -237,9 +237,14 @@ pub async fn wi_import(
     if let Some(parent) = p.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    match std::fs::write(&p, text.as_bytes()) {
+    // 原子写：tmp + rename（对齐同模块 wi_edit / settings 的原子写纪律，规避半写损坏）
+    let tmp = p.with_extension("json.tmp");
+    match std::fs::write(&tmp, text.as_bytes()).and_then(|_| std::fs::rename(&tmp, &p)) {
         Ok(()) => ok_json(origin, json!({ "name": file_id })),
-        Err(e) => err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("写入失败：{e}")),
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            err_json(StatusCode::INTERNAL_SERVER_ERROR, &format!("写入失败：{e}"))
+        }
     }
 }
 
@@ -520,6 +525,32 @@ mod tests {
         )
         .await;
         assert_eq!(r.status().as_u16(), 400);
+    }
+
+    #[test]
+    fn worldinfo_traversal_names_rejected_and_leave_no_files() {
+        // S7：worldinfo name 穿越 → 403，且数据目录外无新文件
+        //（确定性目标路径断言 —— 目录计数快照对并行测试不抗扰）
+        let st = st_with("witrav");
+        let outside_target = st.data_root.parent().unwrap().join("evil.json");
+        let _ = std::fs::remove_file(&outside_target);
+        for name in ["../../evil", "a/b", "..\\evil", "../x/../y"] {
+            let r = wi_get(&st, &json!({ "name": name }), None);
+            assert_eq!(r.status().as_u16(), 403, "wi_get 穿越名 {name:?} 必须 403");
+            let r = wi_edit(&st, &json!({ "name": name, "data": { "entries": {} } }), None);
+            assert_eq!(r.status().as_u16(), 403, "wi_edit 穿越名 {name:?} 必须 403");
+            let r = wi_delete(&st, &json!({ "name": name }), None);
+            assert_eq!(r.status().as_u16(), 403, "wi_delete 穿越名 {name:?} 必须 403");
+        }
+        assert!(!outside_target.exists(), "数据目录外无新文件");
+        // worlds 目录本身也不应被创建出越界文件
+        let worlds = worlds_dir(&st);
+        if worlds.is_dir() {
+            assert!(
+                std::fs::read_dir(&worlds).unwrap().count() == 0,
+                "worlds 目录内也不得有越界落盘"
+            );
+        }
     }
 
     #[test]

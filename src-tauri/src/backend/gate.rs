@@ -12,7 +12,8 @@
 //!
 //! ── 回滚前置校验（RB1/快检）──
 //! native 写出的文件 ST 是否仍可读，切回 `st` 前必须抽样快检：
-//! characters PNG 头 / chats JSONL 首末行可解析 / worlds JSON 可解析。
+//! characters PNG 头 / characters charx zip 魔数（PK\x03\x04）/ chats JSONL
+//! 首末行可解析 / worlds JSON 可解析 / settings.json JSON 可解析。
 //! 不通过 → 拒绝回滚并输出清单（不静默放行）。
 
 use std::net::{TcpStream, ToSocketAddrs};
@@ -118,17 +119,48 @@ fn png_magic_ok(p: &Path) -> Result<(), String> {
     }
 }
 
+/// charx 是 zip 容器（首 4 字节 PK\x03\x04）；样本头损坏说明写出中断或被改写
+fn zip_magic_ok(p: &Path) -> Result<(), String> {
+    use std::io::Read;
+    let mut f = std::fs::File::open(p).map_err(|e| format!("打开失败 {}: {e}", p.display()))?;
+    let mut head = [0u8; 4];
+    f.read_exact(&mut head)
+        .map_err(|e| format!("读取失败 {}: {e}", p.display()))?;
+    if head == [b'P', b'K', 0x03, 0x04] {
+        Ok(())
+    } else {
+        Err(format!("charx zip 魔数不符 {}", p.display()))
+    }
+}
+
 /// 回滚前置快检：native 写出的数据目录 ST 是否仍可读。
-/// 抽样策略：characters 最多 3 张 PNG 魔数 / chats 每角色最多 1 个 JSONL 首末行 /
-/// worlds 全部 JSON 解析（世界书通常少）。发现任何失败即拒绝回滚。
+/// 抽样策略：settings.json 整份可解析 / characters 最多 3 张 PNG 魔数 + 最多
+/// 3 个 charx zip 魔数 / chats 每角色最多 1 个 JSONL 首末行 / worlds 全部
+/// JSON 解析（世界书通常少）。发现任何失败即拒绝回滚。
 pub fn pre_rollback_check(data_root: &Path) -> RollbackCheck {
     let mut failures = Vec::new();
     let du = data_root.join("default-user");
 
-    // characters：PNG 魔数（抽样 3）
+    // settings.json：整份 JSON 可解析（单文件，无需抽样）
+    let settings_path = du.join("settings.json");
+    if settings_path.is_file() {
+        if let Err(e) = std::fs::read_to_string(&settings_path)
+            .map_err(|e| format!("读取失败 {}: {e}", settings_path.display()))
+            .and_then(|t| {
+                serde_json::from_str::<serde_json::Value>(&t)
+                    .map(|_| ())
+                    .map_err(|e| format!("JSON 解析失败 {}: {e}", settings_path.display()))
+            })
+        {
+            failures.push(e);
+        }
+    }
+
+    // characters：PNG 魔数（抽样 3）+ charx zip 魔数（抽样 3）
     let chars_dir = du.join("characters");
     if chars_dir.is_dir() {
-        let mut sampled = 0;
+        let mut png_n = 0;
+        let mut charx_n = 0;
         for entry in std::fs::read_dir(&chars_dir).into_iter().flatten() {
             let p = match entry {
                 Ok(e) => e.path(),
@@ -137,14 +169,23 @@ pub fn pre_rollback_check(data_root: &Path) -> RollbackCheck {
                     break;
                 }
             };
-            if p.extension().and_then(|e| e.to_str()) == Some("png") {
-                if let Err(e) = png_magic_ok(&p) {
-                    failures.push(e);
+            match p.extension().and_then(|e| e.to_str()) {
+                Some("png") if png_n < 3 => {
+                    if let Err(e) = png_magic_ok(&p) {
+                        failures.push(e);
+                    }
+                    png_n += 1;
                 }
-                sampled += 1;
-                if sampled >= 3 {
-                    break;
+                Some("charx") if charx_n < 3 => {
+                    if let Err(e) = zip_magic_ok(&p) {
+                        failures.push(e);
+                    }
+                    charx_n += 1;
                 }
+                _ => {}
+            }
+            if png_n >= 3 && charx_n >= 3 {
+                break;
             }
         }
     }
@@ -256,6 +297,10 @@ mod tests {
             [0x89u8, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00],
         )
         .unwrap();
+        // charx：zip 魔数 PK\x03\x04 开头即视为可读（快检不做完整解包）
+        std::fs::write(du.join("characters/b.charx"), [b'P', b'K', 0x03, 0x04, 0xFF])
+            .unwrap();
+        std::fs::write(du.join("settings.json"), "{\"username\":\"老板\"}").unwrap();
         std::fs::write(
             du.join("chats/char1/x.jsonl"),
             "{\"chat_metadata\":{}}\n{\"mes\":\"hi\"}\n",
@@ -300,6 +345,40 @@ mod tests {
         assert!(!r.ok, "损坏 PNG 必须拒绝回滚");
         assert!(
             r.failures.iter().any(|f| f.contains("PNG 魔数")),
+            "{:?}",
+            r.failures
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn rollback_check_fails_on_corrupt_charx() {
+        let tmp = std::env::temp_dir().join(format!("stchat-gate-charx-{}", std::process::id()));
+        let du = tmp.join("default-user");
+        std::fs::create_dir_all(du.join("characters")).unwrap();
+        std::fs::write(du.join("characters/a.charx"), b"NOTZIP!").unwrap();
+
+        let r = pre_rollback_check(&tmp);
+        assert!(!r.ok, "损坏 charx 必须拒绝回滚");
+        assert!(
+            r.failures.iter().any(|f| f.contains("charx zip 魔数")),
+            "{:?}",
+            r.failures
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn rollback_check_fails_on_corrupt_settings() {
+        let tmp = std::env::temp_dir().join(format!("stchat-gate-setj-{}", std::process::id()));
+        let du = tmp.join("default-user");
+        std::fs::create_dir_all(&du).unwrap();
+        std::fs::write(du.join("settings.json"), "{not-json").unwrap();
+
+        let r = pre_rollback_check(&tmp);
+        assert!(!r.ok, "不可解析的 settings.json 必须拒绝回滚");
+        assert!(
+            r.failures.iter().any(|f| f.contains("JSON 解析失败")),
             "{:?}",
             r.failures
         );

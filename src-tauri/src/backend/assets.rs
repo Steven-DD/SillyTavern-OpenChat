@@ -34,31 +34,43 @@ fn err_resp(status: StatusCode) -> Response {
     status.into_response()
 }
 
-/// S18：静态图片响应 —— Content-Type 按扩展名映射 + nosniff
+/// HIGH-1：percent-decode 一个 query 值 / URL 路径段（浏览器对 CJK、`/` 等发 %XX 形态）。
+/// 非法编码（坏 % 序列 / 非 UTF-8）→ None，调用方落 400/404，不得带着原编码串碰文件系统。
+fn pct_decode(s: &str) -> Option<String> {
+    percent_encoding::percent_decode_str(s)
+        .decode_utf8()
+        .ok()
+        .map(|c| c.into_owned())
+}
+
+/// S18：静态图片响应 —— Content-Type 由 uploads 的魔数嗅探判定（嗅探失败回落扩展名
+/// 映射）+ nosniff 恒置 + 非图片内容 attachment（防 <img> 上下文执行任意载荷）
 fn image_response(bytes: Vec<u8>, file_name: &str, origin: Option<HeaderValue>) -> Response {
     let ext = file_name
         .rsplit('.')
         .next()
         .unwrap_or("")
         .to_ascii_lowercase();
-    let mime = match ext.as_str() {
-        "png" | "apng" => "image/png",
-        "jpg" | "jpeg" | "jfif" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "bmp" => "image/bmp",
-        "tif" | "tiff" => "image/tiff",
-        _ => "application/octet-stream",
-    };
+    let sniffed = super::uploads::sniff_image_mime(&bytes);
     let mut resp = (StatusCode::OK, bytes).into_response();
+    let headers = super::uploads::static_response_headers(sniffed, &ext);
+    let ctype = headers
+        .iter()
+        .find(|(k, _)| *k == "content-type")
+        .map(|(_, v)| v.clone())
+        .unwrap_or_default();
     let h = resp.headers_mut();
-    if let Ok(v) = HeaderValue::from_str(mime) {
-        h.insert(header::CONTENT_TYPE, v);
+    for (k, v) in headers {
+        if let Ok(val) = HeaderValue::from_str(&v) {
+            h.insert(k, val);
+        }
     }
-    h.insert(
-        header::X_CONTENT_TYPE_OPTIONS,
-        HeaderValue::from_static("nosniff"),
-    );
+    if !ctype.starts_with("image/") {
+        h.insert(
+            header::CONTENT_DISPOSITION,
+            HeaderValue::from_static("attachment"),
+        );
+    }
     apply_cors_resp(resp, origin)
 }
 
@@ -89,58 +101,85 @@ pub fn thumbnail(st: &BackendState, query: &str, origin: Option<HeaderValue>) ->
             _ => {}
         }
     }
-    if t.is_empty() || file.is_empty() {
+    // HIGH-1：query 值先 percent-decode 再校验（file=%E7%94%B2.png → 甲.png；
+    // file=..%2Fevil.png → ../evil.png 必须在 pathguard 面被拒）
+    let (Some(t_dec), Some(file_dec)) = (pct_decode(t), pct_decode(file)) else {
+        return err_resp(StatusCode::BAD_REQUEST);
+    };
+    if t_dec.is_empty() || file_dec.is_empty() {
         return err_resp(StatusCode::BAD_REQUEST);
     }
-    if !matches!(t, "bg" | "avatar" | "persona") {
+    if !matches!(t_dec.as_str(), "bg" | "avatar" | "persona") {
         return err_resp(StatusCode::BAD_REQUEST);
     }
     // ST：file !== sanitize(file) → 403（thumbnails.js:258）
-    if file != crate::pathguard::sanitize(file) {
+    if file_dec != crate::pathguard::sanitize(&file_dec) {
         return err_resp(StatusCode::FORBIDDEN);
     }
-    let Some((_, original)) = thumb_dirs(st, t) else {
+    let Some((_, original)) = thumb_dirs(st, &t_dec) else {
         return err_resp(StatusCode::BAD_REQUEST);
     };
-    let Ok(safe) = crate::pathguard::component(file) else {
+    let Ok(safe) = crate::pathguard::component(&file_dec) else {
         return err_resp(StatusCode::FORBIDDEN);
     };
-    let p = original.join(safe);
+    let p = original.join(&safe);
     if !p.is_file() {
         return err_resp(StatusCode::NOT_FOUND);
     }
     match std::fs::read(&p) {
-        Ok(bytes) => image_response(bytes, file, origin),
+        Ok(bytes) => image_response(bytes, &safe, origin),
         Err(_) => err_resp(StatusCode::NOT_FOUND),
     }
 }
 
 /// GET /characters/<file> 等（manifest #31-#33 静态面，鉴权豁免路径的落盘读取）
+/// HIGH-1：路径按 `/` 分段，每段先 percent-decode 再过 pathguard::component，
+/// 最终 join_under 兜底 containment —— 支持 sprites 的 `/characters/<角色>/<文件>`
+/// 二级（及更深 `<char>/<sub>/<file>`）形态；穿越段（`..` / 含分隔符 / 保留名）一律 403。
 pub fn static_asset(st: &BackendState, path: &str, origin: Option<HeaderValue>) -> Response {
-    // path 形如 /characters/x.png、/backgrounds/b.jpg、/user-images/u.png
-    let (prefix, rel) = match path.split_once('/') {
-        Some((_, rest)) => match rest.split_once('/') {
-            Some(pair) => pair,
-            None => return err_resp(StatusCode::NOT_FOUND),
-        },
-        None => return err_resp(StatusCode::NOT_FOUND),
+    // path 形如 /characters/x.png、/backgrounds/b.jpg、/user-images/u.png、
+    // /characters/<角色>/<文件>
+    let Some(rest) = path.strip_prefix('/') else {
+        return err_resp(StatusCode::NOT_FOUND);
     };
-    let base = match prefix {
+    let mut segs = rest.split('/');
+    let base = match segs.next().unwrap_or("") {
         "characters" => du(st).join("characters"),
         "backgrounds" => du(st).join("backgrounds"),
         "user-images" => du(st).join("user").join("images"),
         _ => return err_resp(StatusCode::NOT_FOUND),
     };
-    let Ok(safe) = crate::pathguard::component(rel.split('?').next().unwrap_or(rel)) else {
-        return err_resp(StatusCode::FORBIDDEN);
+    let rel: Vec<&str> = segs.filter(|s| !s.is_empty()).collect();
+    if rel.is_empty() {
+        return err_resp(StatusCode::NOT_FOUND);
+    }
+    let mut decoded: Vec<String> = Vec::with_capacity(rel.len());
+    for seg in rel {
+        let Some(d) = pct_decode(seg).filter(|s| !s.is_empty()) else {
+            return err_resp(StatusCode::BAD_REQUEST);
+        };
+        match crate::pathguard::component(&d) {
+            Ok(c) => decoded.push(c),
+            Err(_) => return err_resp(StatusCode::FORBIDDEN),
+        }
+    }
+    let refs: Vec<&str> = decoded.iter().map(|s| s.as_str()).collect();
+    let p = match crate::pathguard::join_under(&base, &refs) {
+        Ok(p) => p,
+        Err(_) => return err_resp(StatusCode::FORBIDDEN),
     };
-    let safe_str = safe.clone();
-    let p = base.join(&safe);
     if !p.is_file() {
         return err_resp(StatusCode::NOT_FOUND);
     }
     match std::fs::read(&p) {
-        Ok(bytes) => image_response(bytes, &safe_str, origin),
+        Ok(bytes) => {
+            let name = p
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+            image_response(bytes, &name, origin)
+        }
         Err(_) => err_resp(StatusCode::NOT_FOUND),
     }
 }
@@ -325,8 +364,8 @@ pub fn images_upload(st: &BackendState, body: &Value, origin: Option<HeaderValue
             origin,
         );
     }
-    // 服务端命名（S17）：`<ch_name>_<ms>`（对齐前端 groups.ts:77 的语义，
-    // 但用户提供的 filename 只作参考）
+    // 服务端命名（S17）：走 uploads::server_filename 单一来源（`<ch_name>_<毫秒>`，
+    // 对齐前端 groups.ts:77 的语义，但用户提供的 filename 只作参考）
     let safe_ch = crate::pathguard::sanitize(ch_name);
     if safe_ch.is_empty() {
         return apply_cors_resp(
@@ -338,14 +377,21 @@ pub fn images_upload(st: &BackendState, body: &Value, origin: Option<HeaderValue
             origin,
         );
     }
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let ext = if format == "jpg" { "jpg" } else { format };
     let dir = du(st).join("user").join("images").join(&safe_ch);
     let _ = std::fs::create_dir_all(&dir);
-    let file_name = format!("{safe_ch}_{ts}.{ext}");
+    let file_name = match super::uploads::server_filename(&safe_ch, None, format) {
+        Ok(f) => f,
+        Err(e) => {
+            return apply_cors_resp(
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "error": e.to_string() })),
+                )
+                    .into_response(),
+                origin,
+            )
+        }
+    };
     let p = dir.join(&file_name);
     if let Err(e) = std::fs::write(&p, &bytes) {
         return apply_cors_resp(
@@ -363,14 +409,19 @@ pub fn images_upload(st: &BackendState, body: &Value, origin: Option<HeaderValue
 
 /// GET /api/sprites/get?name=（manifest #40）
 pub fn sprites_get(st: &BackendState, query: &str, origin: Option<HeaderValue>) -> Response {
-    let name = query
+    let raw_name = query
         .split('&')
         .find_map(|p| p.strip_prefix("name="))
         .unwrap_or("");
+    // HIGH-1：name 先 percent-decode（URLSearchParams 会把 `甲/sub` 编成
+    // %E7%94%B2%2Fsub）再拆段；解码失败的恶名按空列表处理（sprites.js 语义）
+    let Some(name) = pct_decode(raw_name).filter(|s| !s.is_empty()) else {
+        return ok_json(origin, json!([]));
+    };
     // name 可含子目录 `<char>/<sub>`（sprites.js:18-38）
     let (char_name, sub) = match name.split_once('/') {
         Some((c, s)) => (c, Some(s)),
-        None => (name, None),
+        None => (name.as_str(), None),
     };
     let Ok(safe_char) = crate::pathguard::component(char_name) else {
         return ok_json(origin, json!([]));
@@ -535,6 +586,76 @@ mod tests {
         assert!(r.status().as_u16() == 403 || r.status().as_u16() == 404);
         let r = static_asset(&st, "/unknown/x.png", None);
         assert_eq!(r.status().as_u16(), 404);
+    }
+
+    /// 测试用 percent 编码（浏览器发出的 %XX 形态）
+    fn enc(s: &str) -> String {
+        percent_encoding::utf8_percent_encode(s, percent_encoding::NON_ALPHANUMERIC).to_string()
+    }
+
+    #[test]
+    fn thumbnail_decodes_cjk_query_to_200() {
+        // HIGH-1 核心场景：CJK 文件名以 %XX 形态到达 → 解码后命中原图
+        let st = st_with("thumbcjk");
+        let chars = du(&st).join("characters");
+        std::fs::create_dir_all(&chars).unwrap();
+        std::fs::write(chars.join("林晚棠.png"), real_png()).unwrap();
+
+        let q = format!("type=avatar&file={}", enc("林晚棠.png"));
+        let r = thumbnail(&st, &q, None);
+        assert_eq!(r.status().as_u16(), 200, "解码后必须命中（原实现 404）");
+        assert_eq!(
+            r.headers().get("content-type").and_then(|v| v.to_str().ok()),
+            Some("image/png")
+        );
+        // 编码形态的穿越：..%2F → ../ → 403，且穿越目标（数据目录外）无新文件
+        let outside_target = st.data_root.parent().unwrap().join("evil.png");
+        let _ = std::fs::remove_file(&outside_target);
+        let q = format!("type=avatar&file={}", enc("../evil.png"));
+        let r = thumbnail(&st, &q, None);
+        assert_eq!(r.status().as_u16(), 403);
+        let q = format!("type=avatar&file={}", enc("../../evil.png"));
+        let r = thumbnail(&st, &q, None);
+        assert_eq!(r.status().as_u16(), 403);
+        assert!(!outside_target.exists(), "穿越请求不得在数据目录外落任何文件");
+    }
+
+    #[test]
+    fn static_asset_decodes_two_level_sprite_paths() {
+        // sprites 的 /characters/<角色>/<文件> 二级形态（%XX 段）
+        let st = st_with("sprites2l");
+        let dir = du(&st).join("characters").join("甲");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("joy.png"), real_png()).unwrap();
+
+        let p = format!("/characters/{}/{}", enc("甲"), enc("joy.png"));
+        let r = static_asset(&st, &p, None);
+        assert_eq!(r.status().as_u16(), 200, "二级解码路径必须命中（原实现 404）");
+        // 编码穿越段：%2e%2e → .. → 403
+        let p = format!("/characters/{}/joy.png", enc(".."));
+        let r = static_asset(&st, &p, None);
+        assert_eq!(r.status().as_u16(), 403);
+        // 编码分隔符注入：a%2Fb 作为单段 → 解码出 `/` → component 拒 → 403
+        let r = static_asset(&st, "/characters/evil%2Fetc/passwd.png", None);
+        assert_eq!(r.status().as_u16(), 403);
+        // 坏编码序列 → 400
+        let r = static_asset(&st, "/characters/%E7%94.png", None);
+        assert_eq!(r.status().as_u16(), 400);
+        // 目录外无新文件：各穿越形态的目标不得存在
+        let outside_targets = [
+            st.data_root.parent().unwrap().join("steal.png"),
+            du(&st).parent().unwrap().join("steal.png"),
+        ];
+        for t in &outside_targets {
+            let _ = std::fs::remove_file(t);
+        }
+        let _ = static_asset(&st, "/characters/%2e%2e%2f%2e%2e/steal.png", None);
+        let _ = static_asset(&st, "/characters/evil%2Fetc/passwd.png", None);
+        let deep_trav = format!("/characters/{}/joy.png", enc("../.."));
+        let _ = static_asset(&st, &deep_trav, None);
+        for t in &outside_targets {
+            assert!(!t.exists(), "穿越目标 {:?} 不得存在", t);
+        }
     }
 
     #[test]

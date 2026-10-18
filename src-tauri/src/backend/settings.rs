@@ -36,6 +36,11 @@ pub struct AutosaveState {
     last_backup_hash: Option<u64>,
 }
 
+/// native 配置段（patch_native_config）的读-改-写串行锁：
+/// 防并发 read-modify-write 互相吞键（store_sync 与 migrate_existing 双写入者）。
+/// 模块级而非 SettingsService 字段 —— vault.rs 调用方只传 data_root，签名不动。
+static NATIVE_CONFIG_LOCK: Mutex<()> = Mutex::new(());
+
 pub struct SettingsService {
     pub autosave: Mutex<AutosaveState>,
 }
@@ -266,13 +271,24 @@ fn seed_default_settings(data_root: &std::path::Path) -> std::io::Result<()> {
         })
 }
 
-/// POST /api/settings/save —— body 即 settings 本体（整体覆盖），4 空格缩进原子写
+/// POST /api/settings/save —— body 即 settings 本体（整体覆盖）。
+/// ⚠ 缩进实情：serde_json::to_string_pretty 为 **2 空格**，与 ST 的 4 空格
+/// （settings.js:209）存在偏差（已登记，由 webui-fix 回填文档）。
 pub fn save(
     st: &BackendState,
     svc: &SettingsService,
     body: &Value,
     origin: Option<HeaderValue>,
 ) -> Response {
+    // body 必须是 JSON 对象（数组/标量/空都不是合法 settings 本体 → 400）
+    if !body.is_object() {
+        let resp = (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(json!({ "error": { "message": "settings/save 的 body 必须是 JSON 对象" } })),
+        )
+            .into_response();
+        return super::apply_cors_resp(resp, origin);
+    }
     // 三铁律之一（data.ts:564-577）：禁包装对象 —— 防把 {settings:"..."} 写成配置本体
     if body.get("settings").is_some() && body.as_object().map(|o| o.len()).unwrap_or(0) == 1 {
         let resp = (
@@ -294,7 +310,8 @@ pub fn save(
             return super::apply_cors_resp(resp, origin);
         }
     }
-    // ST 用 4 空格缩进（settings.js:209）
+    // ⚠ 实情：serde_json::to_string_pretty 是 2 空格缩进，ST（settings.js:209）是
+    // 4 空格 —— 行为偏差已登记（前端 JSON.parse 消费，缩进不破坏兼容），不引依赖对齐
     let pretty = serde_json::to_string_pretty(body).unwrap_or_else(|_| body.to_string());
     // 原子写：临时文件 + rename（等价 write-file-atomic；规避损坏半写）
     let tmp = p.with_extension("json.tmp");
@@ -332,13 +349,15 @@ pub(crate) fn read_native_config(data_root: &std::path::Path, key: &str) -> Opti
         .filter(|s| !s.is_empty())
 }
 
-/// 写 `extension_settings.stchat_native.{key}`（读-改-原子写；触发备份节流面由
+/// 写 `extension_settings.stchat_native.{key}`（读-改-写全程持 NATIVE_CONFIG_LOCK ——
+/// 两个写入者（store_sync / migrate_existing）并发时不得互相吞键；触发备份节流面由
 /// settings/writequeue 面管理 —— 这里只同步配置类 vault 值）
 pub(crate) fn patch_native_config(data_root: &std::path::Path, key: &str, value: &str) {
     let p = settings_path(data_root);
     if let Some(parent) = p.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
+    let _guard = NATIVE_CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut v: Value = std::fs::read_to_string(&p)
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
@@ -440,6 +459,70 @@ mod tests {
         let body = json!({ "settings": "{\"a\":1}" });
         let r = save(&st, &svc, &body, None);
         assert_eq!(r.status().as_u16(), 400, "包装对象必须 400（三铁律之一）");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn save_rejects_non_object_body() {
+        // body 必须是 JSON 对象：数组 / 标量 → 400（api.rs 的 JSON 解析允许任意 Value）
+        let root = tmp_root("nonobject");
+        let st = BackendState {
+            token: Arc::new("t".into()),
+            data_root: root.clone(),
+            max_body_bytes: 1024,
+            settings_svc: Arc::new(SettingsService::new()),
+            chats_svc: new_chats(),
+            maid_tokens: new_maid(),
+            vault: std::sync::Arc::new(super::super::vault::Vault::new_memory()),
+        };
+        let svc = SettingsService::new();
+        for bad in [json!([1, 2, 3]), json!("string-body"), json!(42), json!(null)] {
+            let r = save(&st, &svc, &bad, None);
+            assert_eq!(r.status().as_u16(), 400, "非对象 body 必须 400：{bad}");
+        }
+        // 拒绝后不得落盘半写状态
+        assert!(
+            !settings_path(&root).exists() || {
+                let raw = std::fs::read_to_string(settings_path(&root)).unwrap();
+                serde_json::from_str::<Value>(&raw).map(|v| v.is_object()).unwrap_or(false)
+            },
+            "落盘内容必须是合法 JSON 对象"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn patch_native_config_concurrent_writers_keep_all_keys() {
+        // 锁内读改写：并发 patch 不同 key 不得互相吞键（lost update 消除）
+        let root = tmp_root("patchlock");
+        let k1 = "libre_url";
+        let k2 = "lingva_url";
+        let (h1, h2) = {
+            let r1 = root.clone();
+            let r2 = root.clone();
+            (
+                std::thread::spawn(move || {
+                    for i in 0..20 {
+                        patch_native_config(&r1, k1, &format!("http://127.0.0.1:{i}"));
+                    }
+                }),
+                std::thread::spawn(move || {
+                    for i in 0..20 {
+                        patch_native_config(&r2, k2, &format!("http://127.0.0.2:{i}"));
+                    }
+                }),
+            )
+        };
+        h1.join().unwrap();
+        h2.join().unwrap();
+        assert!(
+            read_native_config(&root, k1).is_some(),
+            "并发写者 A 的键不得被吞"
+        );
+        assert!(
+            read_native_config(&root, k2).is_some(),
+            "并发写者 B 的键不得被吞"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 

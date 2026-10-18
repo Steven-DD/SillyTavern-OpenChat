@@ -5,9 +5,8 @@
 //! native 后端借机修正为：扩展名白名单（剔除视频）+ 魔数嗅探 + fileSize 上限
 //! + 服务端生成落盘名 + 按魔数判 Content-Type + nosniff + 非图片 attachment。
 //!
-//! ⚠ Phase 1 骨架阶段：校验函数与单测先落库；HTTP 上传端点在 characters/images
-//! 族实现时接线（届时 dead_code 摘除）。
-#![allow(dead_code)]
+//! ⚠ 魔数嗅探表与 relay.rs 的 sniff_image_mime 双份并存（relay 不在本任务
+//! writeScopes，未直改）；BMP（BM→image/bmp）先补在本表，relay 移除时合并。
 
 /// 允许上传的图片扩展名（对齐 ST MEDIA_EXTENSIONS 并**剔除视频**）
 pub const ALLOWED_EXTENSIONS: [&str; 7] = ["png", "jpg", "jpeg", "webp", "gif", "bmp", "jfif"];
@@ -124,13 +123,15 @@ fn ext_to_mime(ext: &str) -> &'static str {
 }
 
 /// 按魔数判断真实图片类型（与 relay.rs sniff_image_mime 同表 —— 嗅探逻辑单一来源
-/// 待 relay 移除后完全并入此处；T9 阶段双份并存，以 relay 为准，测试互验）
+/// 待 relay 移除后完全并入此处；T9 阶段双份并存，以 relay 为准，测试互验。
+/// 本表额外补 BMP：`BM` 魔数（S18 整改项，relay 侧未补、不直改））
 pub fn sniff_image_mime(bytes: &[u8]) -> Option<&'static str> {
     match bytes {
         [0xFF, 0xD8, 0xFF, ..] => Some("image/jpeg"),
         [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, ..] => Some("image/png"),
         [b'G', b'I', b'F', b'8', _, b'a', ..] => Some("image/gif"),
         [b'R', b'I', b'F', b'F', _, _, _, _, b'W', b'E', b'B', b'P', ..] => Some("image/webp"),
+        [b'B', b'M', ..] => Some("image/bmp"),
         _ => None,
     }
 }
@@ -188,7 +189,8 @@ mod tests {
         // ch_name 过 sanitize（分隔符剥除）
         let c = server_filename("a/b", None, "png").unwrap();
         assert!(!c.contains('/'));
-        assert!(server_filename("../..", None, "png").is_err() || true); // sanitize 后非空即过，pathguard 兜底
+        // 「../..」经 sanitize 剥点后为空 → 显式拒绝（pathguard 兜底）
+        assert!(server_filename("../..", None, "png").is_err(), "净化后为空必须拒绝");
     }
 
     #[test]

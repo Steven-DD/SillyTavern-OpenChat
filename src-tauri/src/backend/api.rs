@@ -331,6 +331,14 @@ async fn route(
             }
         }
         ("POST", "/api/speech/synthesize") => super::extras::speech_local_unavailable(origin),
+        // ElevenLabs TTS 出站（HIGH-4 · ST speech.js:234-272 契约：xi-api-key 服务端
+        // 读 vault，上游锚点固定 api.elevenlabs.io，音频流透传，缺 key 400）
+        ("POST", "/api/speech/elevenlabs/synthesize") => {
+            match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+                Ok(v) => super::extras::speech_elevenlabs(&st, &v, origin).await,
+                Err(_) => bad_json(origin),
+            }
+        }
         // OpenAI TTS 出站（Phase 2 批6 · manifest #58）
         ("POST", "/api/openai/generate-voice") => match serde_json::from_slice::<serde_json::Value>(body_bytes) {
             Ok(v) => super::extras::speech_openai(&st, &v, origin).await,

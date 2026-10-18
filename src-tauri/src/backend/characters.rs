@@ -1429,6 +1429,61 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn edit_multipart_form_updates_card_and_accepts_new_avatar() {
+        // S7/族三补充：edit 的 multipart 形态 ≥1 条 —— 纯文本字段改卡 + 换新头像两分支
+        let st = st_with("editmp");
+        let chars = characters_dir(&st);
+        make_card(&chars, "a.png", "A");
+
+        // 分支一：multipart 无头像文件 —— 只重写表单字段
+        let (ct, body) = make_multipart(
+            "EdB",
+            None,
+            None,
+            &[
+                ("avatar_url", "a.png"),
+                ("ch_name", "A"),
+                ("description", "multipart 改的描述"),
+            ],
+        );
+        let r = edit(&st, Some(&ct), axum::body::Bytes::from(body), None).await;
+        assert_eq!(r.status().as_u16(), 200, "multipart 文本字段 edit → 200");
+        let raw = std::fs::read(chars.join("a.png")).unwrap();
+        let meta = crate::compat::png::read_chara(&raw).unwrap();
+        let card: Value = serde_json::from_str(&meta).unwrap();
+        assert_eq!(card["description"], "multipart 改的描述");
+
+        // 分支二：multipart 带真 PNG 新头像 —— 魔数过 → 头像字节落卡
+        let png0 = crate::compat::png::minimal_png();
+        let (ct, body) = make_multipart(
+            "EdB2",
+            Some("new-avatar.png"),
+            Some(&png0),
+            &[
+                ("avatar_url", "a.png"),
+                ("ch_name", "A"),
+                ("description", "带新头像的 multipart"),
+            ],
+        );
+        let r = edit(&st, Some(&ct), axum::body::Bytes::from(body), None).await;
+        assert_eq!(r.status().as_u16(), 200);
+        let raw = std::fs::read(chars.join("a.png")).unwrap();
+        assert_eq!(&raw[..8], &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A], "新 PNG 已写入");
+        let meta = crate::compat::png::read_chara(&raw).unwrap();
+        assert!(meta.contains("带新头像的 multipart"));
+
+        // 分支三：multipart 带伪 PNG → 魔数拒 400
+        let (ct, body) = make_multipart(
+            "EdB3",
+            Some("evil.png"),
+            Some(b"<svg onload=alert(1)>"),
+            &[("avatar_url", "a.png"), ("ch_name", "A")],
+        );
+        let r = edit(&st, Some(&ct), axum::body::Bytes::from(body), None).await;
+        assert_eq!(r.status().as_u16(), 400, "伪 PNG 头像必须拒");
+    }
+
+    #[tokio::test]
     async fn import_json_roundtrip() {
         let st = st_with("import");
         // v2 JSON（带 BOM —— 前端 data.ts:123 的兼容场景在服务端做实）

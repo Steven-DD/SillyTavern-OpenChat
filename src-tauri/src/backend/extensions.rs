@@ -8,8 +8,10 @@
 //! T14 安全约束（评审 P1-1，均为**收紧**）：
 //! - **仅 https://**（ST 允许 http —— native 收紧）；http/file/ssh/git 前缀与
 //!   `ext::` 一律 400 纯文本错误，服务端校验不依赖前端
-//! - **git2/libgit2 本地库**：不起 system git（无命令执行向量）；libgit2 不读
-//!   全局 gitconfig 的 `url.*.insteadOf`（评审关键面）
+//! - **git2/libgit2 本地库**：不起 system git（无命令执行向量）；S19 整改：
+//!   install/update 前用 `git2::Config::open_default` 探测全局 gitconfig，
+//!   存在任意 `url.*.insteadOf` 键即拒 400 —— libgit2 对 insteadOf 的 URL
+//!   重写支持不完整且版本相关，不能依赖其缺席，须显式设防（纵深防御）
 //! - sanitize + `pathguard::join_under` 拼接兜底（穿越禁杀）
 //! - manifest 校验失败 → **递归清理**再报错（extensions.js:148-152 语义）
 //! - clone/fetch 失败亦清理残留（评审"fail→cleanup"）
@@ -130,6 +132,47 @@ fn validate_extension_url(raw: &str) -> Result<(String, String), String> {
 }
 
 /* ============================================================ *
+ * S19：全局 gitconfig 的 url.*.insteadOf 探测（install/update 前置闸门）
+ * ============================================================ */
+
+/// 谓词：配置里存在任意 `url.<节>.insteadof` 键（git 键名大小写不敏感，故统一小写比对）
+fn config_has_insteadof(cfg: &git2::Config) -> bool {
+    // git2 0.19：ConfigEntries 未实现 Iterator trait，但有固有 next() 方法
+    let Ok(mut entries) = cfg.entries(None) else {
+        return false;
+    };
+    while let Some(entry) = entries.next() {
+        let Ok(entry) = entry else { continue };
+        if let Some(name) = entry.name() {
+            let lower = name.to_ascii_lowercase();
+            if lower.starts_with("url.") && lower.ends_with(".insteadof") {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// 探测全局 gitconfig（system + XDG + user 全链，libgit2 open_default 语义）。
+/// 读不到全局配置 = 无 insteadOf 面 → false（放行，不因配置缺失拒绝正常安装）。
+fn global_insteadof_present() -> bool {
+    match git2::Config::open_default() {
+        Ok(cfg) => config_has_insteadof(&cfg),
+        Err(_) => false,
+    }
+}
+
+/// S19 闸门的统一 400 文本响应
+fn insteadof_reject(origin: Option<HeaderValue>) -> Response {
+    text_resp(
+        StatusCode::BAD_REQUEST,
+        "Bad Request: Global git configuration contains url.*.insteadOf rewrite rules; \
+         extension install/update is disabled for safety.",
+        origin,
+    )
+}
+
+/* ============================================================ *
  * /install
  * ============================================================ */
 pub async fn install(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
@@ -140,6 +183,10 @@ pub async fn install(st: &BackendState, body: &Value, origin: Option<HeaderValue
             origin,
         );
     };
+    // S19：任何落盘/网络动作之前拒绝（prevent 任何 clone 发生在重写劫持环境）
+    if global_insteadof_present() {
+        return insteadof_reject(origin);
+    }
     let global = body.get("global").and_then(|g| g.as_bool()).unwrap_or(false);
     let branch = body
         .get("branch")
@@ -308,6 +355,10 @@ fn checkout_head_tree(repo: &Repository) {
  * /update
  * ============================================================ */
 pub async fn update(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
+    // S19：任何 fetch/merge 动作之前拒绝
+    if global_insteadof_present() {
+        return insteadof_reject(origin);
+    }
     let Some(name) = body.get("extensionName").and_then(|n| n.as_str()).map(String::from) else {
         return text_resp(
             StatusCode::BAD_REQUEST,
@@ -858,8 +909,57 @@ mod tests {
         );
     }
 
+    /// S19 测试的串行锁：libgit2 的配置搜索路径是**进程级全局态**（且首次使用后
+    /// 缓存解析结果，之后改 HOME 不再生效）—— 所有触碰 install/update handler
+    /// 或搜索路径的测试必须经此串行化
+    static GIT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// libgit2 全局配置搜索路径守卫：set 时记录旧值，Drop 时还原
+    ///（比 HOME 注入确定 —— 不依赖 libgit2 是否已缓存解析路径）
+    struct SearchPathGuard(std::option::Option<std::ffi::CString>);
+    impl SearchPathGuard {
+        /// unsafe：mutates libgit2 global state（本测试进程独占，外部以 GIT_ENV_LOCK 同步）
+        fn point_to(dir: &std::path::Path) -> Self {
+            let old = unsafe { git2::opts::get_search_path(git2::ConfigLevel::Global) }.ok();
+            unsafe {
+                git2::opts::set_search_path(git2::ConfigLevel::Global, dir).unwrap();
+                // XDG 一并清空，排除机器上 %APPDATA%\git\config 的干扰
+                git2::opts::set_search_path(git2::ConfigLevel::XDG, dir).unwrap();
+            }
+            Self(old)
+        }
+    }
+    impl Drop for SearchPathGuard {
+        fn drop(&mut self) {
+            unsafe {
+                match &self.0 {
+                    Some(old) => {
+                        let _ = git2::opts::set_search_path(
+                            git2::ConfigLevel::Global,
+                            std::path::PathBuf::from(old.to_string_lossy().to_string()),
+                        );
+                    }
+                    None => {
+                        let _ = git2::opts::reset_search_path(git2::ConfigLevel::Global);
+                    }
+                }
+                let _ = git2::opts::reset_search_path(git2::ConfigLevel::XDG);
+            }
+        }
+    }
+
+    fn empty_cfg_dir(tag: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("stchat-ext-emptycfg-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
     #[test]
     fn install_rejects_existing_dir_with_409() {
+        let _g = GIT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let clean = empty_cfg_dir("409");
+        let _sp = SearchPathGuard::point_to(&clean);
         let st = st_with("inst409");
         std::fs::create_dir_all(user_ext_dir(&st).join("Some-Repo")).unwrap();
         let r = tokio::runtime::Runtime::new().unwrap().block_on(install(
@@ -871,7 +971,127 @@ mod tests {
     }
 
     #[test]
+    fn insteadof_predicate_detects_rewrite_rules() {
+        // S19 谓词：可写 config 注入 insteadOf → 命中；纯普通键 → 不命中
+        let dir =
+            std::env::temp_dir().join(format!("stchat-ext-insteadof-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let cfg_path = dir.join("gitconfig");
+        std::fs::write(
+            &cfg_path,
+            "[url \"https://evil.example/\"]\n\tinsteadOf = https://github.com/\n",
+        )
+        .unwrap();
+        let cfg = git2::Config::open(&cfg_path).unwrap();
+        assert!(config_has_insteadof(&cfg), "insteadOf 键必须被探测到");
+        // 大小写变体（git 键节大小写不敏感）
+        std::fs::write(
+            &cfg_path,
+            "[URL \"ssh://evil/\"]\n\tinsteadof = https://github.com/\n",
+        )
+        .unwrap();
+        let cfg = git2::Config::open(&cfg_path).unwrap();
+        assert!(config_has_insteadof(&cfg), "大小写不敏感匹配");
+        // 无 insteadOf → false
+        std::fs::write(&cfg_path, "[user]\n\tname = t\n\temail = t@e\n").unwrap();
+        let cfg = git2::Config::open(&cfg_path).unwrap();
+        assert!(!config_has_insteadof(&cfg));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 测试期环境变量守卫已由 SearchPathGuard 取代（libgit2 缓存解析结果，
+    /// HOME 注入不可靠，详见 GIT_ENV_LOCK 注释）
+
+    #[test]
+    fn extension_name_traversal_rejected_and_leaves_no_files() {
+        // S7：extensionName 穿越 —— handler 级断言（400/403 文本错误），
+        // 且数据目录外/扩展目录内无任何新文件
+        let _g = GIT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let clean = empty_cfg_dir("trav");
+        let _sp = SearchPathGuard::point_to(&clean);
+        let st = st_with("extrav");
+        std::fs::create_dir_all(user_ext_dir(&st)).unwrap();
+        for name in ["../../evil", "a/b", "..\\evil"] {
+            let r = tokio::runtime::Runtime::new().unwrap().block_on(update(
+                &st,
+                &json!({ "extensionName": name }),
+                None,
+            ));
+            assert!(
+                r.status().as_u16() == 400 || r.status().as_u16() == 403,
+                "extensionName {name:?} 必须拒（400/403），实际 {}",
+                r.status()
+            );
+            let r = tokio::runtime::Runtime::new().unwrap().block_on(delete(
+                &st,
+                &json!({ "extensionName": name }),
+                None,
+            ));
+            assert!(
+                r.status().as_u16() == 400 || r.status().as_u16() == 403,
+                "delete extensionName {name:?} 必须拒，实际 {}",
+                r.status()
+            );
+        }
+        let outside_target = st.data_root.parent().unwrap().join("evil");
+        assert!(!outside_target.exists(), "数据目录外无新文件");
+        assert!(
+            std::fs::read_dir(user_ext_dir(&st)).unwrap().count() == 0,
+            "扩展目录内也不得有越界落盘"
+        );
+    }
+
+    #[test]
+    fn install_and_update_rejected_with_global_insteadof() {
+        // S19 handler 级：全局 gitconfig（显式搜索路径注入，Windows 下 git2 可写
+        // config 后还原）含 insteadOf → install/update 一律 400，且发生在任何
+        // clone/fetch/落盘之前
+        let _g = GIT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home =
+            std::env::temp_dir().join(format!("stchat-ext-home-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::write(
+            home.join(".gitconfig"),
+            "[url \"https://evil.example/\"]\n\tinsteadOf = https://github.com/\n",
+        )
+        .unwrap();
+        let _sp = SearchPathGuard::point_to(&home);
+        assert!(global_insteadof_present(), "open_default 必须读到注入的全局配置");
+
+        let st = st_with("instblock");
+        let r = tokio::runtime::Runtime::new().unwrap().block_on(install(
+            &st,
+            &json!({ "url": "https://github.com/u/Some-Repo.git" }),
+            None,
+        ));
+        assert_eq!(
+            r.status().as_u16(),
+            400,
+            "全局 gitconfig 含 insteadOf → install 拒 400"
+        );
+        assert!(
+            !user_ext_dir(&st).join("Some-Repo").exists(),
+            "拒绝必须发生在落盘之前"
+        );
+        let r = tokio::runtime::Runtime::new().unwrap().block_on(update(
+            &st,
+            &json!({ "extensionName": "Some-Repo" }),
+            None,
+        ));
+        assert_eq!(
+            r.status().as_u16(),
+            400,
+            "全局 gitconfig 含 insteadOf → update 拒 400"
+        );
+    }
+
+    #[test]
     fn resolve_404_and_plain_dir_behaviors() {
+        let _g = GIT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let clean = empty_cfg_dir("res404");
+        let _sp = SearchPathGuard::point_to(&clean);
         let st = st_with("res404");
         // update：不存在 → 404 文本（ST 字面）
         let r = tokio::runtime::Runtime::new().unwrap().block_on(update(

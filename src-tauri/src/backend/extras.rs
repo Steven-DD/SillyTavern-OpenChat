@@ -11,8 +11,8 @@
 //!   免密钥供应商直连上游；libre/deepl/deeplx 需服务端密钥。Phase 1 直连
 //!   供应商面（密钥走 secrets）；未知 provider → 501。
 //! - speech.js /synthesize（speecht5 本地 ML）→ S20 降级错误；/openai/
-//!   generate-voice、/elevenlabs/synthesize 走供应商 API（Phase 2 引出站，
-//!   一期 501 + 明确错误）。E2：错误可读、不静默。
+//!   generate-voice、/elevenlabs/synthesize 走供应商 API（xi-api-key 走 vault
+//!   read_secret，上游锚点固定，缺 key 400）。E2：错误可读、不静默。
 //! - vectors.js：vectra LocalIndex（`vectors/<source>/<collectionId>/<model>/
 //!   index.json`：{version,metadata_config,items:[{vector,norm,metadata}]}）。
 //!   嵌入来源 transformers 本地 ML / 供应商 API —— 一期前端已有三级回落；
@@ -402,26 +402,25 @@ pub fn maid_view(
     if !p.is_file() {
         return apply_cors_resp(StatusCode::NOT_FOUND.into_response(), origin);
     }
-    // mime 按扩展名（data-maid.js:761 mimetype guess → 回落 text/plain）
+    // mime 按扩展名（data-maid.js:761 mimetype guess → 回落 text/plain）。
+    // owned String 构造 HeaderValue —— 不得 Box::leak（每次请求泄漏一段静态内存）
     let ext = p
         .extension()
         .and_then(|x| x.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
     let mime = match ext.as_str() {
-        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" => {
-            Box::leak(format!("image/{ext}").into_boxed_str()) as &'static str
-        }
-        "json" | "jsonl" => "application/json",
-        _ => "text/plain",
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" => format!("image/{ext}"),
+        "json" | "jsonl" => "application/json".to_string(),
+        _ => "text/plain".to_string(),
     };
     match std::fs::read(p) {
         Ok(bytes) => {
             let mut resp = (StatusCode::OK, bytes).into_response();
-            resp.headers_mut().insert(
-                axum::http::header::CONTENT_TYPE,
-                HeaderValue::from_static(mime),
-            );
+            let ct = HeaderValue::from_str(&mime)
+                .unwrap_or_else(|_| HeaderValue::from_static("text/plain"));
+            resp.headers_mut()
+                .insert(axum::http::header::CONTENT_TYPE, ct);
             apply_cors_resp(resp, origin)
         }
         Err(_) => apply_cors_resp(StatusCode::INTERNAL_SERVER_ERROR.into_response(), origin),
@@ -430,21 +429,8 @@ pub fn maid_view(
 
 /* ====================== translate（manifest #54-#55）====================== */
 
-/// POST /api/translate/onering {text, from_lang, to_lang} → {data:{result}}
-/// ST：J 这家是内置聚合器（oneringtranslator），上游 URL 在 secrets。
-/// Phase 1 直连上游在 Phase 2 出站管控（T13）里统一做 —— 此处 501 带可读错误。
-pub fn translate_not_migrated(provider: &str, origin: Option<HeaderValue>) -> Response {
-    let resp = (
-        StatusCode::NOT_IMPLEMENTED,
-        Json(json!({
-            "error": {
-                "message": format!("翻译供应商 {provider} 尚未接入 native 后端（随 Phase 2 出站管控面统一接通，T13）"),
-                "code": "NOT_MIGRATED",
-            }
-        })),
-    );
-    apply_cors_resp(resp.into_response(), origin)
-}
+// 注：翻译供应商分发在 translate.rs::dispatch（8 家全量出站，未知 provider → 400）。
+// 原 translate_not_migrated 占位（仅剩测试引用）已删除 —— 死代码清理。
 
 /* ====================== speech（manifest #56-#58）====================== */
 
@@ -502,6 +488,82 @@ pub async fn speech_openai(st: &BackendState, body: &Value, origin: Option<Heade
         ).into_response(),
         origin,
     )
+}
+
+/// POST /api/speech/elevenlabs/synthesize {voiceId, request}（HIGH-4 · manifest #57）
+/// 契约 ST speech.js:234-272（已逐行核对）+ 前端 speech.ts:141-156：
+/// - key 走 vault read_secret（secrets.js:68 ELEVENLABS = api_key_elevenlabs）；缺 key → 400
+/// - voiceId / request 缺失 → 400；request 必须是 JSON 对象
+/// - 上游锚点固定 https://api.elevenlabs.io/v1/text-to-speech/<voiceId>，xi-api-key 头
+/// - 成功 → audio/mpeg 音频流透传；上游失败 → 500 + 上游可读文本（E2：不静默）
+pub async fn speech_elevenlabs(
+    st: &BackendState,
+    body: &Value,
+    origin: Option<HeaderValue>,
+) -> Response {
+    let Some(key) = super::providers::read_secret(st, "api_key_elevenlabs") else {
+        return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
+    };
+    let Some(voice_id) = body
+        .get("voiceId")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+    else {
+        return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
+    };
+    let Some(request) = body.get("request") else {
+        return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
+    };
+    if !request.is_object() {
+        return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
+    }
+    let url = match elevenlabs_synthesize_url(voice_id) {
+        Ok(u) => u,
+        Err(_) => return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin),
+    };
+    let client = reqwest::Client::builder().no_proxy().build().unwrap_or_default();
+    let resp = client
+        .post(&url)
+        .header("xi-api-key", &key)
+        .header("Content-Type", "application/json")
+        .header("accept-encoding", "identity")
+        .timeout(std::time::Duration::from_secs(120))
+        .json(&request)
+        .send()
+        .await;
+    let Ok(resp) = resp else {
+        return apply_cors_resp(
+            (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error").into_response(),
+            origin,
+        );
+    };
+    if !resp.status().is_success() {
+        // 上游错误可读：原文本透传（ST 是裸 500，这里按 E2 要求保留可读面）
+        let text = resp.text().await.unwrap_or_default();
+        return apply_cors_resp(
+            (StatusCode::INTERNAL_SERVER_ERROR, text).into_response(),
+            origin,
+        );
+    }
+    let bytes = resp.bytes().await.unwrap_or_default();
+    apply_cors_resp(
+        (
+            [(
+                axum::http::header::CONTENT_TYPE,
+                HeaderValue::from_static("audio/mpeg"),
+            )],
+            bytes,
+        )
+            .into_response(),
+        origin,
+    )
+}
+
+/// 上游锚点构造（单一出口）：`https://api.elevenlabs.io/v1/text-to-speech/<voiceId>`。
+/// voiceId 过 pathguard::component —— 含分隔符/控制字符的注入段一律拒绝。
+fn elevenlabs_synthesize_url(voice_id: &str) -> Result<String, ()> {
+    let safe = crate::pathguard::component(voice_id).map_err(|_| ())?;
+    Ok(format!("https://api.elevenlabs.io/v1/text-to-speech/{safe}"))
 }
 
 /// POST /api/speech/synthesize（本地 ML）—— S20 降级
@@ -629,10 +691,12 @@ pub fn vector_insert(st: &BackendState, body: &Value, origin: Option<HeaderValue
 }
 
 /// POST /api/vector/query {collectionId, searchText, topK, source, threshold}
-/// （manifest #61）—— 查询需要把文本转向量 → Phase 2。
-/// 已有 index 的 ST 双写遗留可查：按 cosine 相似度排序返回 metadata
-/// （vectra normalizedCosineSimilarity 同语义）。
+/// （manifest #61）—— S20 对齐整改（与 vector_insert 同错误面）：
+/// 查询需要把文本转向量，嵌入能力未接入前**没有可判定的查询语义**——
+/// 原「按 metadata hash 序返回 topK + degraded 标记」是无效排序（相似度不可判），
+/// 伪装成降级成功，违反 D5「禁止 200+空/伪结果」。现返回 501 + 可判定错误。
 pub fn vector_query(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
+    let _ = st;
     let Some(collection) = body.get("collectionId").and_then(|v| v.as_str()) else {
         return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
     };
@@ -648,41 +712,21 @@ pub fn vector_query(st: &BackendState, body: &Value, origin: Option<HeaderValue>
         .get("source")
         .and_then(|v| v.as_str())
         .unwrap_or("transformers");
-    let top_k = body.get("topK").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
-    // threshold：无嵌入能力时相似度不可判 —— 仅保留入参校验位（degraded 模式不再过滤）
-    let _threshold = body
-        .get("threshold")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(0.0);
-    let Ok(col) = crate::pathguard::component(collection) else {
+    if crate::pathguard::component(collection).is_err()
+        || crate::pathguard::component(source).is_err()
+    {
         return apply_cors_resp(StatusCode::FORBIDDEN.into_response(), origin);
-    };
-    let Ok(src) = crate::pathguard::component(source) else {
-        return apply_cors_resp(StatusCode::FORBIDDEN.into_response(), origin);
-    };
-    let index = match VectraIndex::open(&vectors_dir(st), &src, &col, "default") {
-        Ok(i) => i,
-        Err(e) => {
-            return err_json(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("vector index 打开失败：{e}"),
-            )
-        }
-    };
-    // 查询向量缺失（无嵌入能力）：按 metadata hash 序稳定返回 topK
-    // ⚠ 语义降级：不能做语义相似度 —— 但**明示**（degraded 标记），前端
-    // 可据此提示；不伪造“语义检索成功”。
-    let all_items = index.items();
-    let mut metadata_owned: Vec<Value> = all_items
-        .iter()
-        .map(|it| it.get("metadata").cloned().unwrap_or_default())
-        .collect();
-    metadata_owned.sort_by_key(|m| m.get("hash").and_then(|h| h.as_f64()).unwrap_or(0.0) as i64);
-    let metadata: Vec<Value> = metadata_owned.into_iter().take(top_k).collect();
-    ok_json(
-        origin,
-        json!({ "metadata": metadata, "hashes": [], "degraded": true }),
-    )
+    }
+    let resp = (
+        StatusCode::NOT_IMPLEMENTED,
+        Json(json!({
+            "error": {
+                "message": "向量嵌入生成尚未接入（随 Phase 2 供应商嵌入 API 接通），查询暂不可用",
+                "code": "CAPABILITY_UNAVAILABLE",
+            }
+        })),
+    );
+    apply_cors_resp(resp.into_response(), origin)
 }
 
 /// POST /api/vector/delete {collectionId, hashes} —— 直接按 hash 删（无需嵌入）
@@ -910,9 +954,7 @@ mod tests {
     }
 
     #[test]
-    fn translation_and_speech_degrade_honestly() {
-        let r = translate_not_migrated("deepl", None);
-        assert_eq!(r.status().as_u16(), 501);
+    fn speech_degrade_honestly() {
         let r = speech_local_unavailable(None);
         let bytes = tokio::runtime::Runtime::new()
             .unwrap()
@@ -922,5 +964,98 @@ mod tests {
             v["error"]["code"], "CAPABILITY_UNAVAILABLE",
             "S20 降级可判定"
         );
+    }
+
+    #[test]
+    fn elevenlabs_url_anchor_is_fixed() {
+        // HIGH-4 锚点：上游 URL 单一出口，host/path 固定，voiceId 只能是干净单段
+        let u = elevenlabs_synthesize_url("21m00Tcm4TlvDq8ikWAM").unwrap();
+        assert_eq!(
+            u,
+            "https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM"
+        );
+        // voiceId 注入段拒绝（URL/路径注入向量）
+        assert!(elevenlabs_synthesize_url("../v1/voices").is_err());
+        assert!(elevenlabs_synthesize_url("a/b").is_err());
+        assert!(elevenlabs_synthesize_url("a\\b").is_err());
+        assert!(elevenlabs_synthesize_url("").is_err());
+        // body 里塞整 URL 也不影响锚点 —— URL 只由 voiceId 构造
+        assert_eq!(
+            elevenlabs_synthesize_url("voice-1").unwrap(),
+            "https://api.elevenlabs.io/v1/text-to-speech/voice-1"
+        );
+    }
+
+    #[tokio::test]
+    async fn elevenlabs_faces_without_key_and_params() {
+        let st = st_with("elxlabs");
+        // 缺 key → 400（ST speech.js:237-240）
+        let r = speech_elevenlabs(
+            &st,
+            &json!({ "voiceId": "v1", "request": { "text": "hi" } }),
+            None,
+        )
+        .await;
+        assert_eq!(r.status().as_u16(), 400, "缺 key 必须 400");
+
+        // 注入 key（镜像 secrets.json active 条目 + memory keychain 各一：
+        // read_active 以镜像定位 id）后：缺参仍 400（都在出站前判定，不发网络）
+        std::fs::create_dir_all(du(&st)).unwrap();
+        std::fs::write(
+            du(&st).join("secrets.json"),
+            json!({ "api_key_elevenlabs": [
+                { "id": "default", "value": "sk-test", "label": "t", "active": true }
+            ] })
+            .to_string(),
+        )
+        .unwrap();
+        st.vault
+            .store_sync(&st, "api_key_elevenlabs", "default", "sk-test");
+        let r = speech_elevenlabs(&st, &json!({ "request": { "text": "hi" } }), None).await;
+        assert_eq!(r.status().as_u16(), 400, "缺 voiceId → 400");
+        let r = speech_elevenlabs(&st, &json!({ "voiceId": "v1" }), None).await;
+        assert_eq!(r.status().as_u16(), 400, "缺 request → 400");
+        let r = speech_elevenlabs(
+            &st,
+            &json!({ "voiceId": "v1", "request": "not-an-object" }),
+            None,
+        )
+        .await;
+        assert_eq!(r.status().as_u16(), 400, "request 非对象 → 400");
+        // voiceId 注入段 → 400（不出站）
+        let r = speech_elevenlabs(
+            &st,
+            &json!({ "voiceId": "../../admin", "request": { "text": "hi" } }),
+            None,
+        )
+        .await;
+        assert_eq!(r.status().as_u16(), 400, "voiceId 注入 → 400");
+    }
+
+    #[test]
+    fn vector_query_is_501_capability_unavailable() {
+        // S20 对齐：查询无嵌入能力 = 无可判定语义，禁止 200+degraded 伪成功
+        let st = st_with("vecq");
+        let r = vector_query(
+            &st,
+            &json!({ "collectionId": "c1", "searchText": "hello", "topK": 5 }),
+            None,
+        );
+        assert_eq!(r.status().as_u16(), 501);
+        let bytes = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
+        let v: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["error"]["code"], "CAPABILITY_UNAVAILABLE");
+        // 缺参仍 400
+        let r = vector_query(&st, &json!({ "collectionId": "c1" }), None);
+        assert_eq!(r.status().as_u16(), 400);
+        // 注入 collectionId → 403
+        let r = vector_query(
+            &st,
+            &json!({ "collectionId": "../x", "searchText": "hi" }),
+            None,
+        );
+        assert_eq!(r.status().as_u16(), 403);
     }
 }
