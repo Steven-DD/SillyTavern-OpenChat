@@ -14,6 +14,7 @@
 //! 实测 ST 运行时持续写入的位置只有两处：
 //!   - `<st_dir>/data/`      ← 主数据（角色卡/会话/密钥/世界书）
 //!   - `<st_dir>/config.yaml` ← 保存设置时会改写
+//!
 //! 其余（`plugins/`、`backups/`、`public/scripts/extensions/third-party`）
 //! 只在用户主动安装 ST 插件/扩展时才写，不属本次迁移范围，
 //! 但会在报告里如实标注（不假装"完全只读"）。
@@ -662,7 +663,7 @@ pub fn export_bag(
                 excluded += 1;
                 continue;
             }
-            zip.start_file(rel_norm, opts.clone())
+            zip.start_file(rel_norm, opts)
                 .map_err(|e| format!("写入 zip 条目失败：{e}"))?;
             let mut f = fs::File::open(&p).map_err(|e| format!("打开文件失败：{e}"))?;
             std::io::copy(&mut f, &mut zip).map_err(|e| format!("压缩写入失败：{e}"))?;
@@ -672,7 +673,7 @@ pub fn export_bag(
     }
     if let Some(cp) = config_path {
         if cp.is_file() {
-            zip.start_file("config.yaml", opts.clone())
+            zip.start_file("config.yaml", opts)
                 .map_err(|e| format!("写入 config.yaml 失败：{e}"))?;
             let mut f = fs::File::open(cp).map_err(|e| format!("打开 config.yaml 失败：{e}"))?;
             std::io::copy(&mut f, &mut zip).map_err(|e| format!("压缩 config.yaml 失败：{e}"))?;

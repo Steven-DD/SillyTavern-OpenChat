@@ -563,7 +563,7 @@ async fn send_ollama_stream(
     // NDJSON 流 → SSE data: {choices:[{text,thinking}]}
     let wrapped = resp
         .bytes_stream()
-        .map(|r| r.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)));
+        .map(|r| r.map_err(std::io::Error::other));
     let sse = futures_util::stream::unfold(
         NdjState {
             stream: Box::pin(wrapped),
@@ -605,7 +605,7 @@ async fn send_ollama_stream(
                     Some(Ok(chunk)) => st2.buf.extend_from_slice(chunk.as_ref()),
                     Some(Err(e)) => {
                         st2.finished = true;
-                        let io = std::io::Error::new(std::io::ErrorKind::Other, e);
+                        let io = std::io::Error::other(e);
                         return Some((Err(io), st2));
                     }
                     None => {
@@ -712,7 +712,7 @@ impl futures_util::Stream for KoboldAbortStream {
             std::task::Poll::Ready(Some(Ok(chunk))) => std::task::Poll::Ready(Some(Ok(chunk))),
             std::task::Poll::Ready(Some(Err(e))) => {
                 this.errored = true;
-                std::task::Poll::Ready(Some(Err(std::io::Error::new(std::io::ErrorKind::Other, e))))
+                std::task::Poll::Ready(Some(Err(std::io::Error::other(e))))
             }
             std::task::Poll::Ready(None) => {
                 if !this.errored {

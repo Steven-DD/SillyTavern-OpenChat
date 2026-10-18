@@ -76,7 +76,7 @@ pub struct RelayEndpoint {
 fn gen_token() -> std::io::Result<String> {
     let mut buf = [0u8; 32];
     getrandom::getrandom(&mut buf)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
     Ok(buf.iter().map(|b| format!("{b:02x}")).collect())
 }
 
@@ -88,7 +88,7 @@ pub async fn start(st_port: u16) -> std::io::Result<RelayEndpoint> {
         // 若不屏蔽，环回请求会被送进代理 → 必然失败。
         .no_proxy()
         .build()
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
 
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
     let port = listener.local_addr()?.port();
@@ -201,7 +201,7 @@ async fn proxy(
     let origin = headers
         .get(header::ORIGIN)
         .cloned()
-        .filter(|o| origin_allowed(o));
+        .filter(origin_allowed);
 
     if method == Method::OPTIONS {
         return preflight(origin);
@@ -321,7 +321,7 @@ async fn proxy(
     // 流式透传（SSE 关键：绝不缓冲）
     let stream = up
         .bytes_stream()
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e));
+        .map_err(std::io::Error::other);
 
     let mut pinned = Box::pin(stream);
 

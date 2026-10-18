@@ -105,8 +105,7 @@ fn parse_spm_proto(b: &[u8]) -> Result<SpmModel, String> {
         }
         let sub = &b[i..end];
         i = end;
-        match field {
-            1 => {
+        if field == 1 {
                 // SentencePiece 子消息
                 let mut piece = String::new();
                 let mut ptype: i64 = 1;
@@ -149,10 +148,8 @@ fn parse_spm_proto(b: &[u8]) -> Result<SpmModel, String> {
                     id_of.entry(piece.clone()).or_insert(pieces.len() as i64);
                     pieces.push(piece);
                 }
-            }
-            // trainer/normalizer/self_test —— 只占位跳过
-            _ => {}
         }
+        // trainer/normalizer/self_test（field 2/3 等）—— 占位跳过
     }
 
     Ok(SpmModel {

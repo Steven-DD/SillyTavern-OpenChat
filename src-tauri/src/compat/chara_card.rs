@@ -63,10 +63,10 @@ pub fn to_v2_response(mut card: Value) -> Value {
         card.as_object_mut()
             .map(|o| o.insert("data".into(), Value::Object(data)));
         if card.get("spec").is_none() {
-            card.as_object_mut().map(|o| {
+            if let Some(o) = card.as_object_mut() {
                 o.insert("spec".into(), "chara_card_v2".into());
                 o.insert("spec_version".into(), "2.0".into());
-            });
+            }
         }
         return card;
     }

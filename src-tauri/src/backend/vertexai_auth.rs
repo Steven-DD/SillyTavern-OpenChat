@@ -95,7 +95,7 @@ pub async fn get_access_token(sa_json_text: &str) -> Result<(String, String), St
         .map_err(|e| format!("token 端点连接失败：{e}"))?;
     let text = resp.text().await.unwrap_or_default();
     let v: Value = serde_json::from_str(&text).map_err(|_| {
-        format!("token 端点返回非 JSON（前 200 字：{}）", &text.chars().take(200).collect::<String>())
+        format!("token 端点返回非 JSON（前 200 字：{}）", text.chars().take(200).collect::<String>())
     })?;
     let token = v
         .get("access_token")

@@ -55,7 +55,7 @@ fn ok_json(origin: Option<HeaderValue>, v: Value) -> Response {
 /// guesstimate（tokenizers.js:68-71）：
 /// ceil(UTF-8 字节数 / 3.35)。
 pub fn guesstimate(text: &str) -> u64 {
-    (text.as_bytes().len() as f64 / BYTES_PER_TOKEN).ceil() as u64
+    (text.len() as f64 / BYTES_PER_TOKEN).ceil() as u64
 }
 
 /// POST /api/tokenizers/openai/count?model=（manifest #51 · T16 批7 升级）
@@ -218,7 +218,7 @@ fn secrets_path(st: &BackendState) -> std::path::PathBuf {
 
 
 /// _deactivateAllSecrets（secrets.js:153-164）：把该 key 下全部置 active=false
-fn deactivate_all(arr: &mut Vec<Value>) {
+fn deactivate_all(arr: &mut [Value]) {
     for s in arr.iter_mut() {
         if let Some(o) = s.as_object_mut() {
             o.insert("active".into(), json!(false));

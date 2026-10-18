@@ -22,7 +22,6 @@ use axum::{
 use serde_json::json;
 
 /// 鉴权 + CORS 统一入口（S2-S5）。所有请求（含已实现端点与 501 兜底）经此。
-
 pub async fn authorize(
     State(st): State<BackendState>,
     method: Method,
@@ -34,7 +33,7 @@ pub async fn authorize(
     let origin = headers
         .get(header::ORIGIN)
         .cloned()
-        .filter(|o| origin_allowed(o));
+        .filter(origin_allowed);
 
     if method == Method::OPTIONS {
         return preflight(origin);

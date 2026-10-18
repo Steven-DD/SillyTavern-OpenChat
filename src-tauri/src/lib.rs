@@ -945,7 +945,7 @@ async fn chat_mutate_lines(
     file: String,
     ops: Vec<ChatLineOp>,
 ) -> Result<(), String> {
-    let path = chat_jsonl_path(&*host, &avatar, &file)?;
+    let path = chat_jsonl_path(&host, &avatar, &file)?;
     tauri::async_runtime::spawn_blocking(move || chat_apply_ops_to_file(&path, ops))
         .await
         .map_err(|e| format!("任务异常：{e}"))?
@@ -1008,7 +1008,7 @@ async fn chat_export_file(
     file: String,
     dest: String,
 ) -> Result<(), String> {
-    let src = chat_jsonl_path(&*host, &avatar, &file)?;
+    let src = chat_jsonl_path(&host, &avatar, &file)?;
     if !src.is_file() {
         return Err(format!("会话文件不存在：{}", src.display()));
     }

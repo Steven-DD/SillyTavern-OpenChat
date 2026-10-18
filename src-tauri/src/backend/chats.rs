@@ -404,7 +404,7 @@ fn get_chat_info(
         o.insert("match".into(), json!(has_match));
     } else {
         // 末行损坏：降级预览（chats.js:490-498），不隐藏会话
-        o.insert("chat_items".into(), json!(items.saturating_sub(2).max(0)));
+        o.insert("chat_items".into(), json!(items.saturating_sub(2)));
         o.insert("mes".into(), json!("[The message is empty]"));
         o.insert("last_mes".into(), json!(iso_utc(stat_mtime as i64)));
         o.insert("match".into(), json!(has_match));
@@ -412,8 +412,8 @@ fn get_chat_info(
     out
 }
 
-/// matcher 的文本缓冲已并入 get_chat_info 主扫描（全量 mes 收集后统一判定，
-/// 语义见该函数内注释）—— 原「当前+上一行」窗口辅助函数 last_mes_lines 已删。
+// matcher 的文本缓冲已并入 get_chat_info 主扫描（全量 mes 收集后统一判定，
+// 语义见该函数内注释）—— 原「当前+上一行」窗口辅助函数 last_mes_lines 已删。
 
 fn iso_utc(secs: i64) -> String {
     let (y, mth, d, h, mi, s) = super::settings::civil_utc(secs);

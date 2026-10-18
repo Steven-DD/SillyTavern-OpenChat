@@ -83,7 +83,7 @@ pub fn wi_list(st: &BackendState, origin: Option<HeaderValue>) -> Response {
             )
         }
     };
-    names.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+    names.sort_by_key(|a| a.to_lowercase());
     let mut out = Vec::new();
     for f in names {
         let p = dir.join(&f);

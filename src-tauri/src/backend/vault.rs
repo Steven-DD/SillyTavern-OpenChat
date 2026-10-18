@@ -207,24 +207,19 @@ impl Vault {
         })?;
         let id = active.get("id").and_then(|i| i.as_str()).unwrap_or("");
         let mirror_value = active.get("value").and_then(|v| v.as_str()).map(String::from);
-        if classify(key) == SecretClass::KeyChain {
-            if !self.is_degraded() {
-                match self.store.get(&Self::account_for(key, id)) {
-                    Ok(Some(v)) => return Some(v),
-                    Ok(None) => {} // keychain 无条目（迁移前启动）→ 镜像
-                    Err(_) => {
-                        // keychain 故障 → 一次性降级标记 + 镜像
-                        self.degraded.store(true, Ordering::Relaxed);
-                        eprintln!("[vault] keychain 读取故障 → 降级为镜像权威（secrets.json）");
-                    }
+        if classify(key) == SecretClass::KeyChain && !self.is_degraded() {
+            match self.store.get(&Self::account_for(key, id)) {
+                Ok(Some(v)) => return Some(v),
+                Ok(None) => {} // keychain 无条目（迁移前启动）→ 镜像
+                Err(_) => {
+                    // keychain 故障 → 一次性降级标记 + 镜像
+                    self.degraded.store(true, Ordering::Relaxed);
+                    eprintln!("[vault] keychain 读取故障 → 降级为镜像权威（secrets.json）");
                 }
             }
-            mirror_value
-        } else if classify(key) == SecretClass::Settings {
-            mirror_value // settings 读空时回落镜像
-        } else {
-            mirror_value
         }
+        // Settings/未知类读空回落镜像；KeyChain 读空/无条目/故障同样回落镜像
+        mirror_value
     }
 
     /// 写同步（secrets_write 调用）：镜像已写 id+value → vault 就位

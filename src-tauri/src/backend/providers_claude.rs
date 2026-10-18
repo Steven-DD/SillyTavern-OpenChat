@@ -14,7 +14,7 @@
 //! 不再落 200+空SSE+[DONE]（ST forwardFetchResponse:748-761 字面）。
 //! HIGH-3：出站头对齐 ST :414-419 —— x-api-key（非 Bearer）+ anthropic-version
 //! + 无条件 anthropic-beta（reverse_proxy 分支同形；caching/verbosity 条件
-//! beta 因 native 无对应配置/请求面而保持基线，与 body 装配现状一致）。
+//!   beta 因 native 无对应配置/请求面而保持基线，与 body 装配现状一致）。
 
 use super::providers_convert as conv;
 use super::BackendState;

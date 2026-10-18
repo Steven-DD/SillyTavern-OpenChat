@@ -95,6 +95,7 @@ const ROUTE_SNAPSHOT: &[(&str, Rule)] = &[
     ("POST", Exact("/api/translate/onering")),
     ("POST", Rule::TranslatePrefix),
     ("POST", Exact("/api/speech/synthesize")),
+    ("POST", Exact("/api/speech/elevenlabs/synthesize")),
     ("POST", Exact("/api/openai/generate-voice")),
     ("POST", Exact("/api/vector/list")),
     ("POST", Exact("/api/vector/insert")),
@@ -169,7 +170,7 @@ fn parse_manifest_rows() -> Vec<(usize, String, String)> {
 
 /// 必到位族（native 已实装面；不在表内 → 红）。以 manifest 注解的
 /// 已实装 families 为准 —— 不含：#34 /scripts/extensions（ST 静态映射，
-/// 未迁移）、#57 elevenlabs（dataapi-fix 同批）、#66 extra/classify（未迁移）。
+/// 未迁移）、#66 extra/classify（未迁移）。#57 elevenlabs 已落地（批17）。
 const REQUIRED_SET: &[(&str, &str)] = &[
     ("POST", "/api/characters/all"),
     ("POST", "/api/characters/get"),
@@ -226,6 +227,7 @@ const REQUIRED_SET: &[(&str, &str)] = &[
     ("POST", "/api/tokenizers/nerdstash_v2/encode"),
     ("POST", "/api/translate/onering"),
     ("POST", "/api/speech/synthesize"),
+    ("POST", "/api/speech/elevenlabs/synthesize"),
     ("POST", "/api/openai/generate-voice"),
     ("POST", "/api/vector/list"),
     ("POST", "/api/vector/insert"),

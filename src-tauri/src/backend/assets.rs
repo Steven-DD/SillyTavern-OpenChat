@@ -202,7 +202,7 @@ pub fn avatars_get(st: &BackendState, origin: Option<HeaderValue>) -> Response {
             )
         }
     };
-    names.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+    names.sort_by_key(|a| a.to_lowercase());
     ok_json(origin, json!(names))
 }
 
@@ -307,7 +307,7 @@ pub fn backgrounds_all(st: &BackendState, origin: Option<HeaderValue>) -> Respon
             )
         }
     };
-    names.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+    names.sort_by_key(|a| a.to_lowercase());
     // isAnimated：metadata 索引是 ST 增强件（bg metadata），native 一期 false
     let images: Vec<Value> = names
         .iter()
@@ -327,7 +327,7 @@ pub fn images_upload(st: &BackendState, body: &Value, origin: Option<HeaderValue
     let format = body.get("format").and_then(|v| v.as_str()).unwrap_or("png");
     let ch_name = body.get("ch_name").and_then(|v| v.as_str()).unwrap_or("");
     // 剥 data URL 前缀（前端 resizeImageDataUrl 产物 data:image/jpeg;base64,...）
-    let b64 = b64.split(',').last().unwrap_or(b64);
+    let b64 = b64.split(',').next_back().unwrap_or(b64);
     let bytes = match use_base64_decode(b64) {
         Ok(b) => b,
         Err(_) => {

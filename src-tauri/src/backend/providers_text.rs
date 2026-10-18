@@ -63,7 +63,7 @@ pub const OPENAI_REASONING_EFFORT_MODELS: [&str; 33] = [
 ];
 
 pub fn is_openai_reasoning_effort_model(model: &str) -> bool {
-    OPENAI_REASONING_EFFORT_MODELS.iter().any(|m| model == *m)
+    OPENAI_REASONING_EFFORT_MODELS.contains(&model)
 }
 
 /// OPENAI_REASONING_EFFORT_MAP / OPENAI_FIXED_REASONING_EFFORT（constants.js）

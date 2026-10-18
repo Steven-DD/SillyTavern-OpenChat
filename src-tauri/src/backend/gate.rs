@@ -252,7 +252,7 @@ fn first_and_last_json_ok(p: &Path) -> Result<(), String> {
     let text = std::fs::read_to_string(p).map_err(|e| format!("读取失败 {}: {e}", p.display()))?;
     let mut lines = text.lines().filter(|l| !l.trim().is_empty());
     let first = lines.next().unwrap_or("");
-    let last = lines.last().unwrap_or(first);
+    let last = lines.next_back().unwrap_or(first);
     for (label, line) in [("首行", first), ("末行", last)] {
         serde_json::from_str::<serde_json::Value>(line)
             .map(|_| ())

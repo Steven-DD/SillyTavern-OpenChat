@@ -164,6 +164,7 @@ fn resolve_host_ips(host: &str, port: u16) -> std::io::Result<Vec<std::net::IpAd
 /// - 任何 policy 拒绝字面私网/link-local（含 https 指向私网）；
 /// - hostname 非字面 IP 时解析（ToSocketAddrs），任一 IP 落禁用段即拒
 ///   （解析失败 fail-closed：无法核验的出站一律不放行）。
+///
 /// 成功返回规范化 URL（去尾斜杠，可直接作 api_root 拼 path）。
 pub(crate) fn validate_egress_url(raw: &str, policy: EgressPolicy) -> Result<String, String> {
     validate_egress_url_with(raw, policy, resolve_host_ips)
@@ -395,7 +396,7 @@ pub(crate) async fn passthrough(
         .unwrap_or_else(|| HeaderValue::from_static("application/octet-stream"));
     let stream = upstream
         .bytes_stream()
-        .map(|r| r.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)));
+        .map(|r| r.map_err(std::io::Error::other));
     apply_cors_resp(
         Response::builder()
             .status(status)
@@ -479,7 +480,7 @@ pub(crate) async fn transform_sse_reply(
                     Some(Ok(chunk)) => st.buf.extend_from_slice(chunk.as_ref()),
                     Some(Err(e)) => {
                         st.finished = true;
-                        let io = std::io::Error::new(std::io::ErrorKind::Other, e);
+                        let io = std::io::Error::other(e);
                         return Some((Err(io), (map, st)));
                     }
                     None => {
@@ -1128,14 +1129,13 @@ async fn generic_generate(
         }
     }
     let verbosity = s_field(body, "verbosity");
-    if (source == "openai" || source == "custom") && verbosity.is_some() {
-        if super::providers_text::is_openai_verbosity_model(model) {
+    if (source == "openai" || source == "custom") && verbosity.is_some()
+        && super::providers_text::is_openai_verbosity_model(model) {
             body_params.insert(
                 "verbosity".into(),
                 json!(verbosity.as_deref().unwrap_or("")),
             );
         }
-    }
 
     // 缺 key（非 custom、无 reverse_proxy）→ 400（ST 字面 :2615-2618）
     if key.is_empty() && source != "custom" && !reverse_proxy_on(body) {
@@ -1157,9 +1157,11 @@ async fn generic_generate(
     // tools / tool_choice（chat-completions.js:2636-2639）
     let tools =
         take(body, "tools").filter(|t| t.as_array().map(|a| !a.is_empty()).unwrap_or(false));
-    if !is_text_completion && tools.is_some() {
-        body_params.insert("tools".into(), tools.unwrap());
-        put(&mut body_params, "tool_choice", take(body, "tool_choice"));
+    if !is_text_completion {
+        if let Some(t) = tools {
+            body_params.insert("tools".into(), t);
+            put(&mut body_params, "tool_choice", take(body, "tool_choice"));
+        }
     }
     // json_schema 统一兜底（:2641-2649）
     if body

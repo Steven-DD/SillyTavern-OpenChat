@@ -265,9 +265,8 @@ fn seed_default_settings(data_root: &std::path::Path) -> std::io::Result<()> {
     let tmp = p.with_extension("json.tmp");
     std::fs::write(&tmp, DEFAULT_SETTINGS_TEMPLATE.as_bytes())
         .and_then(|_| std::fs::rename(&tmp, &p))
-        .map_err(|e| {
+        .inspect_err(|_e| {
             let _ = std::fs::remove_file(&tmp);
-            e
         })
 }
 

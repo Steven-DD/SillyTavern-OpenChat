@@ -344,9 +344,9 @@ pub fn merge_messages(
     }
 
     if strict {
-        for i in 0..merged.len() {
-            if i > 0 && role_of(&merged[i]) == "system" {
-                set_role(&mut merged[i], "user");
+        for m in merged.iter_mut().skip(1) {
+            if role_of(m) == "system" {
+                set_role(m, "user");
             }
         }
         if !merged.is_empty() && placeholders {
@@ -415,16 +415,15 @@ pub fn convert_claude_messages(
             let m = &mut messages[i];
             let name = name_of(m);
             let content = str_of(m.get("content").unwrap_or(&json!("")));
-            if !names.user_name.is_empty() && name == "example_user" {
-                if !content.starts_with(&format!("{}: ", names.user_name)) {
+            if !names.user_name.is_empty() && name == "example_user"
+                && !content.starts_with(&format!("{}: ", names.user_name)) {
                     obj(m).insert(
                         "content".into(),
                         json!(format!("{}: {}", names.user_name, content)),
                     );
                 }
-            }
-            if !names.char_name.is_empty() && name == "example_assistant" {
-                if !content.starts_with(&format!("{}: ", names.char_name))
+            if !names.char_name.is_empty() && name == "example_assistant"
+                && !content.starts_with(&format!("{}: ", names.char_name))
                     && !names.starts_with_group_name(&content)
                 {
                     obj(m).insert(
@@ -432,7 +431,6 @@ pub fn convert_claude_messages(
                         json!(format!("{}: {}", names.char_name, content)),
                     );
                 }
-            }
             system_prompt.push(json!({ "type": "text", "text": content }));
             i += 1;
         }
@@ -484,16 +482,15 @@ pub fn convert_claude_messages(
             let name = name_of(message);
             let content = str_of(message.get("content").unwrap_or(&json!("")));
             let m = obj(message);
-            if !names.user_name.is_empty() && name == "example_user" {
-                if !content.starts_with(&format!("{}: ", names.user_name)) {
+            if !names.user_name.is_empty() && name == "example_user"
+                && !content.starts_with(&format!("{}: ", names.user_name)) {
                     m.insert(
                         "content".into(),
                         json!(format!("{}: {}", names.user_name, content)),
                     );
                 }
-            }
-            if !names.char_name.is_empty() && name == "example_assistant" {
-                if !content.starts_with(&format!("{}: ", names.char_name))
+            if !names.char_name.is_empty() && name == "example_assistant"
+                && !content.starts_with(&format!("{}: ", names.char_name))
                     && !names.starts_with_group_name(&content)
                 {
                     m.insert(
@@ -501,7 +498,6 @@ pub fn convert_claude_messages(
                         json!(format!("{}: {}", names.char_name, content)),
                     );
                 }
-            }
             m.insert("role".into(), json!("user"));
             m.remove("name");
         }
@@ -743,8 +739,8 @@ pub fn convert_cohere_messages(messages: &mut Vec<Value>, names: &PromptNames) -
         let role = role_of(m);
         let content = str_of(m.get("content").unwrap_or(&json!("")));
         let mref = obj(m);
-        if role == "system" && name == "example_assistant" {
-            if !names.char_name.is_empty()
+        if role == "system" && name == "example_assistant"
+            && !names.char_name.is_empty()
                 && !content.starts_with(&format!("{}: ", names.char_name))
                 && !names.starts_with_group_name(&content)
             {
@@ -753,9 +749,8 @@ pub fn convert_cohere_messages(messages: &mut Vec<Value>, names: &PromptNames) -
                     json!(format!("{}: {}", names.char_name, content)),
                 );
             }
-        }
-        if role == "system" && name == "example_user" {
-            if !names.user_name.is_empty()
+        if role == "system" && name == "example_user"
+            && !names.user_name.is_empty()
                 && !content.starts_with(&format!("{}: ", names.user_name))
             {
                 mref.insert(
@@ -763,7 +758,6 @@ pub fn convert_cohere_messages(messages: &mut Vec<Value>, names: &PromptNames) -
                     json!(format!("{}: {}", names.user_name, content)),
                 );
             }
-        }
         let content = str_of(m.get("content").unwrap_or(&json!("")));
         if role != "system" && !content.starts_with(&format!("{name}: ")) {
             obj(m).insert("content".into(), json!(format!("{name}: {content}")));
@@ -786,16 +780,15 @@ pub fn convert_ai21_messages(messages: &mut Vec<Value>, names: &PromptNames) -> 
         let m = &mut messages[i];
         let name = name_of(m);
         let content = str_of(m.get("content").unwrap_or(&json!("")));
-        if !names.user_name.is_empty() && name == "example_user" {
-            if !content.starts_with(&format!("{}: ", names.user_name)) {
+        if !names.user_name.is_empty() && name == "example_user"
+            && !content.starts_with(&format!("{}: ", names.user_name)) {
                 obj(m).insert(
                     "content".into(),
                     json!(format!("{}: {}", names.user_name, content)),
                 );
             }
-        }
-        if !names.char_name.is_empty() && name == "example_assistant" {
-            if !content.starts_with(&format!("{}: ", names.char_name))
+        if !names.char_name.is_empty() && name == "example_assistant"
+            && !content.starts_with(&format!("{}: ", names.char_name))
                 && !names.starts_with_group_name(&content)
             {
                 obj(m).insert(
@@ -803,7 +796,6 @@ pub fn convert_ai21_messages(messages: &mut Vec<Value>, names: &PromptNames) -> 
                     json!(format!("{}: {}", names.char_name, content)),
                 );
             }
-        }
         let content = str_of(m.get("content").unwrap_or(&json!("")));
         system_prompt.push_str(&format!("{content}\n\n"));
         i += 1;
@@ -987,7 +979,7 @@ pub fn convert_mistral_messages(messages: &mut Vec<Value>, names: &PromptNames) 
 /* ---------------- xAI ---------------- */
 
 /// convertXAIMessages（:785-814）
-pub fn convert_xai_messages(messages: &mut Vec<Value>, names: &PromptNames) -> Value {
+pub fn convert_xai_messages(messages: &mut [Value], names: &PromptNames) -> Value {
     for m in messages.iter_mut() {
         let name = name_of(m);
         let role = role_of(m);
@@ -1013,7 +1005,7 @@ pub fn convert_xai_messages(messages: &mut Vec<Value>, names: &PromptNames) -> V
         }
         obj(m).remove("name");
     }
-    Value::Array(messages.clone())
+    Value::Array(messages.to_vec())
 }
 
 /* ---------------- Google（MakerSuite/VertexAI） ---------------- */
@@ -1028,9 +1020,9 @@ fn media_resolution(detail: &str) -> Option<&'static str> {
 
 /// /gemini-3[.\d]*-flash/ 或 /gemini-3[.\d]*-pro/ 判别（返回 ('pro'|'flash')|None）
 fn gemini3_variant(model: &str) -> Option<&'static str> {
-    let rest = match model.find("gemini-3") {
-        Some(i) => &model[i + 8..],
-        None => return None,
+    let rest = {
+        let i = model.find("gemini-3")?;
+        &model[i + 8..]
     };
     let mut idx = 0;
     for b in rest.bytes() {
@@ -1064,16 +1056,15 @@ pub fn convert_google_prompt(
             let m = &mut messages[0];
             let name = name_of(m);
             let content = str_of(m.get("content").unwrap_or(&json!("")));
-            if !names.user_name.is_empty() && name == "example_user" {
-                if !content.starts_with(&format!("{}: ", names.user_name)) {
+            if !names.user_name.is_empty() && name == "example_user"
+                && !content.starts_with(&format!("{}: ", names.user_name)) {
                     obj(m).insert(
                         "content".into(),
                         json!(format!("{}: {}", names.user_name, content)),
                     );
                 }
-            }
-            if !names.char_name.is_empty() && name == "example_assistant" {
-                if !content.starts_with(&format!("{}: ", names.char_name))
+            if !names.char_name.is_empty() && name == "example_assistant"
+                && !content.starts_with(&format!("{}: ", names.char_name))
                     && !names.starts_with_group_name(&content)
                 {
                     obj(m).insert(
@@ -1081,7 +1072,6 @@ pub fn convert_google_prompt(
                         json!(format!("{}: {}", names.char_name, content)),
                     );
                 }
-            }
             sys_prompt.push(m.get("content").cloned().unwrap_or(json!("")));
             messages.remove(0);
         }

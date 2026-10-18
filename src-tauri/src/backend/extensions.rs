@@ -20,7 +20,7 @@
 //!
 //! 错误语义（ST 字面）：**纯文本**响应体（App postExt 直接把 text 当错误消息）
 //! + 204 无体。网络路径（clone/fetch）依赖上游可用性 → CI 测试为离线面
-//!（本地 init 仓库 + 手工目录），真网路径不进回归。
+//!   （本地 init 仓库 + 手工目录），真网路径不进回归。
 
 use super::{apply_cors_resp, BackendState};
 use axum::http::{HeaderValue, StatusCode};
@@ -74,6 +74,7 @@ fn sanitize_name(raw: &str) -> Result<String, String> {
 }
 
 /// 解析扩展目录（404 文本 ST 字面："Directory does not exist at <path>"）
+#[allow(clippy::result_large_err)] // Err=Response 为 axum handler 面的有意形态
 fn resolve_ext_dir(
     st: &BackendState,
     name: &str,
@@ -119,9 +120,7 @@ fn validate_extension_url(raw: &str) -> Result<(String, String), String> {
         .map(|(_, r)| r)
         .unwrap_or("");
     let last = path_part
-        .split('/')
-        .filter(|s| !s.is_empty())
-        .last()
+        .split('/').rfind(|s| !s.is_empty())
         .unwrap_or("");
     let stem = last.strip_suffix(".git").unwrap_or(last);
     let name = sanitize_name(stem).map_err(|_| {
@@ -261,6 +260,7 @@ pub async fn install(st: &BackendState, body: &Value, origin: Option<HeaderValue
 
 /* ---------------- git 小件 ---------------- */
 
+#[allow(clippy::result_large_err)] // Err=Response 为 axum handler 面的有意形态
 fn open_repo(path: &std::path::Path, origin: Option<HeaderValue>) -> Result<Repository, Response> {
     Repository::open(path).map_err(|_| {
         text_resp(
