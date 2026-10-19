@@ -798,6 +798,10 @@ pub async fn edit(
     for (k, v) in &fields {
         form.insert(k.clone(), Value::String(v.clone()));
     }
+    // 客户端未带 json_data 时用磁盘原卡兜底：format_for_save 以 json_data 为基底
+    // 保留未知外键（卡内嵌 regex_scripts / TavernHelper_scripts / data.character_book），
+    // 缺了基底这些字段会在每次 edit 被静默丢弃。客户端带了就以客户端的为准
+    // （saveCard 会把风月扩展键先并进它再回传，不能被磁盘旧值覆盖）。
     if let Ok(raw) = std::fs::read(&old_path) {
         if let Ok(meta) = png::read_chara(&raw) {
             if let Ok(orig) = serde_json::from_str::<Value>(&meta) {
@@ -807,6 +811,8 @@ pub async fn edit(
                     }
                 }
             }
+            form.entry("json_data")
+                .or_insert_with(|| Value::String(meta.clone()));
         }
     }
     let char = chara_card::format_for_save(&Value::Object(form));
@@ -1459,6 +1465,115 @@ mod tests {
         assert_eq!(
             card["create_date"], "2026-01-01T00:00:00.000Z",
             "create_date 原样带过"
+        );
+    }
+
+    #[tokio::test]
+    async fn edit_keeps_card_embedded_regex_and_character_book() {
+        // 回归（2026-10-19）：导入带内嵌正则的卡 → 前端因「卡内嵌 character_book」
+        // 立即调 setCharacterWorld（/api/characters/edit）→ 这次 edit 把
+        // data.extensions.regex_scripts / TavernHelper_scripts / character_book 全丢了，
+        // 结果是卡片自带 HTML 前端界面的替换正则消失、开场只渲染出裸占位标记。
+        let st = st_with("editreg");
+        let chars = characters_dir(&st);
+        let png0 = crate::compat::png::minimal_png();
+        let card = json!({
+            "spec": "chara_card_v2",
+            "spec_version": "2.0",
+            "name": "写卡助手",
+            "description": "d",
+            "data": {
+                "name": "写卡助手",
+                "description": "d",
+                "character_book": { "name": "书", "entries": [{ "content": "条目" }] },
+                "extensions": {
+                    "regex_scripts": [{
+                        "scriptName": "萧谴写卡小助手",
+                        "findRegex": "\\[萧谴写卡小助手\\]",
+                        "replaceString": "```text\n<!DOCTYPE html>\n<html></html>\n```",
+                        "markdownOnly": true
+                    }],
+                    "TavernHelper_scripts": []
+                }
+            }
+        });
+        let raw = crate::compat::png::write_chara(&png0, &card.to_string()).unwrap();
+        std::fs::write(chars.join("a.png"), &raw).unwrap();
+
+        // 前端 setCharacterWorld 形态：全字段 + json_data + world（JSON 通路）
+        let r = edit(
+            &st,
+            Some("application/json"),
+            axum::body::Bytes::from(
+                json!({
+                    "avatar_url": "a.png",
+                    "ch_name": "写卡助手",
+                    "description": "改过的描述",
+                    "json_data": card.to_string(),
+                    "world": "书",
+                })
+                .to_string(),
+            ),
+            None,
+        )
+        .await;
+        assert_eq!(r.status().as_u16(), 200);
+
+        let raw = std::fs::read(chars.join("a.png")).unwrap();
+        let meta = crate::compat::png::read_chara(&raw).unwrap();
+        let got: Value = serde_json::from_str(&meta).unwrap();
+        assert_eq!(got["description"], "改过的描述");
+        assert_eq!(
+            got["data"]["extensions"]["regex_scripts"][0]["findRegex"], "\\[萧谴写卡小助手\\]",
+            "卡内嵌正则在 edit 后必须保留"
+        );
+        assert!(
+            got["data"]["extensions"]["TavernHelper_scripts"].is_array(),
+            "脚本库键保留"
+        );
+        assert!(
+            got["data"]["character_book"].is_object(),
+            "内嵌世界书保留"
+        );
+        assert_eq!(got["data"]["extensions"]["world"], "书", "表单 world 生效");
+    }
+
+    #[tokio::test]
+    async fn edit_without_json_data_falls_back_to_disk_card() {
+        // 兜底：客户端没带 json_data 时，用磁盘原卡做基底 —— 卡内嵌扩展键同样不丢。
+        let st = st_with("editfb");
+        let chars = characters_dir(&st);
+        let png0 = crate::compat::png::minimal_png();
+        let card = json!({
+            "spec": "chara_card_v2",
+            "name": "兜底卡",
+            "data": {
+                "name": "兜底卡",
+                "extensions": { "regex_scripts": [{ "findRegex": "X", "replaceString": "Y" }] },
+            }
+        });
+        let raw = crate::compat::png::write_chara(&png0, &card.to_string()).unwrap();
+        std::fs::write(chars.join("b.png"), &raw).unwrap();
+
+        let r = edit(
+            &st,
+            Some("application/json"),
+            axum::body::Bytes::from(
+                json!({ "avatar_url": "b.png", "ch_name": "兜底卡", "description": "新描述" })
+                    .to_string(),
+            ),
+            None,
+        )
+        .await;
+        assert_eq!(r.status().as_u16(), 200);
+
+        let raw = std::fs::read(chars.join("b.png")).unwrap();
+        let meta = crate::compat::png::read_chara(&raw).unwrap();
+        let got: Value = serde_json::from_str(&meta).unwrap();
+        assert_eq!(got["description"], "新描述");
+        assert_eq!(
+            got["data"]["extensions"]["regex_scripts"][0]["findRegex"], "X",
+            "未带 json_data 时也必须用磁盘原卡保留内嵌正则"
         );
     }
 

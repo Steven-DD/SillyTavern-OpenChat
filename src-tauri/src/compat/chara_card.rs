@@ -96,9 +96,22 @@ pub fn to_v2_response(mut card: Value) -> Value {
 /// 保存路径（/edit 的 charaFormatData 精简版）：保留外键，写回 spec=chara_card_v2。
 /// 输入是前端 edit 表单（扁平字段 + 可选 world/extensions）；输出是写进 PNG 的 JSON。
 pub fn format_for_save(body: &Value) -> Value {
-    let mut char: Map<String, Value> = Map::new();
+    // ST charaFormatData：以 tryParse(json_data) 为基底，保留顶层与 data 内的未知外键。
+    // 卡片内嵌扩展键（regex_scripts / TavernHelper_scripts / 风月 detailed_intro 等）
+    // 与 data.character_book 全靠这一步存活 —— 基底恒为空壳时，每次 /edit 都会静默丢掉
+    // 它们（前端 saveCard / setCharacterWorld 正是为此专门回传 json_data）。
+    let mut char: Map<String, Value> = body
+        .get("json_data")
+        .and_then(|v| v.as_str())
+        .and_then(|s| serde_json::from_str::<Value>(s).ok())
+        .and_then(|v| match v {
+            Value::Object(o) => Some(o),
+            _ => None,
+        })
+        .unwrap_or_default();
+    char.remove("json_data"); // 防递归保存（与 to_v2_response 同款守卫）
 
-    // 保留未知外键（tryParse(json_data) 的语义 —— 我们没有 json_data 输入时为空壳）
+    // 保留未知外键（tryParse(json_data) 的语义）
     for k in ["spec", "spec_version"] {
         if let Some(v) = body.get(k) {
             char.insert(k.into(), v.clone());
@@ -152,8 +165,12 @@ pub fn format_for_save(body: &Value) -> Value {
     char.insert("spec".into(), "chara_card_v2".into());
     char.insert("spec_version".into(), "2.0".into());
 
-    // data 镜像（charaFormatData 的 Spec V2 段）
-    let mut data = Map::new();
+    // data 镜像（charaFormatData 的 Spec V2 段）：在基底 data 上覆盖已知字段，
+    // 未知键（character_book 等）原样保留
+    let mut data = char
+        .get("data")
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default();
     data.insert("name".into(), s(body.get("ch_name")));
     data.insert("description".into(), s(body.get("description")));
     data.insert("personality".into(), s(body.get("personality")));
@@ -177,7 +194,12 @@ pub fn format_for_save(body: &Value) -> Value {
             _ => Value::Array(Vec::new()),
         },
     );
-    let mut ext = Map::new();
+    // extensions 合并而非整体替换：卡内嵌正则（regex_scripts）与脚本库
+    // （TavernHelper_scripts）等扩展键必须存活，只覆盖下面四个已知键
+    let mut ext = data
+        .get("extensions")
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default();
     ext.insert("talkativeness".into(), char["talkativeness"].clone());
     ext.insert("fav".into(), char["fav"].clone());
     ext.insert("world".into(), s(body.get("world")));
@@ -292,6 +314,70 @@ mod tests {
         assert_eq!(out["fav"], true, "fav='true' → bool");
         assert_eq!(out["data"]["extensions"]["depth_prompt"]["depth"], 4);
         assert_eq!(out["chat"], Value::Null, "chat 不透传时不存在");
+        assert!(
+            out.get("unknown_field").is_none(),
+            "表单里的未知字段不是卡外键 —— 外键只能经 json_data 基底保留（见下条用例）"
+        );
+    }
+
+    #[test]
+    fn format_for_save_preserves_embedded_extensions_from_json_data() {
+        // 回归（2026-10-19 渲染故障根因）：卡片内嵌正则/脚本库在每次 /edit 被静默丢弃。
+        // 前端 saveCard / setCharacterWorld 专门回传 json_data 让 charaFormatData 以它为
+        // 基底保留未知外键，而实现此前把 json_data 当空气（基底恒为空壳）。
+        // 丢掉的正是「[占位标记] → HTML 应用」那条正则，表现为卡片前端界面渲染成裸文本。
+        let json_data = serde_json::json!({
+            "spec": "chara_card_v2",
+            "spec_version": "2.0",
+            "name": "写卡助手",
+            "foreign_top": { "keep": true },
+            "data": {
+                "name": "写卡助手",
+                "character_book": { "name": "书", "entries": [{ "content": "条目" }] },
+                "extensions": {
+                    "talkativeness": 0.5,
+                    "fav": false,
+                    "world": "旧世界",
+                    "regex_scripts": [
+                        {
+                            "scriptName": "萧谴写卡小助手",
+                            "findRegex": "\\[萧谴写卡小助手\\]",
+                            "replaceString": "<!DOCTYPE html>",
+                            "markdownOnly": true,
+                        }
+                    ],
+                    "TavernHelper_scripts": [],
+                    "detailed_intro": "风月扩展键"
+                }
+            }
+        })
+        .to_string();
+        let body = serde_json::json!({
+            "ch_name": "写卡助手",
+            "description": "改过的描述",
+            "json_data": json_data,
+            "world": "新世界",
+        });
+
+        let out = format_for_save(&body);
+        assert_eq!(out["description"], "改过的描述", "表单字段覆盖基底");
+        let ext = &out["data"]["extensions"];
+        assert_eq!(
+            ext["regex_scripts"][0]["findRegex"], "\\[萧谴写卡小助手\\]",
+            "卡内嵌正则在 /edit 后必须保留（否则卡片前端界面无法渲染）"
+        );
+        assert!(ext["TavernHelper_scripts"].is_array(), "脚本库键保留");
+        assert_eq!(ext["detailed_intro"], "风月扩展键", "其它未知扩展键保留");
+        assert_eq!(ext["world"], "新世界", "表单 world 覆盖基底旧值");
+        assert_eq!(
+            out["data"]["character_book"]["entries"][0]["content"], "条目",
+            "内嵌世界书保留（前端注释依赖 charaFormatData 回嵌 character_book）"
+        );
+        assert_eq!(out["foreign_top"]["keep"], true, "顶层未知外键保留");
+        assert!(
+            out.get("json_data").is_none(),
+            "json_data 本身不得写回卡内（防递归）"
+        );
     }
 
     #[test]
