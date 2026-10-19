@@ -233,7 +233,7 @@ export function fixCrossBlockDeclCollision(html: string): string {
  *  判定失败 → 消息丢弃 + console.warn，绝不回退 '*'。 */
 export const PARENT_ORIGIN_PLACEHOLDER = '__EMBED_PARENT_ORIGIN__'
 
-/* ---------------- 帧内预置库（方案批1） ----------------
+/* ---------------- 帧内预置库（方案批1+批2） ----------------
  * 上游酒馆助手给每个前端帧注入一套第三方库，卡作者是按「这些全局量存在」写卡的；
  * 我们此前只注入 TavernHelper 桥，依赖 $ / Vue / jsyaml 的卡会直接 ReferenceError。
  *
@@ -242,10 +242,12 @@ export const PARENT_ORIGIN_PLACEHOLDER = '__EMBED_PARENT_ORIGIN__'
  * （实测脚本不执行、零 CSP 违规 ⇒ 源检查而非策略拦截）；上游能用 blob 是因为它
  * 的帧同源零沙箱。
  *
- * 清单/顺序须与 `src-tauri/src/backend/cardlibs.rs` 的 ASSETS 一致，
- * 由 scripts/selfcheck-cardlibs.mjs 守（前端 ↔ Rust 表 ↔ 磁盘文件三向）。
+ * 本清单 = **可注入集**（css/js），须与 `src-tauri/src/backend/cardlibs.rs` 的
+ * `injectable()` 同名同序；后端另有仅供 CSS 相对引用的附属资源（webfonts/主题图片），
+ * 不可注入。三向一致由 scripts/selfcheck-cardlibs.mjs 守。
  * 版本与许可登记在 src-tauri/assets/card-libs/LICENSES.md。 */
 export const CARD_LIB_FILES: readonly string[] = [
+  // 批1：基础全局量
   'jquery-3.7.1.min.js',
   'toastr-2.1.4.min.css',
   'toastr-2.1.4.min.js',
@@ -253,6 +255,12 @@ export const CARD_LIB_FILES: readonly string[] = [
   'js-yaml-4.1.0.min.js',
   'vue-3.5.13.global.prod.js',
   'vue-router-4.5.0.global.prod.js',
+  // 批2：图标、jQuery 生态、markdown 转换
+  'fontawesome-6.7.2/css/all.min.css',
+  'jquery-ui-1.13.3/themes/base/theme.css',
+  'jquery-ui-1.13.3/jquery-ui.min.js',
+  'jquery-ui-touch-punch-0.2.3.min.js',
+  'showdown-2.1.0.min.js',
 ]
 
 /**
