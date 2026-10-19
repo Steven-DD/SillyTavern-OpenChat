@@ -59,8 +59,9 @@ npm run tauri build   # 产出 NSIS 安装包（src-tauri/target/release/bundle/
 ```bash
 npm run typecheck                                # vue-tsc 类型检查
 npm run build                                    # 类型检查 + 生产构建
-npm run selfcheck                                # 前端各模块回归自检
-cargo test --manifest-path src-tauri/Cargo.toml  # Rust 单测 + 契约/黄金样本测试
+npm run selfcheck                                # 前端各模块回归自检（收尾自动清 %TEMP% 夹具）
+npm run test:rust                                # Rust 单测 + 契约/黄金样本测试（收尾自动清夹具）
+npm run clean:test                               # 手动清 %TEMP% 下的测试残留（--dry-run 可预演）
 ```
 
 ## 排障与日志

@@ -13,6 +13,7 @@ import { spawnSync } from 'node:child_process'
 import { mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { cleanTestArtifacts } from './clean-test-artifacts.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const outDir = join(here, '..', 'node_modules', '.selfcheck-tmp')
@@ -36,31 +37,42 @@ if (missingGates.length) {
 
 mkdirSync(outDir, { recursive: true })
 let failed = 0
-for (const s of scripts) {
-  const outfile = join(outDir, s)
-  try {
-    await build({
-      entryPoints: [join(here, s)],
-      outfile,
-      bundle: true,
-      format: 'esm',
-      platform: 'node',
-      // 依赖树里的包不打进 bundle，运行时仍从 node_modules 解析
-      packages: 'external',
-      logLevel: 'silent',
-    })
-    const r = spawnSync(process.execPath, [outfile], { stdio: 'inherit' })
-    if (r.status !== 0) {
-      console.error(`✗ ${s}（退出码 ${r.status}）`)
+try {
+  for (const s of scripts) {
+    const outfile = join(outDir, s)
+    try {
+      await build({
+        entryPoints: [join(here, s)],
+        outfile,
+        bundle: true,
+        format: 'esm',
+        platform: 'node',
+        // 依赖树里的包不打进 bundle，运行时仍从 node_modules 解析
+        packages: 'external',
+        logLevel: 'silent',
+      })
+      const r = spawnSync(process.execPath, [outfile], { stdio: 'inherit' })
+      if (r.status !== 0) {
+        console.error(`✗ ${s}（退出码 ${r.status}）`)
+        failed++
+      }
+    } catch (e) {
+      console.error(`✗ ${s}（打包失败: ${e instanceof Error ? e.message : e}）`)
       failed++
     }
-  } catch (e) {
-    console.error(`✗ ${s}（打包失败: ${e instanceof Error ? e.message : e}）`)
-    failed++
+  }
+} finally {
+  rmSync(outDir, { recursive: true, force: true })
+  // 收尾清理（T23）：清掉自检/单测在 %TEMP% 下留的 stoc-* 夹具；自检失败也照样执行
+  const c = cleanTestArtifacts({ quiet: true })
+  if (c.error) {
+    console.error(`— 收尾清理跳过：${c.error}`)
+  } else if (c.busy && c.busy.length) {
+    console.log(`— 收尾清理跳过：检测到在跑的测试/编译进程 ${c.busy.join(', ')}`)
+  } else {
+    console.log(`— 收尾清理：%TEMP% 下移除 ${c.removed}/${c.targets} 项测试残留`)
   }
 }
-
-rmSync(outDir, { recursive: true, force: true })
 if (failed) {
   console.error(`\n${failed} 个自检失败`)
   process.exit(1)
