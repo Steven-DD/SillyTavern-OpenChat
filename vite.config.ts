@@ -23,6 +23,18 @@ export default defineConfig({
      * 固定 IPv4 环回：既稳定，又不会把 dev server 暴露到局域网。
      */
     host: '127.0.0.1',
+    /**
+     * 必须显式忽略 src-tauri/**：
+     * cargo 在 src-tauri/target/ 下持续新建/覆盖 build script 及其 .exe/.pdb，
+     * Windows 上对「正被占用」的文件调 fs.watch 会直接抛 EBUSY，而 Vite 的
+     * FSWatcher 对 error 事件不做兜底（直接抛）→ dev server 进程退出 →
+     * tauri dev 报 "The beforeDevCommand terminated with a non-zero status code"。
+     * 官方 Tauri 模板同样显式忽略该目录；只忽略 Rust 侧产物，
+     * 前端 src/、index.html 的热更新不受影响。
+     */
+    watch: {
+      ignored: ['**/src-tauri/**'],
+    },
   },
   // 同上：preview 默认也走 'localhost'，同样会只绑 IPv6 环回，一并固定
   preview: {
