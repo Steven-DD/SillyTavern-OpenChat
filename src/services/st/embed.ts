@@ -301,8 +301,15 @@ function injectParentOrigin(bootstrap: string): string {
  * （buildCardLibTags）。只有需要这套库的调用方传它——脚本库运行时帧不传。
  */
 export function buildEmbedSrcdoc(html: string, bootstrap: string, headExtra = ''): string {
+  // 掐掉文档级滚动条：帧高按内容精确给，只要差 1px 就会冒出纵向滚动条 →
+  // 帧内可用宽度骤减约 15px → 文本重排 → 高度又变 → 滚动条消失 …… 形成
+  // 「内部宽度与气泡宽度互相触发」的持续抖动（用户实测症状）。
+  // 内容永远由父页调高度承接，故文档级滚动本就不需要；卡自己的内层滚动容器
+  // （overflow:auto 的子元素，如弹窗正文）不受影响。
   const injected =
-    `<script>${injectParentOrigin(bootstrap)}</script>` + (headExtra ? `\n${headExtra}` : '')
+    `<style>html{overflow:hidden!important}</style>` +
+    `<script>${injectParentOrigin(bootstrap)}</script>` +
+    (headExtra ? `\n${headExtra}` : '')
   const fixed = fixCrossBlockDeclCollision(html)
   if (/<head[^>]*>/i.test(fixed)) return fixed.replace(/<head[^>]*>/i, (m) => `${m}${injected}`)
   if (/<html[^>]*>/i.test(fixed)) return fixed.replace(/<html[^>]*>/i, (m) => `${m}${injected}`)
@@ -452,10 +459,17 @@ export const SANDBOX_BOOTSTRAP = `
     return Math.ceil(Math.max(bodyH, scrollH) + mb)
   }
   var hPending = false
+  // 底部安全区：卡容器常带 margin-top（本卡 .container 是 15px），而 box-shadow
+  // （如 0 8px 25px）与末元素外边距都在盒模型之外、不计入内容高度 —— 于是
+  // 「按内容精确给高」会切掉底部（用户实测：顶部有留白、底部没有）。
+  // 同时留 1~2px 余量，配合 html{overflow:hidden} 让帧内永远不因舍入冒出滚动条。
+  var HEIGHT_GUTTER = 16
   function postHeight() {
     hPending = false
     var h = contentHeight()
-    if (!h || Math.abs(h - lastH) < 1) return
+    if (!h) return
+    h += HEIGHT_GUTTER
+    if (Math.abs(h - lastH) < 1) return
     lastH = h
     postToHost({ source: 'tavern-embed', type: 'th-resize', height: h })
   }

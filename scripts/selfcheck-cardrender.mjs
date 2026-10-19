@@ -117,9 +117,11 @@ const cardRule = {
 }
 
 /* ④ 尺寸契约（防回归）：
- *   a) 高度必须测「内容高度」—— documentElement.scrollHeight 的下界是帧自身视口高度，
- *      父页把帧调高后它永远 >= 当前高度，折叠/收起只会涨不会缩（曾实测的症状）；
- *      观察者也必须挂 body（documentElement 的盒子就是视口，内容变化不触发）。
+ *   a) 高度上报要有「多点触发」—— 旧实现只靠 documentElement 的盒子变化，任何一次漏拍
+ *      （首个上报早于宿主监听就位、rAF 在隐藏/最小化时被冻结、过渡结束时刻）都会让高度
+ *      永久停在旧值；故要求：内容高度测量 + body 观察者 + mutation 观察者 + 微任务调度。
+ *      （注：并未证实「documentElement.scrollHeight 的视口下界必然导致只涨不缩」，此处
+ *       守的是触发面与测量口径，不是某个已确证的根因。）
  *   b) 含前端界面的气泡必须放开到整行宽（卡 HTML 多为 max-width:1200px;margin:0 auto
  *      的响应式布局，被文本气泡的 78% 约束会压窄）。 */
 {
@@ -145,6 +147,29 @@ const cardRule = {
   ok(
     /\.msg\.has-embed \.wrap \{[\s\S]{0,80}max-width: 100%/.test(bubble),
     '④ 含前端界面的气泡放开到整行宽（否则卡片「没撑开」）',
+  )
+
+  // 抖动与底部裁切（用户实测）：
+  //   ① 帧高按内容精确给 → 差 1px 就冒帧内纵向滚动条 → 帧内可用宽度骤减约 15px →
+  //      文本重排 → 高度再变 → 滚动条消失 …… 「内部宽度与气泡宽度互相触发」持续抖动；
+  //   ② 盒模型之外的 box-shadow / 末元素外边距不计入内容高度 → 底部被切
+  //      （顶部有 margin-top 留白、底部没有）。
+  const { buildEmbedSrcdoc } = await import('../src/services/st/embed.ts')
+  const sample = buildEmbedSrcdoc(
+    '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>x</body></html>',
+    SANDBOX_BOOTSTRAP,
+  )
+  ok(
+    sample.includes('html{overflow:hidden!important}'),
+    '④ 帧文档级滚动条被禁用（否则宽度/高度互相触发抖动）',
+  )
+  ok(
+    SANDBOX_BOOTSTRAP.includes('HEIGHT_GUTTER'),
+    '④ 上报高度带底部安全区（盒模型外的阴影/外边距不被切）',
+  )
+  ok(
+    SANDBOX_BOOTSTRAP.includes('Promise.resolve().then(postHeight)'),
+    '④ 测量调度用微任务（rAF 在隐藏/最小化标签页会被冻结）',
   )
 }
 
