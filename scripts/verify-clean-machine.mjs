@@ -18,7 +18,7 @@
  */
 import { readdirSync, statSync, existsSync, createReadStream } from 'node:fs'
 import { spawnSync } from 'node:child_process'
-import { join, dirname, resolve } from 'node:path'
+import { join, dirname, resolve, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -59,6 +59,33 @@ const ST_DIR_MARKERS = ['sillytavern', 'st-1.19.0']
 // 后两项为**旧版产品名**（历史构建产物），保留以兼容旧安装包 —— 不作为当前标识。
 const APP_ARTIFACT_PREFIXES = ['sillytavern-openchat', 'st-chat', 'stchat']
 
+const isAppArtifactName = (n) => APP_ARTIFACT_PREFIXES.some((pre) => n.startsWith(pre))
+
+/**
+ * D6-1b 判定：只看**产物目录内的相对路径**（relPath），不看绝对路径。
+ *
+ * 历史 bug（CI run 39152554121 / 前端 job）：原实现用绝对路径
+ * `lowerPath.includes('sillytavern')`，而 GitHub Actions 的检出目录名本身就叫
+ * `SillyTavern-OpenChat`（D:\a\SillyTavern-OpenChat\SillyTavern-OpenChat）→
+ * `dist/` 下 372 个产物文件全被误判成 ST 源码树（本地仓库目录名不同，故只在 CI 红）。
+ *
+ * 判定单位改为「路径段」：
+ *   - 段名等于 marker 或以 `marker-` 开头（sillytavern、sillytavern-1.12.0、st-1.19.0-backup）；
+ *   - 或以 marker 开头的 .zip（sillytavern-1.12.0.zip）；
+ * 本应用自有产物名（sillytavern-openchat / st-chat / stchat 前缀，含 build/sillytavern-openchat-<hash>）
+ * 按段排除，不算 ST 源码树。
+ */
+function stMarkerHit(relPath) {
+  const segs = relPath.toLowerCase().split(/[\\/]/).filter(Boolean)
+  const name = segs[segs.length - 1] || ''
+  const segHit = segs.some(
+    (seg) => !isAppArtifactName(seg) && ST_DIR_MARKERS.some((m) => seg === m || seg.startsWith(`${m}-`)),
+  )
+  const zipHit =
+    !isAppArtifactName(name) && name.endsWith('.zip') && ST_DIR_MARKERS.some((m) => name.startsWith(m))
+  return segHit || zipHit
+}
+
 function* walk(dir, depth = 0) {
   if (depth > 4) return // 打包目录深度兜底（防符号链接/巨树）
   for (const e of readdirSync(dir)) {
@@ -75,12 +102,10 @@ let stDirFound = []
 for (const base of artifactDirs) {
   for (const p of walk(base)) {
     const name = p.split(/[\\/]/).pop().toLowerCase()
-    const lowerPath = p.toLowerCase()
     if (DEFAULT_NODE_NAMES.has(name)) nodeExeFound.push(p)
-    // ST 源码树目录名（作为 zip / 目录出现在产物里 = 打包错把 ST 带走）；
-    // 本应用自有产物（SillyTavern-OpenChat.exe 等）不算 ST 源码树标记。
-    const isAppArtifact = APP_ARTIFACT_PREFIXES.some((pre) => name.startsWith(pre))
-    if (!isAppArtifact && ST_DIR_MARKERS.some((m2) => lowerPath.includes(m2))) stDirFound.push(p)
+    // ST 源码树标记（作为 zip / 目录出现在产物里 = 打包错把 ST 带走）：
+    // 按产物内相对路径判定，绝对路径不参与（其含仓库/检出目录名，见 stMarkerHit 说明）。
+    if (stMarkerHit(relative(base, p))) stDirFound.push(p)
   }
 }
 ok(nodeExeFound.length === 0, `D6-1a 产物不含 node 可执行文件（found=${nodeExeFound.length}）`)

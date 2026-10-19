@@ -14,8 +14,10 @@ jobs:
     name: 前端（类型检查 + 构建 + 自检 + 产物洁净度）
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # actions 必须 ≥v5：v4 仍以 node20 为运行时，GitHub 已告警强制跑 node24
+      # （见 run 39152554121：Node.js 20 is deprecated ... actions/checkout@v4, actions/setup-node@v4）
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -32,7 +34,7 @@ jobs:
     name: Rust（clippy + 单测/契约测试）
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
