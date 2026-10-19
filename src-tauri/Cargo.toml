@@ -65,6 +65,12 @@ tauri-plugin-process = "2"
 # 日志（操作审计 + 调试：console + 滚动文件，前端 @tauri-apps/plugin-log 配套）
 tauri-plugin-log = "2"
 
+[dev-dependencies]
+# 测试临时目录：TempDir 在用例结束（含 panic unwind）时自动删树，
+# 替代以前手写 %TEMP%/stoc-<case>-<pid> 且从不清理的写法。
+# 已在依赖树中（3.27.0），加此声明只是显式化 dev 依赖边。
+tempfile = "3"
+
 [profile.release]
 strip = true
 lto = true

@@ -4008,6 +4008,7 @@ dependencies = [
  "tauri-plugin-log",
  "tauri-plugin-process",
  "tauri-plugin-updater",
+ "tempfile",
  "tiktoken-rs",
  "tokenizers",
  "tokio",

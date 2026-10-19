@@ -43,8 +43,11 @@ async fn backend_request_lifecycle_is_logged() {
     log::set_max_level(log::LevelFilter::Info);
     LINES.get_or_init(|| Mutex::new(Vec::new()));
 
-    let root = std::env::temp_dir().join(format!("stoc-logtest-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
+    let _tmp = tempfile::Builder::new()
+        .prefix("stoc-logtest-")
+        .tempdir()
+        .unwrap();
+    let root = _tmp.path().to_path_buf();
     let ep = sillytavern_openchat_lib::backend::start(root.clone())
         .await
         .expect("backend 启动失败");
@@ -96,6 +99,4 @@ async fn backend_request_lifecycle_is_logged() {
         api.iter().any(|l| l.contains("501") && l.contains("未实现端点")),
         "缺未实现端点日志（stoc::api 501）：{api:?}"
     );
-
-    let _ = std::fs::remove_dir_all(&root);
 }

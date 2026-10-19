@@ -34,17 +34,22 @@ struct BackendEnv {
     base: String,
     token: String,
     root: PathBuf,
+    /// 临时数据根守卫：用例结束自动删树（_tmp 最后 drop）
+    _tmp: tempfile::TempDir,
 }
 
 async fn spawn_backend(label: &str) -> BackendEnv {
-    let root =
-        std::env::temp_dir().join(format!("stoc-golden-{label}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
+    let _tmp = tempfile::Builder::new()
+        .prefix(&format!("stoc-golden-{label}-"))
+        .tempdir()
+        .expect("创建临时目录失败");
+    let root = _tmp.path().to_path_buf();
     let ep = backend::start(root.clone()).await.expect("backend 启动失败");
     BackendEnv {
         base: format!("http://127.0.0.1:{}", ep.port),
         token: ep.token,
         root,
+        _tmp,
     }
 }
 
@@ -53,10 +58,6 @@ fn fresh_client() -> reqwest::Client {
         .no_proxy()
         .build()
         .expect("reqwest client 构建失败")
-}
-
-fn cleanup(env: &BackendEnv) {
-    let _ = std::fs::remove_dir_all(&env.root);
 }
 
 /* ------------------------------------------------------------------ *
@@ -117,8 +118,6 @@ async fn settings_roundtrip_save_get_zero_loss() {
     let disk_text = std::fs::read_to_string(&disk).expect("settings.json 应已落盘");
     let disk_v: serde_json::Value = serde_json::from_str(&disk_text).unwrap();
     assert_eq!(disk_v, fixture, "落盘 settings.json 与 fixture 保真");
-
-    cleanup(&env);
 }
 
 /* ------------------------------------------------------------------ *
@@ -211,8 +210,6 @@ async fn chats_jsonl_line_fidelity_on_disk_and_get() {
         serde_json::Value::Null,
         "null 保真"
     );
-
-    cleanup(&env);
 }
 
 /* ------------------------------------------------------------------ *
@@ -285,8 +282,6 @@ async fn worldinfo_edit_roundtrip_unknown_field_fidelity() {
             .any(|it| it["file_id"] == "fixture-world-中文书" || it["name"] == "fixture-world-中文书"),
         "worldinfo/list 应含黄金样本（返回 {list:?}）"
     );
-
-    cleanup(&env);
 }
 
 /* ------------------------------------------------------------------ *

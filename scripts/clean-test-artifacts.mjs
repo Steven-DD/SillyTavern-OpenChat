@@ -2,13 +2,16 @@
 /**
  * 测试残留收尾清理（自检 + cargo test 在 %TEMP% 下的夹具）
  *
- * 背景：Rust 单测把数据根建在系统临时目录下，命名为 `stoc-<case>-<pid>`，
- * 例如 stoc-chars-all-48020 / stoc-vault-sync-51956 / stoc-ext-localrepo-50048 /
- * stoc-backend-test-auth；另有 stoc-clippy.log、stoc-test-all.log 这类测试日志。
- * 跑一轮 cargo test 就留约 81 个目录，且**测试本身不会清**（20 处直接
- * `std::env::temp_dir().join(...)`，没有 TempDir 守卫）。
- * 原来清这类东西的 scripts/clean-test-artifacts.mjs 在批20 随 ST 资产一起删除，
- * 此后无人清理 —— 本脚本补上收尾。
+ * 背景：Rust 单测的数据根都建在系统临时目录下，统一带 `stoc-` 前缀便于识别
+ * （如 stoc-chars-all-x7k2 / stoc-vault-sync-p9d1 / stoc-backend-test-auth-a1b2），
+ * 另有 stoc-clippy.log、stoc-test-all.log 这类测试日志。
+ *
+ * 现状（2026-10 Rust 测试改造后）：用例由 `tempfile::TempDir` 自带守卫，结束即删树，
+ * 正常不再产生残留 —— 本脚本因此是**兜底安全网**，负责三种逃逸：删树失败（Windows 上
+ * 服务端仍持有文件句柄是唯一的现实失败面）、测试进程被强杀、手工冒烟留下的目录。
+ * 保留 `stoc-` 前缀约定就是为了让逃逸目录始终落进本脚本的白名单。
+ * （改造前：20 处直接 `std::env::temp_dir().join(...)`，无守卫，一轮 cargo test 留约
+ * 81 个目录，而批20 删掉了旧清理脚本 —— 那批 210 项残留已由本脚本清空。）
  *
  * 清理范围（严格白名单，只动系统临时目录的**直接子项**）：
  *   - 名称匹配 /^stoc-[A-Za-z0-9._-]+$/i 的目录或文件

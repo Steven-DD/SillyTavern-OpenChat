@@ -46,6 +46,10 @@ mod uploads;
 pub mod worldinfo_groups;
 pub mod vertexai_auth;
 
+/// 测试专用：带 TempDir 守卫的 BackendState（仅测试构建编译）
+#[cfg(test)]
+pub(crate) mod test_support;
+
 pub use auth::gen_token;
 
 use axum::{
@@ -266,7 +270,11 @@ mod tests {
     #[tokio::test]
     async fn csrf_token_requires_auth() {
         // /csrf-token 不在豁免清单 —— 无 token 必 403（S3）
-        let ep = start(std::env::temp_dir().join("stoc-backend-test-csrf"))
+        let tmp = tempfile::Builder::new()
+            .prefix("stoc-backend-test-csrf-")
+            .tempdir()
+            .unwrap();
+        let ep = start(tmp.path().to_path_buf())
             .await
             .expect("启动失败");
         let c = reqwest::Client::builder().no_proxy().build().unwrap();
@@ -289,7 +297,11 @@ mod tests {
     #[tokio::test]
     async fn unimplemented_endpoints_return_501_json_error() {
         // S20：未迁移端点返回可判定的错误，禁止 200+空结果
-        let ep = start(std::env::temp_dir().join("stoc-backend-test-501"))
+        let tmp = tempfile::Builder::new()
+            .prefix("stoc-backend-test-501-")
+            .tempdir()
+            .unwrap();
+        let ep = start(tmp.path().to_path_buf())
             .await
             .expect("启动失败");
         let c = reqwest::Client::builder().no_proxy().build().unwrap();
@@ -314,7 +326,11 @@ mod tests {
 
     #[tokio::test]
     async fn auth_enforced_on_all_non_exempt() {
-        let ep = start(std::env::temp_dir().join("stoc-backend-test-auth"))
+        let tmp = tempfile::Builder::new()
+            .prefix("stoc-backend-test-auth-")
+            .tempdir()
+            .unwrap();
+        let ep = start(tmp.path().to_path_buf())
             .await
             .expect("启动失败");
         let c = reqwest::Client::builder().no_proxy().build().unwrap();
@@ -363,8 +379,11 @@ mod tests {
         // 新机安装首启：setup 只建 data_root + default-user（lib.rs:311-312），
         // 还没有任何写操作。此前 default-user/characters 不存在 → read_dir 失败
         // → 500 → 前端 client.ts:148 抛「写入失败（/api/characters/all，HTTP 500）」。
-        let root = std::env::temp_dir().join(format!("stoc-fresh-install-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let tmp = tempfile::Builder::new()
+            .prefix("stoc-fresh-install-")
+            .tempdir()
+            .unwrap();
+        let root = tmp.path().to_path_buf();
         std::fs::create_dir_all(root.join("default-user")).unwrap();
 
         let ep = start(root.clone()).await.expect("启动失败");
@@ -384,17 +403,17 @@ mod tests {
         );
         let v: serde_json::Value = r.json().await.unwrap();
         assert_eq!(v, serde_json::json!([]), "空数据根的角色列表应为空数组");
-
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[tokio::test]
     async fn settings_family_roundtrip_with_unknown_keys() {
         // Phase 1 族一验收（评审 A3/D3 + manifest #28/#29）：
         // 200+ 未知键读-改-写零丢失；保存语义为整体覆盖；401/403 面不被打开
-        let root =
-            std::env::temp_dir().join(format!("stoc-backend-settings-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let tmp = tempfile::Builder::new()
+            .prefix("stoc-backend-settings-")
+            .tempdir()
+            .unwrap();
+        let root = tmp.path().to_path_buf();
         let ep = start(root.clone()).await.expect("启动失败");
         let c = reqwest::Client::builder().no_proxy().build().unwrap();
         let base = format!("http://127.0.0.1:{}", ep.port);
@@ -491,7 +510,5 @@ mod tests {
         let backups = root.join("default-user").join("backups");
         let n = std::fs::read_dir(&backups).map(|d| d.count()).unwrap_or(0);
         assert!(n >= 1, "save 应触发备份，实际 {n}");
-
-        let _ = std::fs::remove_dir_all(&root);
     }
 }

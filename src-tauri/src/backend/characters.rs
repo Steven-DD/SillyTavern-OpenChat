@@ -1146,6 +1146,7 @@ fn bad_json_body() -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::test_support::TestBackend;
     fn new_chats() -> std::sync::Arc<super::super::chats::ChatsService> {
         std::sync::Arc::new(super::super::chats::ChatsService::new())
     }
@@ -1154,12 +1155,12 @@ mod tests {
         std::sync::Arc::new(super::super::extras::MaidTokens::new())
     }
 
-    fn st_with(tag: &str) -> BackendState {
-        let root = std::env::temp_dir().join(format!("stoc-chars-{tag}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+    fn st_with(tag: &str) -> TestBackend {
+        let tmp = TestBackend::temp(&format!("stoc-chars-{tag}-"));
+        let root = tmp.path().to_path_buf();
         std::fs::create_dir_all(root.join("default-user").join("characters")).unwrap();
         std::fs::create_dir_all(root.join("default-user").join("chats")).unwrap();
-        BackendState {
+        TestBackend::new(tmp, BackendState {
             token: std::sync::Arc::new("t".into()),
             data_root: root,
             max_body_bytes: 1024,
@@ -1167,7 +1168,7 @@ mod tests {
             chats_svc: new_chats(),
             maid_tokens: new_maid(),
           vault: std::sync::Arc::new(super::super::vault::Vault::new_memory()),
-        }
+        })
     }
 
     /// 造一张 v2 卡 PNG（用 compat 的编码器）

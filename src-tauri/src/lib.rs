@@ -351,11 +351,11 @@ mod chat_line_tests {
         raw.lines().map(|s| s.to_string()).collect()
     }
 
-    fn tmp_dir(tag: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("stoc-t15-{tag}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&d);
-        std::fs::create_dir_all(&d).unwrap();
-        d
+    fn tmp_dir(tag: &str) -> tempfile::TempDir {
+        tempfile::Builder::new()
+            .prefix(&format!("stoc-t15-{tag}-"))
+            .tempdir()
+            .expect("创建测试临时目录失败")
     }
 
     #[test]
@@ -440,7 +440,8 @@ mod chat_line_tests {
 
     #[test]
     fn atomic_write_leaves_no_tmp_residue() {
-        let dir = tmp_dir("atomic");
+        let tmp = tmp_dir("atomic");
+        let dir = tmp.path().to_path_buf();
         let path = dir.join("chat.jsonl");
         chat_write_atomic(
             &path,
@@ -453,7 +454,6 @@ mod chat_line_tests {
             !path.with_extension("jsonl.tmp").exists(),
             "rename 后 .tmp 不许残留"
         );
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -477,7 +477,8 @@ mod chat_line_tests {
 
     #[test]
     fn aborted_batch_does_not_damage_jsonl() {
-        let dir = tmp_dir("abort");
+        let tmp = tmp_dir("abort");
+        let dir = tmp.path().to_path_buf();
         let path = dir.join("chat.jsonl");
         let raw = "{\"chat_metadata\":{}}\n{\"mes\":\"行1\",\"指纹\":\"keep\"}\n";
         std::fs::write(&path, raw).unwrap();
@@ -498,6 +499,5 @@ mod chat_line_tests {
             !path.with_extension("jsonl.tmp").exists(),
             "失败批不得留下 .tmp 半成品"
         );
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

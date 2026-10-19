@@ -408,8 +408,11 @@ mod tests {
 
     #[test]
     fn stat_tree_counts_files_and_bytes() {
-        let base = std::env::temp_dir().join(format!("stoc-data-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&base);
+        let tmp = tempfile::Builder::new()
+            .prefix("stoc-data-")
+            .tempdir()
+            .unwrap();
+        let base = tmp.path().to_path_buf();
         fs::create_dir_all(base.join("sub")).unwrap();
         fs::write(base.join("a.txt"), b"hello").unwrap();
         fs::write(base.join("sub/b.txt"), b"world!!!").unwrap();
@@ -417,13 +420,15 @@ mod tests {
         let s = stat_tree(&base);
         assert_eq!(s.files, 2, "files");
         assert_eq!(s.bytes, 5 + 8, "bytes");
-        let _ = fs::remove_dir_all(&base);
     }
 
     #[test]
     fn export_import_roundtrip() {
-        let base = std::env::temp_dir().join(format!("stoc-bag-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&base);
+        let tmp = tempfile::Builder::new()
+            .prefix("stoc-bag-")
+            .tempdir()
+            .unwrap();
+        let base = tmp.path().to_path_buf();
         let data = base.join("stoc-runtime/data");
         fs::create_dir_all(data.join("default-user/characters")).unwrap();
         fs::write(data.join("default-user/characters/c1.png"), b"png1").unwrap();
@@ -470,14 +475,15 @@ mod tests {
             .flatten()
             .any(|e| e.file_name().to_string_lossy().starts_with("data.bak-"));
         assert!(has_bak, "导入前必须把现有数据备份成 data.bak-*");
-
-        let _ = fs::remove_dir_all(&base);
     }
 
     #[test]
     fn export_excludes_secret_backups_at_any_depth() {
-        let base = std::env::temp_dir().join(format!("stoc-secretbag-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&base);
+        let tmp = tempfile::Builder::new()
+            .prefix("stoc-secretbag-")
+            .tempdir()
+            .unwrap();
+        let base = tmp.path().to_path_buf();
         let data = base.join("data");
         fs::create_dir_all(data.join("default-user")).unwrap();
         fs::create_dir_all(data.join("backups").join("20260101")).unwrap();
@@ -507,7 +513,6 @@ mod tests {
         assert!(is_secret_path("cookie-secret.txt.tmp"));
         assert!(!is_secret_path("characters.json.bak"));
         assert!(!is_secret_path("secrets.json5"));
-        let _ = fs::remove_dir_all(&base);
     }
 
     #[test]
@@ -521,8 +526,11 @@ mod tests {
 
     #[test]
     fn adopt_legacy_root_moves_old_dir_once() {
-        let base = std::env::temp_dir().join(format!("stoc-adopt-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&base);
+        let tmp = tempfile::Builder::new()
+            .prefix("stoc-adopt-")
+            .tempdir()
+            .unwrap();
+        let base = tmp.path().to_path_buf();
         let config_dir = base.join("io.github.stevendd.sillytavernopenchat");
         fs::create_dir_all(&config_dir).unwrap();
         let old = base.join("io.github.stevendd.stchat").join("st-runtime");
@@ -541,13 +549,15 @@ mod tests {
         assert!(new_root.join("config.yaml").is_file());
         // 幂等：新根已存在 → 不再动
         assert!(adopt_legacy_root(&config_dir).is_none());
-        let _ = fs::remove_dir_all(&base);
     }
 
     #[test]
     fn adopt_legacy_root_handles_earliest_identifier() {
-        let base = std::env::temp_dir().join(format!("stoc-adopt-old-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&base);
+        let tmp = tempfile::Builder::new()
+            .prefix("stoc-adopt-old-")
+            .tempdir()
+            .unwrap();
+        let base = tmp.path().to_path_buf();
         let config_dir = base.join("io.github.stevendd.sillytavernopenchat");
         fs::create_dir_all(&config_dir).unwrap();
         // 更早的标识符目录（com.datago.st-chat）
@@ -557,6 +567,5 @@ mod tests {
 
         assert!(adopt_legacy_root(&config_dir).is_some());
         assert!(external_root(&config_dir).join("data/x.json").is_file());
-        let _ = fs::remove_dir_all(&base);
     }
 }

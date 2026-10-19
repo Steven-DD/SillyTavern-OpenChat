@@ -882,13 +882,14 @@ pub fn qr_save(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::test_support::TestBackend;
     use serde_json::json;
     use std::sync::Arc;
 
-    fn st_with(tag: &str) -> BackendState {
-        let root = std::env::temp_dir().join(format!("stoc-ext-{tag}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        BackendState {
+    fn st_with(tag: &str) -> TestBackend {
+        let tmp = TestBackend::temp(&format!("stoc-ext-{tag}-"));
+        let root = tmp.path().to_path_buf();
+        TestBackend::new(tmp, BackendState {
             token: Arc::new("t".into()),
             data_root: root,
             max_body_bytes: 1024,
@@ -896,7 +897,7 @@ mod tests {
             chats_svc: Arc::new(super::super::chats::ChatsService::new()),
             maid_tokens: Arc::new(super::super::extras::MaidTokens::new()),
             vault: Arc::new(super::super::vault::Vault::new_memory()),
-        }
+        })
     }
 
     fn body_bytes(r: Response) -> Value {
@@ -963,17 +964,15 @@ mod tests {
         }
     }
 
-    fn empty_cfg_dir(tag: &str) -> std::path::PathBuf {
-        let d = std::env::temp_dir().join(format!("stoc-ext-emptycfg-{tag}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&d);
-        std::fs::create_dir_all(&d).unwrap();
-        d
+    fn empty_cfg_dir(tag: &str) -> tempfile::TempDir {
+        TestBackend::temp(&format!("stoc-ext-emptycfg-{tag}-"))
     }
 
     #[test]
     fn install_rejects_existing_dir_with_409() {
         let _g = GIT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let clean = empty_cfg_dir("409");
+        let tmp = empty_cfg_dir("409");
+        let clean = tmp.path().to_path_buf();
         let _sp = SearchPathGuard::point_to(&clean);
         let st = st_with("inst409");
         std::fs::create_dir_all(user_ext_dir(&st).join("Some-Repo")).unwrap();
@@ -988,9 +987,11 @@ mod tests {
     #[test]
     fn insteadof_predicate_detects_rewrite_rules() {
         // S19 谓词：可写 config 注入 insteadOf → 命中；纯普通键 → 不命中
-        let dir =
-            std::env::temp_dir().join(format!("stoc-ext-insteadof-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        let tmp = tempfile::Builder::new()
+            .prefix("stoc-ext-insteadof-")
+            .tempdir()
+            .unwrap();
+        let dir = tmp.path().to_path_buf();
         std::fs::create_dir_all(&dir).unwrap();
         let cfg_path = dir.join("gitconfig");
         std::fs::write(
@@ -1012,7 +1013,6 @@ mod tests {
         std::fs::write(&cfg_path, "[user]\n\tname = t\n\temail = t@e\n").unwrap();
         let cfg = git2::Config::open(&cfg_path).unwrap();
         assert!(!config_has_insteadof(&cfg));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// 测试期环境变量守卫已由 SearchPathGuard 取代（libgit2 缓存解析结果，
@@ -1023,7 +1023,8 @@ mod tests {
         // S7：extensionName 穿越 —— handler 级断言（400/403 文本错误），
         // 且数据目录外/扩展目录内无任何新文件
         let _g = GIT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let clean = empty_cfg_dir("trav");
+        let tmp = empty_cfg_dir("trav");
+        let clean = tmp.path().to_path_buf();
         let _sp = SearchPathGuard::point_to(&clean);
         let st = st_with("extrav");
         std::fs::create_dir_all(user_ext_dir(&st)).unwrap();
@@ -1063,9 +1064,11 @@ mod tests {
         // config 后还原）含 insteadOf → install/update 一律 400，且发生在任何
         // clone/fetch/落盘之前
         let _g = GIT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let home =
-            std::env::temp_dir().join(format!("stoc-ext-home-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&home);
+        let tmp = tempfile::Builder::new()
+            .prefix("stoc-ext-home-")
+            .tempdir()
+            .unwrap();
+        let home = tmp.path().to_path_buf();
         std::fs::create_dir_all(&home).unwrap();
         std::fs::write(
             home.join(".gitconfig"),
@@ -1105,7 +1108,8 @@ mod tests {
     #[test]
     fn resolve_404_and_plain_dir_behaviors() {
         let _g = GIT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let clean = empty_cfg_dir("res404");
+        let tmp = empty_cfg_dir("res404");
+        let clean = tmp.path().to_path_buf();
         let _sp = SearchPathGuard::point_to(&clean);
         let st = st_with("res404");
         // update：不存在 → 404 文本（ST 字面）

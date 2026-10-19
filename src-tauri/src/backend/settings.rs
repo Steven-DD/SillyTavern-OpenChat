@@ -464,6 +464,7 @@ pub(crate) fn migrate_stchat_namespace(data_root: &std::path::Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::test_support::TestBackend;
     fn new_chats() -> std::sync::Arc<super::super::chats::ChatsService> {
         std::sync::Arc::new(super::super::chats::ChatsService::new())
     }
@@ -473,15 +474,14 @@ mod tests {
     }
     use std::sync::Arc;
 
-    fn tmp_root(tag: &str) -> std::path::PathBuf {
-        let d = std::env::temp_dir().join(format!("stoc-settings-{tag}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&d);
-        d
+    fn tmp_root(tag: &str) -> tempfile::TempDir {
+        TestBackend::temp(&format!("stoc-settings-{tag}-"))
     }
 
     #[test]
     fn get_returns_raw_text_and_save_roundtrips() {
-        let root = tmp_root("roundtrip");
+        let tmp = tmp_root("roundtrip");
+        let root = tmp.path().to_path_buf();
         let st = BackendState {
             token: Arc::new("t".into()),
             data_root: root.clone(),
@@ -515,12 +515,12 @@ mod tests {
         let parsed: Value = serde_json::from_str(raw).unwrap();
         assert_eq!(parsed, body, "save→get 往返等值（未知键零丢失）");
         assert_eq!(parsed["power_user"]["keep"], json!(true));
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
     fn save_rejects_wrapped_object() {
-        let root = tmp_root("wrapped");
+        let tmp = tmp_root("wrapped");
+        let root = tmp.path().to_path_buf();
         let st = BackendState {
             token: Arc::new("t".into()),
             data_root: root.clone(),
@@ -534,13 +534,13 @@ mod tests {
         let body = json!({ "settings": "{\"a\":1}" });
         let r = save(&st, &svc, &body, None);
         assert_eq!(r.status().as_u16(), 400, "包装对象必须 400（三铁律之一）");
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
     fn save_rejects_non_object_body() {
         // body 必须是 JSON 对象：数组 / 标量 → 400（api.rs 的 JSON 解析允许任意 Value）
-        let root = tmp_root("nonobject");
+        let tmp = tmp_root("nonobject");
+        let root = tmp.path().to_path_buf();
         let st = BackendState {
             token: Arc::new("t".into()),
             data_root: root.clone(),
@@ -563,13 +563,13 @@ mod tests {
             },
             "落盘内容必须是合法 JSON 对象"
         );
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
     fn patch_native_config_concurrent_writers_keep_all_keys() {
         // 锁内读改写：并发 patch 不同 key 不得互相吞键（lost update 消除）
-        let root = tmp_root("patchlock");
+        let tmp = tmp_root("patchlock");
+        let root = tmp.path().to_path_buf();
         let k1 = "libre_url";
         let k2 = "lingva_url";
         let (h1, h2) = {
@@ -598,14 +598,14 @@ mod tests {
             read_native_config(&root, k2).is_some(),
             "并发写者 B 的键不得被吞"
         );
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// ⑤ 键迁移：extension_settings 下 stchat_speech / stchat_native → stoc_*
     ///（已有新键不覆盖；幂等：第二次零写入）
     #[test]
     fn stchat_namespace_migrates_to_stoc_once() {
-        let root = tmp_root("ns-migrate");
+        let tmp = tmp_root("ns-migrate");
+        let root = tmp.path().to_path_buf();
         let p = settings_path(&root);
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(
@@ -654,12 +654,12 @@ mod tests {
             after_first,
             "幂等：已迁移后不再重写"
         );
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
     fn autosave_throttles_and_dedupes() {
-        let root = tmp_root("autosave");
+        let tmp = tmp_root("autosave");
+        let root = tmp.path().to_path_buf();
         let st = BackendState {
             token: Arc::new("t".into()),
             data_root: root.clone(),
@@ -706,12 +706,12 @@ mod tests {
         }
         trigger_autosave(&st, &svc);
         assert_eq!(count(), after_first + 1, "内容变化应产生新备份");
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
     fn backup_rotation_caps_at_50() {
-        let root = tmp_root("rotation");
+        let tmp = tmp_root("rotation");
+        let root = tmp.path().to_path_buf();
         let dir = backups_dir(&root);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(settings_path(&root), "{}").unwrap();
@@ -731,13 +731,13 @@ mod tests {
         assert!(dir
             .join(format!("{SETTINGS_BACKUP_PREFIX}202601006-000000.json"))
             .exists());
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
     fn get_seeds_default_when_missing() {
         // 干净数据根（settings.json 与目录都不存在）→ 首启种子而非 500
-        let root = tmp_root("seed-default");
+        let tmp = tmp_root("seed-default");
+        let root = tmp.path().to_path_buf();
         let st = BackendState {
             token: Arc::new("t".into()),
             data_root: root.clone(),
@@ -755,13 +755,13 @@ mod tests {
         // 第二次读 = 正常读文件，仍是 200
         let r2 = get(&st, None);
         assert_eq!(r2.status().as_u16(), 200);
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
     fn save_writes_four_space_indent_like_st() {
         // ST settings.js:209 JSON.stringify(settings, null, 4) —— 落盘缩进 4 空格
-        let root = tmp_root("pretty4");
+        let tmp = tmp_root("pretty4");
+        let root = tmp.path().to_path_buf();
         let st = BackendState {
             token: Arc::new("t".into()),
             data_root: root.clone(),
@@ -788,7 +788,6 @@ mod tests {
             let indent = line.len() - line.trim_start().len();
             assert_eq!(indent % 4, 0, "缩进必须是 4 的倍数（ST 口径）：{line}");
         }
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// 把文件 mtime/ctime 拨到指定时刻（测试排序稳定性用）

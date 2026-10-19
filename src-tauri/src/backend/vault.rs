@@ -465,11 +465,12 @@ pub(crate) fn uuid_v4() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::test_support::TestBackend;
     use serde_json::json;
 
-    fn st_with_vault(tag: &str, secrets: &Value, vault: Vault) -> BackendState {
-        let root = std::env::temp_dir().join(format!("stoc-vault-{tag}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+    fn st_with_vault(tag: &str, secrets: &Value, vault: Vault) -> TestBackend {
+        let tmp = TestBackend::temp(&format!("stoc-vault-{tag}-"));
+        let root = tmp.path().to_path_buf();
         let dir = root.join("default-user");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
@@ -477,7 +478,7 @@ mod tests {
             serde_json::to_string_pretty(secrets).unwrap(),
         )
         .unwrap();
-        BackendState {
+        TestBackend::new(tmp, BackendState {
             token: std::sync::Arc::new("t".into()),
             data_root: root,
             max_body_bytes: 1024,
@@ -485,10 +486,10 @@ mod tests {
             chats_svc: std::sync::Arc::new(super::super::chats::ChatsService::new()),
             maid_tokens: std::sync::Arc::new(super::super::extras::MaidTokens::new()),
             vault: std::sync::Arc::new(vault),
-        }
+        })
     }
 
-    fn st_with(tag: &str, secrets: &Value) -> BackendState {
+    fn st_with(tag: &str, secrets: &Value) -> TestBackend {
         st_with_vault(tag, secrets, Vault::new_memory())
     }
 

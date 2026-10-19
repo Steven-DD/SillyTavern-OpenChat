@@ -979,6 +979,7 @@ pub fn group_save(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::test_support::TestBackend;
     fn new_chats() -> std::sync::Arc<super::super::chats::ChatsService> {
         std::sync::Arc::new(super::super::chats::ChatsService::new())
     }
@@ -988,13 +989,13 @@ mod tests {
     }
     use std::sync::Arc;
 
-    fn st_with(tag: &str) -> BackendState {
-        let root = std::env::temp_dir().join(format!("stoc-chats-{tag}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+    fn st_with(tag: &str) -> TestBackend {
+        let tmp = TestBackend::temp(&format!("stoc-chats-{tag}-"));
+        let root = tmp.path().to_path_buf();
         std::fs::create_dir_all(root.join("default-user").join("chats").join("chara")).unwrap();
         std::fs::create_dir_all(root.join("default-user").join("group chats")).unwrap();
         std::fs::create_dir_all(root.join("default-user").join("groups")).unwrap();
-        BackendState {
+        TestBackend::new(tmp, BackendState {
             token: Arc::new("t".into()),
             data_root: root,
             max_body_bytes: 1024,
@@ -1002,7 +1003,7 @@ mod tests {
             chats_svc: new_chats(),
             maid_tokens: new_maid(),
           vault: std::sync::Arc::new(super::super::vault::Vault::new_memory()),
-        }
+        })
     }
 
     fn svc() -> ChatsService {

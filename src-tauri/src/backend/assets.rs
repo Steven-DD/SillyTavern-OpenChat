@@ -533,6 +533,7 @@ fn use_base64_decode(s: &str) -> Result<Vec<u8>, base64::DecodeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::test_support::TestBackend;
     fn new_chats() -> std::sync::Arc<super::super::chats::ChatsService> {
         std::sync::Arc::new(super::super::chats::ChatsService::new())
     }
@@ -542,10 +543,10 @@ mod tests {
     }
     use std::sync::Arc;
 
-    fn st_with(tag: &str) -> BackendState {
-        let root = std::env::temp_dir().join(format!("stoc-assets-{tag}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        BackendState {
+    fn st_with(tag: &str) -> TestBackend {
+        let tmp = TestBackend::temp(&format!("stoc-assets-{tag}-"));
+        let root = tmp.path().to_path_buf();
+        TestBackend::new(tmp, BackendState {
             token: Arc::new("t".into()),
             data_root: root,
             max_body_bytes: 1024,
@@ -553,7 +554,7 @@ mod tests {
             chats_svc: new_chats(),
             maid_tokens: new_maid(),
           vault: std::sync::Arc::new(super::super::vault::Vault::new_memory()),
-        }
+        })
     }
 
     fn real_png() -> Vec<u8> {
