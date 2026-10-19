@@ -145,6 +145,10 @@ const embedSegs = computed(() =>
     ? splitEmbedSegments(displayContent.value)
     : [{ type: 'text' as const, content: displayContent.value }],
 )
+/** 含前端界面（iframe 卡片）的消息：气泡放开到整行宽 —— 卡 HTML 通常是
+ *  .container{max-width:1200px;margin:0 auto} 这类响应式居中布局，被 78% 的
+ *  文本气泡宽度约束会显得「没撑开」（实测：卡被压窄、内部换行错位）。 */
+const hasEmbed = computed(() => embedSegs.value.some((s) => s.type === 'embed'))
 const displayReasoning = computed(() =>
   substituteMacros(
     applyDisplayRegex(props.m.reasoning ?? '', REGEX_PLACEMENT.REASONING),
@@ -166,7 +170,7 @@ const isDark = computed(() => theme.mode === 'dark' || theme.mode === 'dusk')
   <!-- id 钩子对齐风月 #customized-* 表（每条消息同 id，卡内 CSS 以 #id 选择器批量命中） -->
   <div
     class="msg"
-    :class="[m.role, { hiddenMsg: m.isSystem }]"
+    :class="[m.role, { hiddenMsg: m.isSystem, 'has-embed': hasEmbed }]"
     :id="m.role === 'user' ? 'customized-question' : 'customized-answer'"
   >
     <Avatar
@@ -388,6 +392,13 @@ const isDark = computed(() => theme.mode === 'dark' || theme.mode === 'dusk')
   flex-direction: column;
   max-width: 78%;
   min-width: 0;
+}
+/* 前端界面（卡片）消息：放开到整行宽 —— 卡 HTML 多为 max-width:1200px;margin:0 auto
+   的响应式居中布局，被文本气泡的 78% 约束会压窄（实测症状：卡片「没撑开」）。
+   普通文本消息仍保持 78%，只影响含 embed 段的气泡。 */
+.msg.has-embed .wrap {
+  max-width: 100%;
+  flex: 1;
 }
 .msg.user .wrap {
   align-items: flex-end;

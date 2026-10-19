@@ -13,6 +13,10 @@
 const { applyDisplayRegex, setScopedRegexScripts, setActiveScopedAvatar, newRegexScript, REGEX_PLACEMENT } =
   await import('../src/services/st/regex.ts')
 const { adaptCardMarkup, splitEmbedSegments } = await import('../src/services/st/embed.ts')
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+// run-selfchecks 恒以仓库根为 cwd（打包产物的 import.meta.url 不可用作基准）
+const repo = process.cwd()
 
 let fail = 0
 const ok = (c, n) => {
@@ -110,6 +114,38 @@ const cardRule = {
   const segs2 = splitEmbedSegments(staticOnly)
   eq(segs2.length, 1, '③ 无脚本的静态文档不切 embed 段')
   eq(segs2[0].type, 'text', '③ 静态文档走 markdown 文本段')
+}
+
+/* ④ 尺寸契约（防回归）：
+ *   a) 高度必须测「内容高度」—— documentElement.scrollHeight 的下界是帧自身视口高度，
+ *      父页把帧调高后它永远 >= 当前高度，折叠/收起只会涨不会缩（曾实测的症状）；
+ *      观察者也必须挂 body（documentElement 的盒子就是视口，内容变化不触发）。
+ *   b) 含前端界面的气泡必须放开到整行宽（卡 HTML 多为 max-width:1200px;margin:0 auto
+ *      的响应式布局，被文本气泡的 78% 约束会压窄）。 */
+{
+  const { SANDBOX_BOOTSTRAP } = await import('../src/services/st/embed.ts')
+  ok(typeof SANDBOX_BOOTSTRAP === 'string' && SANDBOX_BOOTSTRAP.length > 0, '④ 引导脚本存在')
+  ok(SANDBOX_BOOTSTRAP.includes('contentHeight'), '④ 高度上报走 contentHeight（内容高度）')
+  ok(
+    SANDBOX_BOOTSTRAP.includes('getBoundingClientRect'),
+    '④ 高度测量用 body 的布局盒（与视口高度解耦）',
+  )
+  ok(
+    !SANDBOX_BOOTSTRAP.replace(/\/\/[^\n]*/g, '').includes('documentElement.scrollHeight'),
+    '④ 不得回退到 documentElement.scrollHeight（下界=视口高度，只涨不缩）',
+  )
+  ok(SANDBOX_BOOTSTRAP.includes('MutationObserver'), '④ 折叠/展开（切 class/display）也要能触发重测')
+  ok(
+    /if \(document\.body\) watchHeight\(\)/.test(SANDBOX_BOOTSTRAP),
+    '④ body 未就绪时等待 DOMContentLoaded 再挂观察者（引导脚本注入在 <head>）',
+  )
+
+  const bubble = readFileSync(join(repo, 'src/components/MessageBubble.vue'), 'utf8')
+  ok(/has-embed': hasEmbed/.test(bubble), '④ 气泡按 has-embed 标记')
+  ok(
+    /\.msg\.has-embed \.wrap \{[\s\S]{0,80}max-width: 100%/.test(bubble),
+    '④ 含前端界面的气泡放开到整行宽（否则卡片「没撑开」）',
+  )
 }
 
 console.log(fail ? `${fail} 失败` : '卡片渲染通路全部通过')

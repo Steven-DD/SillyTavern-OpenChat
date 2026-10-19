@@ -75,7 +75,16 @@ function onMessage(ev: MessageEvent): void {
   }
 }
 
-onMounted(() => window.addEventListener('message', onMessage))
+/** 主动索取一次高度测量（宿主→帧方向 targetOrigin '*'：沙箱帧是 opaque origin，
+ *  具体 origin 一律不匹配；安全面由子帧不读消息内容外的任何东西 + sandbox 封住）。
+ *  用途：子帧首次上报可能早于本组件的 message 监听就位，漏掉后高度会停在初始值。 */
+function requestMeasure(): void {
+  frame.value?.contentWindow?.postMessage({ source: 'tavern-host', type: 'th-measure' }, '*')
+}
+onMounted(() => {
+  window.addEventListener('message', onMessage)
+  requestMeasure()
+})
 onBeforeUnmount(() => window.removeEventListener('message', onMessage))
 </script>
 
@@ -90,6 +99,7 @@ onBeforeUnmount(() => window.removeEventListener('message', onMessage))
       sandbox="allow-scripts allow-popups allow-forms allow-modals"
       :srcdoc="srcdoc"
       :style="{ height: height + 'px' }"
+      @load="requestMeasure"
     />
   </div>
 </template>

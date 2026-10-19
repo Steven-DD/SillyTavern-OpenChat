@@ -424,11 +424,81 @@ export const SANDBOX_BOOTSTRAP = `
   })
   window.TavernHelper = api
   Object.keys(api).forEach(function (k) { window[k] = api[k] })
-  function postHeight() {
-    postToHost({ source: 'tavern-embed', type: 'th-resize', height: document.documentElement.scrollHeight })
+  // 高度上报：必须测「内容高度」而不是 document.documentElement.scrollHeight ——
+  // 后者的下界是帧自身视口高度，父页把帧调高后它永远 >= 当前高度，于是折叠/收起
+  // 只会涨不会缩（实测症状：卡片折叠后气泡仍留原高度）。观察者同理必须挂 body：
+  // documentElement 的盒子就是视口，内容尺寸变化不会触发它。
+  var lastH = 0
+  function contentHeight() {
+    var b = document.body
+    var d = document.documentElement
+    if (!b) return 0
+    var cs = null
+    try { cs = window.getComputedStyle(b) } catch (e) { cs = null }
+    var mb = cs ? (parseFloat(cs.marginBottom) || 0) : 0
+    var bodyH = Math.ceil(b.getBoundingClientRect().height)
+    var scrollH = b.scrollHeight
+    var viewport = d.clientHeight
+    // body 被拉伸到满视口（height:100% / min-height:100vh 之类）时上面两个测量都等于
+    // 视口高度，会重新引入「只涨不缩」；此时退回子元素最大下沿（与视口解耦）。
+    if (viewport > 0 && bodyH >= viewport - 1 && scrollH >= viewport - 1) {
+      var maxBottom = 0
+      for (var i = 0; i < b.children.length; i++) {
+        var r = b.children[i].getBoundingClientRect()
+        if (r.height > 0 && r.bottom > maxBottom) maxBottom = r.bottom
+      }
+      return Math.ceil(maxBottom + mb)
+    }
+    return Math.ceil(Math.max(bodyH, scrollH) + mb)
   }
-  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.documentElement)
-  window.addEventListener('load', postHeight)
-  document.addEventListener('DOMContentLoaded', postHeight)
+  var hPending = false
+  function postHeight() {
+    hPending = false
+    var h = contentHeight()
+    if (!h || Math.abs(h - lastH) < 1) return
+    lastH = h
+    postToHost({ source: 'tavern-embed', type: 'th-resize', height: h })
+  }
+  function scheduleHeight() {
+    if (hPending) return
+    hPending = true
+    // 不用 rAF 单点调度：标签页隐藏 / 窗口最小化时 rAF 会被节流甚至冻结，
+    // 高度就会永远停在旧值（本仓库已两次踩到"后台标签页定时器被冻"）。
+    // 微任务不受可见性影响；postHeight 自身有 1px 去重，成本可控。
+    if (typeof Promise === 'function') Promise.resolve().then(postHeight)
+    else window.setTimeout(postHeight, 16)
+  }
+  // 引导脚本注入在 <head> 内，此刻 body 还不存在 —— 观察者必须等 body 就绪再挂
+  function watchHeight() {
+    if (!document.body) return
+    if (window.ResizeObserver) new ResizeObserver(scheduleHeight).observe(document.body)
+    if (window.MutationObserver) {
+      // 折叠/展开常见实现是切 class 或 display，body 尺寸可能同帧不变、RO 漏拍，
+      // 故再挂一层 mutation（结构变化 + class/style/hidden/open 属性）
+      new MutationObserver(scheduleHeight).observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['class', 'style', 'hidden', 'open'],
+      })
+    }
+    scheduleHeight()
+  }
+  window.addEventListener('load', scheduleHeight)
+  window.addEventListener('resize', scheduleHeight)
+  // 宿主主动索取测量：子帧首次上报可能早于宿主 message 监听就位（竞态），
+  // 漏掉后就只剩"内容变化"这一个触发点；宿主在 iframe load 时会发 th-measure 补一次。
+  window.addEventListener('message', function (ev) {
+    var d = ev.data
+    if (!d || d.source !== 'tavern-host' || d.type !== 'th-measure') return
+    scheduleHeight()
+  })
+  // CSS 过渡/动画结束后再测一次：折叠常见实现是 max-height/height 过渡，
+  // RO 可能在过渡中途拍到最后一次，过渡结束才是最终高度。
+  ;['transitionend', 'animationend'].forEach(function (t) {
+    document.addEventListener(t, scheduleHeight, true)
+  })
+  if (document.body) watchHeight()
+  else document.addEventListener('DOMContentLoaded', watchHeight)
 })()
 `
