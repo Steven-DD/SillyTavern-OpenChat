@@ -35,6 +35,40 @@ pub fn external_data_root(config_dir: &Path) -> PathBuf {
     external_root(config_dir).join("data")
 }
 
+/// ST 兼容的用户数据目录骨架（default-user 下，《后端自研迁移方案》§5.3 布局
+/// + 各端点实际地址面）。
+///
+/// 为什么需要它：ST 的 server 在**启动期**就把这些目录建好，因此
+/// 「目录缺失即报错」的契约（如 characters.js `/all` 的 readdir 失败 → 500）
+/// 在 ST 永不触发；本后端此前只在写路径惰性 `create_dir_all`，**新机安装首启**
+/// （一次写都没有）时它们全不存在 → `/api/characters/all` 立即 500。
+pub const USER_DATA_DIRS: [&str; 14] = [
+    "characters",       // 角色卡（/api/characters/*）
+    "chats",            // 单聊会话 JSONL
+    "group chats",      // 群聊会话 JSONL
+    "groups",           // 群组元数据
+    "worlds",           // 世界书
+    "backgrounds",      // 聊天背景（/api/backgrounds/*、/backgrounds 静态面）
+    "User Avatars",     // 人设头像（assets.rs，ST 字面目录名）
+    "user/images",      // 上传图片（/api/images/upload、/user-images 静态面）
+    "thumbnails/avatar",
+    "thumbnails/bg",
+    "thumbnails/persona",
+    "extensions",       // 扩展
+    "QuickReplies",     // 快速回复（extensions.rs，ST 字面目录名）
+    "backups",          // settings / chats 备份轮换
+];
+
+/// 建齐 default-user 数据骨架（幂等：已存在的目录不动）。
+/// 启动时调用一次 —— 全新安装的只读列表端点据此与 ST 行为一致（空数组而非 500）。
+pub fn ensure_user_skeleton(data_root: &Path) -> std::io::Result<()> {
+    let user = data_root.join("default-user");
+    for rel in USER_DATA_DIRS {
+        fs::create_dir_all(user.join(rel))?;
+    }
+    Ok(())
+}
+
 pub fn external_config_path(config_dir: &Path) -> PathBuf {
     external_root(config_dir).join("config.yaml")
 }
@@ -288,6 +322,14 @@ pub fn import_bag(
         }
     }
     fs::create_dir_all(data_root).map_err(|e| format!("重建数据目录失败：{e}"))?;
+    // 数据根被整体重建：zip 只装文件（空目录不进包），必须把 ST 骨架补回来 ——
+    // 否则「导入后未重启」期间只读列表端点（/api/characters/all）会对空目录 500。
+    if let Err(e) = ensure_user_skeleton(data_root) {
+        log::warn!(
+            target: crate::backend::logx::FS,
+            "导入后数据骨架补齐失败（重启时 backend 会重建）：{e}"
+        );
+    }
 
     // 2) 解压（zip-slip 防护用 enclosed_name）
     let mut files = 0u64;
@@ -411,6 +453,13 @@ mod tests {
         );
         assert_eq!(fs::read(data.join("cookie-secret.txt")).unwrap(), b"secret");
         assert_eq!(fs::read(&config).unwrap(), b"port: 8000\n");
+        // 数据骨架随导入重建（zip 不含空目录；缺一个就可能在未重启期间 500）
+        for d in USER_DATA_DIRS {
+            assert!(
+                data.join("default-user").join(d).is_dir(),
+                "导入后骨架目录缺失：{d}"
+            );
+        }
 
         // 第二次导入 → 必须出现 .bak-*（导入前备份）
         fs::write(data.join("stale.txt"), b"old").unwrap();

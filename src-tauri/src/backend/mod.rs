@@ -85,6 +85,21 @@ pub struct BackendHandle {
 
 /// 启动 backend（绑定 127.0.0.1 随机端口）
 pub async fn start(data_root: std::path::PathBuf) -> std::io::Result<BackendHandle> {
+    // 首启数据骨架：ST 在启动期即建好 default-user 各子目录；本后端此前只在写路径
+    // 惰性建目录 → 新机安装（零写操作）时 characters/ 不存在 → /api/characters/all
+    // 直接 500（前端 client.ts:148 报「写入失败（/api/characters/all，HTTP 500）」）。
+    match crate::st_data::ensure_user_skeleton(&data_root) {
+        Ok(()) => log::debug!(
+            target: logx::BOOT,
+            "default-user 数据骨架就绪（{} 个目录）",
+            crate::st_data::USER_DATA_DIRS.len()
+        ),
+        Err(e) => log::warn!(
+            target: logx::BOOT,
+            "default-user 数据骨架创建失败（不阻断启动；只读列表端点可能报错）：{e}"
+        ),
+    }
+
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
     let port = listener.local_addr()?.port();
     let token = auth::gen_token();
@@ -341,6 +356,36 @@ mod tests {
             .unwrap();
         assert!(r.status().is_success());
         assert!(r.headers().get("access-control-allow-origin").is_none());
+    }
+
+    #[tokio::test]
+    async fn fresh_install_characters_all_returns_empty_list() {
+        // 新机安装首启：setup 只建 data_root + default-user（lib.rs:311-312），
+        // 还没有任何写操作。此前 default-user/characters 不存在 → read_dir 失败
+        // → 500 → 前端 client.ts:148 抛「写入失败（/api/characters/all，HTTP 500）」。
+        let root = std::env::temp_dir().join(format!("stoc-fresh-install-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("default-user")).unwrap();
+
+        let ep = start(root.clone()).await.expect("启动失败");
+        let c = reqwest::Client::builder().no_proxy().build().unwrap();
+        let base = format!("http://127.0.0.1:{}", ep.port);
+
+        let r = c
+            .post(format!("{base}/api/characters/all"))
+            .header("x-relay-auth", &ep.token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            r.status().as_u16(),
+            200,
+            "新装首启 /api/characters/all 不应 500"
+        );
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert_eq!(v, serde_json::json!([]), "空数据根的角色列表应为空数组");
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[tokio::test]
