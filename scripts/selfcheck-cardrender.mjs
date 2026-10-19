@@ -144,9 +144,16 @@ const cardRule = {
 
   const bubble = readFileSync(join(repo, 'src/components/MessageBubble.vue'), 'utf8')
   ok(/has-embed': hasEmbed/.test(bubble), '④ 气泡按 has-embed 标记')
+  // 口径（2026-10-19 用户定）：普通消息与卡片消息统一把行宽上限提到 90%；
+  // 卡片消息另外需要 flex:1「撑满到上限」—— iframe 是 replaced element，
+  // width:100% 没有确定父宽会退化成约 300px 的固有宽度。
   ok(
-    /\.msg\.has-embed \.wrap \{[\s\S]{0,80}max-width: 100%/.test(bubble),
-    '④ 含前端界面的气泡放开到整行宽（否则卡片「没撑开」）',
+    /\.wrap \{[\s\S]{0,200}max-width: 90%/.test(bubble),
+    '④ 气泡行宽上限统一为 90%（普通消息与卡片消息同口径）',
+  )
+  ok(
+    /\.msg\.has-embed \.wrap \{[\s\S]{0,120}flex: 1/.test(bubble),
+    '④ 卡片消息撑满到上限（否则 iframe 退化成固有宽度）',
   )
 
   // 抖动与底部裁切（用户实测）：

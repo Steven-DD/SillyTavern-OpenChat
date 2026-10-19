@@ -390,14 +390,15 @@ const isDark = computed(() => theme.mode === 'dark' || theme.mode === 'dusk')
 .wrap {
   display: flex;
   flex-direction: column;
-  max-width: 78%;
+  /* 气泡占行宽上限 90%（原 78%）：普通消息与卡片消息统一口径。
+     普通消息仍按内容自适应，只是允许占到 90%；短消息不会被迫拉满。 */
+  max-width: 90%;
   min-width: 0;
 }
-/* 前端界面（卡片）消息：放开到整行宽 —— 卡 HTML 多为 max-width:1200px;margin:0 auto
-   的响应式居中布局，被文本气泡的 78% 约束会压窄（实测症状：卡片「没撑开」）。
-   普通文本消息仍保持 78%，只影响含 embed 段的气泡。 */
+/* 前端界面（卡片）消息：需要"撑满到上限"而不只是"允许到上限" ——
+   iframe 是 replaced element，width:100% 需要一个确定的父宽，
+   否则会退化成它的固有宽度（约 300px）。max-width 沿用 90%，与普通消息一致。 */
 .msg.has-embed .wrap {
-  max-width: 100%;
   flex: 1;
 }
 .msg.user .wrap {
