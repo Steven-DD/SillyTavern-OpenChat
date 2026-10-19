@@ -18,8 +18,9 @@
 //!   字面）；非流式：generic 族 = E1 上游错误原样注释透传（Phase 1 定档），
 //!   独立 sender = 500 + tryParse ?? {error:true}
 //! - S12/HIGH-5：用户可控出站 URL 全走 `validate_egress_url` 网关
-//!   （custom_url=CustomSource 仅 https；reverse_proxy/azure_base_url=ProxyUrl
-//!   仅 https；textcomp api_server=LocalTextgen 环回 http 放行）
+//!   （custom_url=CustomSource：http/https 均可且放行私网/环回，仅拦 link-local；
+//!   reverse_proxy/azure_base_url=ProxyUrl 仅 https；textcomp api_server=LocalTextgen
+//!   环回 http 放行）
 //! - 密钥只从服务端 secrets 读（api_key_<source>；S8 面）
 //! - 输出面偏差登记：claude 流（Anthropic SSE→OpenAI chunk）、cohere 流/非流
 //!   （Cohere v2→OpenAI 形）—— App 前端 stStream/stGenerateBlocking 双解析器
@@ -130,9 +131,12 @@ pub(crate) fn json_pretty4(v: &Value) -> String {
 /// 出站 URL 策略（HIGH-5）
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum EgressPolicy {
-    /// 云端兼容源（custom_url）：仅 https，环回 http 一并拒绝
+    /// 自定义（OpenAI 兼容）端点 custom_url：**http/https 均可**，且放行环回与私网
+    /// —— 自建/局域网推理服务器就是典型部署（http://127.0.0.1:1234/v1、
+    /// http://192.168.1.50:8000/v1）。仍拦 link-local（169.254/16、fe80::/10）与
+    /// 0.0.0.0（云元数据面）。
     CustomSource,
-    /// 自建服务通道：环回 http 放行。覆盖 textcomp api_server 与
+    /// 自建服务通道：环回 http 放行，非环回 http 仍拒。覆盖 textcomp api_server 与
     /// translate 三家自建 URL（libre_url / deeplx_url / oneringtranslator_url，
     /// nlp-fix 同批接线）
     LocalTextgen,
@@ -171,6 +175,26 @@ fn ip_banned(ip: std::net::IpAddr) -> bool {
     }
 }
 
+/// link-local / 未指定地址（云元数据 169.254.169.254 与 0.0.0.0 面）——
+/// 即使「自定义端点」策略也拦
+fn ip_link_local_or_unspecified(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            let [a, b, _, _] = v4.octets();
+            (a == 169 && b == 254) || v4.is_unspecified()
+        }
+        std::net::IpAddr::V6(v6) => (v6.segments()[0] & 0xffc0) == 0xfe80,
+    }
+}
+
+/// 按策略判定禁用网段：自定义端点放行环回/私网（自建服务器），其余策略用严格表
+fn ip_banned_for(ip: std::net::IpAddr, policy: EgressPolicy) -> bool {
+    match policy {
+        EgressPolicy::CustomSource => ip_link_local_or_unspecified(ip),
+        EgressPolicy::LocalTextgen | EgressPolicy::ProxyUrl => ip_banned(ip),
+    }
+}
+
 /// 真实解析器（ToSocketAddrs；由调用方在 async 语境自行权衡阻塞成本）
 fn resolve_host_ips(host: &str, port: u16) -> std::io::Result<Vec<std::net::IpAddr>> {
     use std::net::ToSocketAddrs;
@@ -178,10 +202,11 @@ fn resolve_host_ips(host: &str, port: u16) -> std::io::Result<Vec<std::net::IpAd
 }
 
 /// 统一出站网关（HIGH-5/S12）：
-/// - scheme 必须 https；http 仅当 policy=LocalTextgen（自建服务通道：
-///   textcomp api_server / translate 自建 URL）且 host 为环回；
-///   CustomSource（云端兼容源 custom_url）对环回 http 一并拒绝；
-/// - 任何 policy 拒绝字面私网/link-local（含 https 指向私网）；
+/// - scheme 必须 http/https。http 放行面按策略：LocalTextgen（自建服务通道）仅环回 http；
+///   CustomSource（自定义 OpenAI 兼容端点）http/https 均可（自建/局域网服务器是典型部署，
+///   见 EgressPolicy 文档）；ProxyUrl（reverse_proxy / azure_base_url）一律 https。
+/// - 禁用网段按策略：CustomSource 放行环回/私网，仅拦 link-local 与 0.0.0.0；
+///   其余策略拒绝字面私网/link-local（含 https 指向私网）。
 /// - hostname 非字面 IP 时解析（ToSocketAddrs），任一 IP 落禁用段即拒
 ///   （解析失败 fail-closed：无法核验的出站一律不放行）。
 ///
@@ -211,13 +236,22 @@ where
         .ok_or_else(|| "出站 URL 缺少主机名".to_string())?;
     // url crate 对 IPv6 字面量 host_str 带 方括号（"[::1]"）→ 剥掉再判
     let host = host_raw.trim_start_matches('[').trim_end_matches(']');
-    if scheme == "http" && !(policy == EgressPolicy::LocalTextgen && is_loopback_host(host)) {
-        return Err("出站 URL 仅允许 https（本地文本推理服务器可用环回 http）".into());
+    // http 放行面按策略：自建服务通道仅环回；自定义（OpenAI 兼容）端点 http/https 均可
+    let http_ok = match policy {
+        EgressPolicy::LocalTextgen => is_loopback_host(host),
+        EgressPolicy::CustomSource => true,
+        EgressPolicy::ProxyUrl => false,
+    };
+    if scheme == "http" && !http_ok {
+        return Err(
+            "出站 URL 仅允许 https（本地文本推理服务器可用环回 http；自定义 OpenAI 兼容端点可填 http）"
+                .into(),
+        );
     }
     let port = url.port_or_known_default().unwrap_or(0);
     match host.parse::<std::net::IpAddr>() {
         Ok(ip) => {
-            if ip_banned(ip) {
+            if ip_banned_for(ip, policy) {
                 return Err(format!("出站 URL 指向禁用网段: {ip}"));
             }
         }
@@ -226,7 +260,7 @@ where
             if ips.is_empty() {
                 return Err("出站 URL 域名解析结果为空".into());
             }
-            if ips.iter().any(|ip| ip_banned(*ip)) {
+            if ips.iter().any(|ip| ip_banned_for(*ip, policy)) {
                 return Err("出站 URL 域名解析到禁用网段".into());
             }
         }
@@ -2022,7 +2056,7 @@ mod tests {
     #[test]
     fn egress_gateway_rules() {
         use EgressPolicy::*;
-        // 字面私网 / link-local（含 https 指向）—— 任何 policy 拒
+        // link-local / 0.0.0.0（云元数据面）—— 任何 policy 都拒
         for policy in [CustomSource, LocalTextgen, ProxyUrl] {
             assert!(
                 validate_egress_url("http://169.254.169.254/latest", policy).is_err(),
@@ -2032,22 +2066,30 @@ mod tests {
                 validate_egress_url("https://169.254.169.254/latest", policy).is_err(),
                 "metadata https 拒"
             );
+            assert!(validate_egress_url("https://0.0.0.0/v1", policy).is_err());
+            assert!(validate_egress_url("https://[fe80::1]/v1", policy).is_err());
+        }
+        // 字面私网：严格策略（自建通道 / 代理面）仍拒
+        for policy in [LocalTextgen, ProxyUrl] {
             assert!(
                 validate_egress_url("https://10.0.0.5/v1", policy).is_err(),
                 "私网 https 拒"
             );
             assert!(validate_egress_url("https://172.16.1.5/v1", policy).is_err());
             assert!(validate_egress_url("https://192.168.1.5/v1", policy).is_err());
-            assert!(validate_egress_url("https://0.0.0.0/v1", policy).is_err());
-            assert!(validate_egress_url("https://[fe80::1]/v1", policy).is_err());
             assert!(validate_egress_url("https://[fc00::5]/v1", policy).is_err());
         }
-        // custom（云端兼容源）：环回 http 必拒，仅 https
+        // custom（自定义 OpenAI 兼容端点）：http/https 均可，环回与私网放行
+        // —— 自建/局域网推理服务器（LM Studio / vLLM / Ollama）就是 http 私网地址
         assert!(
-            validate_egress_url("http://127.0.0.1:5001/v1", CustomSource).is_err(),
-            "custom 环回 http 拒"
+            validate_egress_url("http://127.0.0.1:5001/v1", CustomSource).is_ok(),
+            "custom 环回 http 放行"
         );
-        assert!(validate_egress_url("http://localhost:8008", CustomSource).is_err());
+        assert!(validate_egress_url("http://localhost:8008/v1", CustomSource).is_ok());
+        assert!(validate_egress_url("http://192.168.1.50:1234/v1", CustomSource).is_ok());
+        assert!(validate_egress_url("http://10.0.0.5:8000/v1", CustomSource).is_ok());
+        assert!(validate_egress_url("https://192.168.1.5:8443/v1", CustomSource).is_ok());
+        assert!(validate_egress_url("https://[fc00::5]/v1", CustomSource).is_ok());
         assert!(validate_egress_url("https://api.x.com/v1", CustomSource).is_ok());
         // LocalTextgen（自建服务通道）：环回 http 放行（localhost 走真实解析路径）
         assert!(validate_egress_url("http://127.0.0.1:5001/v1", LocalTextgen).is_ok());
@@ -2099,6 +2141,26 @@ mod tests {
             resolve_public
         )
         .is_ok());
+        // 自定义端点（CustomSource）：域名解析到私网 → 放行（局域网自建服务器）
+        let resolve_lan = |_host: &str, _port: u16| -> std::io::Result<Vec<std::net::IpAddr>> {
+            Ok(vec!["192.168.1.50".parse().unwrap()])
+        };
+        assert!(validate_egress_url_with(
+            "http://inference.lan:1234/v1",
+            EgressPolicy::CustomSource,
+            resolve_lan
+        )
+        .is_ok());
+        // 自定义端点：域名解析到 link-local → 仍拒（云元数据面）
+        let resolve_meta = |_host: &str, _port: u16| -> std::io::Result<Vec<std::net::IpAddr>> {
+            Ok(vec!["169.254.169.254".parse().unwrap()])
+        };
+        assert!(validate_egress_url_with(
+            "http://rebind.example.com/v1",
+            EgressPolicy::CustomSource,
+            resolve_meta
+        )
+        .is_err());
     }
 
     #[test]

@@ -687,7 +687,7 @@ onMounted(() => {
           </label>
           <label v-if="curDef?.customUrl" class="fld">
             <span class="lb">端点 Base URL</span>
-            <input v-model="customUrlDraft" class="field" placeholder="https://…/v1" />
+            <input v-model="customUrlDraft" class="field" placeholder="http://127.0.0.1:1234/v1（自建）或 https://…/v1" />
           </label>
           <label v-if="curDef?.reverseProxy" class="fld">
             <span class="lb">反向代理（可选）</span>
