@@ -15,9 +15,9 @@
 //! 流式 → 原样透传（401→400 降级）；ollama 流式 → 裸 JSON 流包装成
 //! SSE `data: {choices:[{text,thinking}]}` + [DONE]。
 //!
-//! HIGH-5/S12：api_server 出站走 `validate_egress_url`（LocalTextgen 自建
-//! 服务通道 —— 环回 http 放行，其余 https-only；网关拒绝 → 400，登记偏差：
-//! ST 无对应面，ST 对任意失败都是 200 {error:true,...}）。
+//! HIGH-5/S12：api_server 出站走 `validate_egress_url`（SelfHosted 自建
+//! 端点 —— http/https 均可，本机与局域网都放行，只拦 link-local/0.0.0.0；
+//! 网关拒绝 → 400，登记偏差：ST 无对应面，ST 对任意失败都是 200 {error:true,...}）。
 //! koboldcpp 流式挂 Drop abort guard：客户端断连 / 上游错误终止且流未完成
 //! → POST {base}/api/extra/abort（ST text-completions.js:284-292/:80-97）；
 //! 正常完成不触发。
@@ -376,10 +376,10 @@ pub async fn generate(st: &BackendState, body: &Value, origin: Option<HeaderValu
 
     // localhost → 127.0.0.1（ST 字面）
     let base_raw = api_server.replace("localhost", "127.0.0.1");
-    // HIGH-5：api_server 出站网关（LocalTextgen 自建服务通道：环回 http 放行）
+    // HIGH-5：api_server 出站网关（SelfHosted 自建端点：http/https 均可，含局域网）
     let base = match super::providers::validate_egress_url(
         &base_raw,
-        super::providers::EgressPolicy::LocalTextgen,
+        super::providers::EgressPolicy::SelfHosted,
     ) {
         Ok(u) => u,
         Err(e) => {
@@ -791,10 +791,10 @@ pub async fn status(st: &BackendState, body: &Value, origin: Option<HeaderValue>
         api_type,
         super::logx::url_summary(api_server)
     );
-    // HIGH-5：api_server 出站网关（LocalTextgen 自建服务通道：环回 http 放行）
+    // HIGH-5：api_server 出站网关（SelfHosted 自建端点：http/https 均可，含局域网）
     let base = match super::providers::validate_egress_url(
         &base_raw,
-        super::providers::EgressPolicy::LocalTextgen,
+        super::providers::EgressPolicy::SelfHosted,
     ) {
         Ok(u) => u,
         Err(e) => {

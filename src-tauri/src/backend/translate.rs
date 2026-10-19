@@ -17,11 +17,11 @@
 //!   → **App 期望 {data:{result}}**（ST 裸字符串面 App 无法读取 —— 登记偏差）
 //! - deeplx：deeplx_url（默认环回 1188）；zh→ZH → `data`
  //!
- //! 出站网关（HIGH-5）：libre_url / deeplx_url / oneringtranslator_url 三家
- //! 用户可控 URL 过统一网关 `validate_egress_url(…, LocalTextgen)`（自建服务
- //! 通道：环回 http 放行，私网/link-local 一律拒；lead 裁决偏离任务书
- //! ProxyUrl 字面 —— DeepLX/OneRing 典型部署即本机，出厂默认必须可用；
- //! 网关拒绝 → 400 可读错误面，亦无 ST 字面）。
+//! 出站网关（HIGH-5）：libre_url / deeplx_url / oneringtranslator_url 三家
+//! 用户可控 URL 过统一网关 `validate_egress_url(…, SelfHosted)` —— 按自建端点类
+//! 放行（http/https 均可、本机与局域网都可用，只拦 link-local/0.0.0.0），
+//! 非 ProxyUrl 字面：DeepLX/OneRing 出厂默认即本机，自建服务亦常落局域网；
+//! 网关拒绝 → 400 可读错误面，亦无 ST 字面）。
 //! - bing：edge.microsoft.com/translate/auth 取 JWT →
 //!   cognitive.microsofttranslator.com/translate?api-version=3.0&to
 //!   （zh-CN→zh-Hans、zh-TW→zh-Hant、pt-BR→pt）
@@ -127,9 +127,9 @@ pub async fn libre(st: &BackendState, body: &Value, origin: Option<HeaderValue>)
         Some(u) => u,
         None => return status400(origin),
     };
-    // HIGH-5：libre_url 用户可控出站 → 统一网关（LocalTextgen 自建服务通道：
-    // 环回 http 放行；lead 裁决偏离任务书 ProxyUrl 字面 —— 汇报已登记）
-    let url = match validate_egress_url(&url, EgressPolicy::LocalTextgen) {
+    // HIGH-5：libre_url 用户可控出站 → 统一网关（SelfHosted 自建端点：
+    // http/https 均可，本机与局域网都放行；非 ProxyUrl 字面 —— 汇报已登记）
+    let url = match validate_egress_url(&url, EgressPolicy::SelfHosted) {
         Ok(u) => u,
         Err(e) => return egress_reject("libre_url", &e, origin),
     };
@@ -322,9 +322,9 @@ pub async fn deepl(st: &BackendState, body: &Value, origin: Option<HeaderValue>)
 /* ---------------- onering ---------------- */
 pub async fn onering(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
     let url = read_secret(st, "oneringtranslator_url").unwrap_or_else(|| ONERING_URL_DEFAULT.to_string());
-    // HIGH-5：oneringtranslator_url 用户可控出站 → 统一网关（LocalTextgen：
-    // 出厂默认 127.0.0.1:4990 环回 http 放行；lead 裁决偏离任务书 ProxyUrl 字面）
-    let url = match validate_egress_url(&url, EgressPolicy::LocalTextgen) {
+    // HIGH-5：oneringtranslator_url 用户可控出站 → 统一网关（SelfHosted 自建端点：
+    // 出厂默认 127.0.0.1:4990；本机与局域网均可，非 ProxyUrl 字面）
+    let url = match validate_egress_url(&url, EgressPolicy::SelfHosted) {
         Ok(u) => u,
         Err(e) => return egress_reject("oneringtranslator_url", &e, origin),
     };
@@ -359,9 +359,9 @@ pub async fn onering(st: &BackendState, body: &Value, origin: Option<HeaderValue
 /* ---------------- deeplx ---------------- */
 pub async fn deeplx(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
     let url = read_secret(st, "deeplx_url").unwrap_or_else(|| DEEPLX_URL_DEFAULT.to_string());
-    // HIGH-5：deeplx_url 用户可控出站 → 统一网关（LocalTextgen：
-    // 出厂默认 127.0.0.1:1188 环回 http 放行；lead 裁决偏离任务书 ProxyUrl 字面）
-    let url = match validate_egress_url(&url, EgressPolicy::LocalTextgen) {
+    // HIGH-5：deeplx_url 用户可控出站 → 统一网关（SelfHosted 自建端点：
+    // 出厂默认 127.0.0.1:1188；本机与局域网均可，非 ProxyUrl 字面）
+    let url = match validate_egress_url(&url, EgressPolicy::SelfHosted) {
         Ok(u) => u,
         Err(e) => return egress_reject("deeplx_url", &e, origin),
     };
