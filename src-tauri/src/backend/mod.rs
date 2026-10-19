@@ -5,7 +5,7 @@
 //! 原先的反向中继已移除，其四件套并入本模块：
 //!   1. 鉴权（X-Relay-Auth + 256-bit token，OS CSPRNG 生成）
 //!   2. CORS 白名单反射
-//!   3. 静态 GET 豁免四前缀
+//!   3. 静态 GET 豁免五前缀
 //!   4. SSE 无缓冲透传语义（本服务直接产流，无上游）
 //!
 //! ── 前端不动（D1）──
@@ -22,6 +22,7 @@
 mod api;
 pub mod assets;
 mod auth;
+pub mod cardlibs;
 pub mod characters;
 pub mod chats;
 pub mod classify;
@@ -168,12 +169,21 @@ fn origin_allowed(o: &HeaderValue) -> bool {
 /// 静态资源 GET 豁免（段边界匹配）：
 /// `<img>/CSS url()` 无法带自定义头；/api/* 与 /csrf-token 永不免检（S3）。
 /// 段边界：`/thumbnailX` 不算 `/thumbnail` 前缀（防 `/thumbnailX/api/x` 式伪装）。
+///
+/// `/card-libs` 是第五个：iframe 的 `<script src>`/`<link href>` 同样带不了
+/// `X-Relay-Auth`（见 cardlibs.rs 模块头）。它只读、内容为构建期内嵌的第三方库源码，
+/// 且名字走精确白名单匹配（不做路径拼接/解码），不构成通用文件读取面。
 fn is_exempt_from_auth(method: &Method, path: &str) -> bool {
     if !(method == Method::GET || method == Method::HEAD) {
         return false;
     }
-    const EXEMPT_PREFIXES: [&str; 4] =
-        ["/thumbnail", "/characters", "/backgrounds", "/user-images"];
+    const EXEMPT_PREFIXES: [&str; 5] = [
+        "/thumbnail",
+        "/characters",
+        "/backgrounds",
+        "/user-images",
+        "/card-libs",
+    ];
     EXEMPT_PREFIXES.iter().any(|p| {
         path == *p || path.starts_with(&format!("{p}/")) || path.starts_with(&format!("{p}?"))
     })
@@ -228,8 +238,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn exempt_list_only_four_readonly_prefixes() {
-        // S3：豁免集合显式且只含四个只读资产前缀
+    fn exempt_list_only_five_readonly_prefixes() {
+        // S3：豁免集合显式且只含五个只读资产前缀
+        // （第 5 个 /card-libs 见 cardlibs.rs：帧内预置库，iframe 子资源请求带不了 token）
         let get = Method::GET;
         assert!(is_exempt_from_auth(
             &get,
@@ -238,14 +249,17 @@ mod tests {
         assert!(is_exempt_from_auth(&get, "/characters/a.png"));
         assert!(is_exempt_from_auth(&get, "/backgrounds/b.jpg"));
         assert!(is_exempt_from_auth(&get, "/user-images/c.png"));
+        assert!(is_exempt_from_auth(&get, "/card-libs/jquery-3.7.1.min.js"));
         // POST 静态前缀不豁免
         assert!(!is_exempt_from_auth(&Method::POST, "/thumbnail"));
+        assert!(!is_exempt_from_auth(&Method::POST, "/card-libs/jquery-3.7.1.min.js"));
         // /api/* 与 /csrf-token 永不免检
         assert!(!is_exempt_from_auth(&get, "/api/secrets/write"));
         assert!(!is_exempt_from_auth(&get, "/api/settings/get"));
         assert!(!is_exempt_from_auth(&get, "/csrf-token"));
         // 豁免前缀下的 /api 伪装路径也不行（前缀必须精确）
         assert!(!is_exempt_from_auth(&get, "/thumbnailX/api/x"));
+        assert!(!is_exempt_from_auth(&get, "/card-libsX/api/x"));
     }
 
     #[test]

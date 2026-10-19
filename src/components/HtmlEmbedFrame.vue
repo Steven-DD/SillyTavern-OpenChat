@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /**
- * 前端界面沙箱帧：把卡内 HTML 应用渲染进 sandbox="allow-scripts" 的 iframe。
+ * 前端界面沙箱帧：把卡内 HTML 应用渲染进 sandbox="allow-scripts allow-popups
+ * allow-forms allow-modals" 的 iframe。
  *
  * - srcdoc = 卡 HTML + 桥接引导脚本（buildEmbedSrcdoc 注入 <head>；S23：
  *   构造时把引导脚本里的宿主 origin 占位符替换为实际 origin，帧→宿主
@@ -9,11 +10,15 @@
  *   宿主侧分发在 services/st/embedBridge.ts（白名单 API）
  * - 沙箱不给 allow-same-origin：卡脚本拿不到宿主源/cookie，
  *   相对路径请求也不可用，数据只能走桥
+ * - allow-modals：上游酒馆助手的帧完全没有 sandbox（同源零沙箱），卡里的
+ *   alert/confirm 照常可用；我们缺该标志会被静默忽略，故补上与上游对齐
+ *   （隐藏的脚本库运行时帧 scriptHost.ts 故意不加，避免不可见库脚本弹窗刷屏）
  * - 高度自适应：帧内 ResizeObserver 上报 scrollHeight，宿主随之调高
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { buildEmbedSrcdoc, SANDBOX_BOOTSTRAP } from '@/services/st/embed'
+import { buildCardLibTags, buildEmbedSrcdoc, SANDBOX_BOOTSTRAP } from '@/services/st/embed'
 import { handleEmbedCall } from '@/services/st/embedBridge'
+import { stBase } from '@/services/st/client'
 
 const props = defineProps<{
   /** 完整 HTML 文档（extractEmbedHtml 的产出） */
@@ -28,7 +33,10 @@ const errors = ref<string[]>([])
 
 // ⚠ 必须 computed：组件随气泡列表复用（key=索引），props.html 变化时
 //    srcdoc 若是 setup 常量不会更新——表现为"切换会话后界面还是旧的那份"
-const srcdoc = computed(() => buildEmbedSrcdoc(props.html, SANDBOX_BOOTSTRAP))
+//   预置库标签同理须在计算时取 stBase()（基地址在模块求值之后才由桥接写入）
+const srcdoc = computed(() =>
+  buildEmbedSrcdoc(props.html, SANDBOX_BOOTSTRAP, buildCardLibTags(stBase())),
+)
 
 function onMessage(ev: MessageEvent): void {
   const w = frame.value?.contentWindow
@@ -79,7 +87,7 @@ onBeforeUnmount(() => window.removeEventListener('message', onMessage))
     <iframe
       ref="frame"
       class="embed-frame"
-      sandbox="allow-scripts allow-popups allow-forms"
+      sandbox="allow-scripts allow-popups allow-forms allow-modals"
       :srcdoc="srcdoc"
       :style="{ height: height + 'px' }"
     />

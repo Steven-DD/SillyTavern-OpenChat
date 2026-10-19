@@ -388,3 +388,80 @@ fn book_entries_nonempty(card: &serde_json::Value) {
     assert!(!entries.is_empty());
     assert!(entries[0]["extensions"].get("entry_ext_unknown").is_some(), "书内未知字段缺失");
 }
+
+/* ------------------------------------------------------------------ *
+ * 4. 帧内预置库：GET /card-libs/<带版本文件>（方案批1）
+ *
+ * 关键点是**不带任何鉴权头**也要 200 —— iframe 的 <script src>/<link href>
+ * 是浏览器发起的子资源请求，带不了 X-Relay-Auth，所以该前缀必须在
+ * is_exempt_from_auth 的豁免段内。这条用例正是守「豁免真的接线了」。
+ * ------------------------------------------------------------------ */
+
+#[tokio::test]
+async fn card_libs_served_without_auth_header_and_unknown_is_404() {
+    let env = spawn_backend("cardlibs").await;
+    let c = fresh_client();
+
+    // 无 x-relay-auth：命中豁免段 ⇒ 200
+    for name in [
+        "jquery-3.7.1.min.js",
+        "toastr-2.1.4.min.css",
+        "toastr-2.1.4.min.js",
+        "lodash-4.17.21.min.js",
+        "js-yaml-4.1.0.min.js",
+        "vue-3.5.13.global.prod.js",
+        "vue-router-4.5.0.global.prod.js",
+    ] {
+        let r = c
+            .get(format!("{}/card-libs/{name}", env.base))
+            .send()
+            .await
+            .expect("请求失败");
+        assert_eq!(r.status().as_u16(), 200, "{name} 无鉴权头应 200（豁免段）");
+        let ct = r
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert!(
+            ct.starts_with("application/javascript") || ct.starts_with("text/css"),
+            "{name} content-type 不符：{ct}"
+        );
+        assert_eq!(
+            r.headers()
+                .get("x-content-type-options")
+                .and_then(|v| v.to_str().ok()),
+            Some("nosniff")
+        );
+        let body = r.bytes().await.expect("读体失败");
+        assert!(!body.is_empty(), "{name} 内容为空");
+    }
+
+    // 白名单外一律不出数据
+    for p in [
+        "/card-libs/jquery.min.js", // 无版本旧名
+        "/card-libs/whatever.js",
+    ] {
+        let r = c
+            .get(format!("{}{p}", env.base))
+            .send()
+            .await
+            .expect("请求失败");
+        assert_eq!(r.status().as_u16(), 404, "{p} 应 404");
+    }
+
+    // 路径穿越：HTTP 客户端会在发送前把 `..` 归一化掉，请求实际变成 /secrets.json，
+    // 该路径不在豁免段 ⇒ 403（鉴权拒绝），同样不出数据。handler 侧的百分号编码穿越
+    // 由 cardlibs.rs 的单测覆盖（那里断言 404）。
+    let r = c
+        .get(format!("{}/card-libs/../../secrets.json", env.base))
+        .send()
+        .await
+        .expect("请求失败");
+    assert_ne!(r.status().as_u16(), 200, "穿越路径绝不可 200");
+    assert!(
+        r.status().as_u16() == 403 || r.status().as_u16() == 404,
+        "穿越路径应为 403（归一化后被鉴权拦）或 404，实得 {}",
+        r.status().as_u16()
+    );
+}

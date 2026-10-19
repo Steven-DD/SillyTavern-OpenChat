@@ -494,6 +494,9 @@ async fn route(
             Ok(v) => super::extensions::delete(&st, &v, origin).await,
             Err(_) => bad_json(origin),
         }
+        // 帧内预置库（方案批1）：GET /card-libs/<带版本文件>
+        // 鉴权豁免段内（iframe 子资源请求带不了 X-Relay-Auth），名字精确白名单
+        ("GET", p) if p.starts_with("/card-libs/") => super::cardlibs::serve(p, origin),
         // 静态资源前缀（manifest #31-#33；鉴权豁免路径的落盘读取）
         (m, p)
             if m == "GET"

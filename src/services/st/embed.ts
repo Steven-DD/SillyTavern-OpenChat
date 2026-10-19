@@ -233,6 +233,49 @@ export function fixCrossBlockDeclCollision(html: string): string {
  *  判定失败 → 消息丢弃 + console.warn，绝不回退 '*'。 */
 export const PARENT_ORIGIN_PLACEHOLDER = '__EMBED_PARENT_ORIGIN__'
 
+/* ---------------- 帧内预置库（方案批1） ----------------
+ * 上游酒馆助手给每个前端帧注入一套第三方库，卡作者是按「这些全局量存在」写卡的；
+ * 我们此前只注入 TavernHelper 桥，依赖 $ / Vue / jsyaml 的卡会直接 ReferenceError。
+ *
+ * 走本地后端只读路由 `/card-libs/<带版本文件>`，不是宿主 blob：我们的帧是
+ * sandbox 无 allow-same-origin 的**不透明源**，读不到宿主创建的 blob URL
+ * （实测脚本不执行、零 CSP 违规 ⇒ 源检查而非策略拦截）；上游能用 blob 是因为它
+ * 的帧同源零沙箱。
+ *
+ * 清单/顺序须与 `src-tauri/src/backend/cardlibs.rs` 的 ASSETS 一致，
+ * 由 scripts/selfcheck-cardlibs.mjs 守（前端 ↔ Rust 表 ↔ 磁盘文件三向）。
+ * 版本与许可登记在 src-tauri/assets/card-libs/LICENSES.md。 */
+export const CARD_LIB_FILES: readonly string[] = [
+  'jquery-3.7.1.min.js',
+  'toastr-2.1.4.min.css',
+  'toastr-2.1.4.min.js',
+  'lodash-4.17.21.min.js',
+  'js-yaml-4.1.0.min.js',
+  'vue-3.5.13.global.prod.js',
+  'vue-router-4.5.0.global.prod.js',
+]
+
+/**
+ * 生成注入帧 `<head>` 的预置库标签（不带 defer/async ⇒ parser 阻塞，
+ * 保证卡内脚本执行前全局量已就绪）。
+ * 基地址未就绪（桥接尚未写入 stoc.base）时返回空串，绝不退化成相对路径。
+ */
+export function buildCardLibTags(base: string): string {
+  const b = base.replace(/\/+$/, '')
+  if (!b) return ''
+  const out: string[] = []
+  for (const f of CARD_LIB_FILES) {
+    out.push(
+      f.endsWith('.css')
+        ? `<link rel="stylesheet" href="${b}/card-libs/${f}">`
+        : `<script src="${b}/card-libs/${f}"></script>`,
+    )
+    // js-yaml 浏览器构建挂 window.jsyaml；上游文档以 YAML 称呼该库，补个别名（我们额外加的）
+    if (f.startsWith('js-yaml')) out.push('<script>window.YAML=window.YAML||window.jsyaml;</script>')
+  }
+  return out.join('\n')
+}
+
 /** 宿主 origin 注入：沙箱帧是 opaque origin，自己读不到宿主源，必须由宿主
  *  构造 srcdoc 时显式告知。消息前端界面（HtmlEmbedFrame.vue）与脚本库运行时
  *  （scriptHost.ts）两个消费方都经 buildEmbedSrcdoc，注入在此单点覆盖。 */
@@ -245,9 +288,13 @@ function injectParentOrigin(bootstrap: string): string {
  * 组装 iframe srcdoc：在卡 HTML 的 <head>（或 <html>、文档最前）注入
  * 桥接引导脚本——必须先于卡内脚本执行，才能把 API 挂成全局函数。
  * 注入前替换宿主 origin 占位符（S23：帧→宿主 targetOrigin 收紧）。
+ *
+ * `headExtra`（方案批1）：额外的 <head> 注入内容，当前用于帧内预置库标签
+ * （buildCardLibTags）。只有需要这套库的调用方传它——脚本库运行时帧不传。
  */
-export function buildEmbedSrcdoc(html: string, bootstrap: string): string {
-  const injected = `<script>${injectParentOrigin(bootstrap)}</script>`
+export function buildEmbedSrcdoc(html: string, bootstrap: string, headExtra = ''): string {
+  const injected =
+    `<script>${injectParentOrigin(bootstrap)}</script>` + (headExtra ? `\n${headExtra}` : '')
   const fixed = fixCrossBlockDeclCollision(html)
   if (/<head[^>]*>/i.test(fixed)) return fixed.replace(/<head[^>]*>/i, (m) => `${m}${injected}`)
   if (/<html[^>]*>/i.test(fixed)) return fixed.replace(/<html[^>]*>/i, (m) => `${m}${injected}`)
