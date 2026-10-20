@@ -308,7 +308,7 @@ async fn generate_sd(
             )
         })?;
 
-    let clean_b64 = b64_img.split(',').last().unwrap_or(b64_img);
+    let clean_b64 = b64_img.split(',').next_back().unwrap_or(b64_img);
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(clean_b64.trim())
         .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Base64 解码生图数据失败: {e}")))?;
