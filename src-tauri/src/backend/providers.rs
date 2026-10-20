@@ -727,6 +727,7 @@ pub async fn generate(st: &BackendState, body: &Value, origin: Option<HeaderValu
         return err_json(StatusCode::BAD_REQUEST, "缺少 chat_completion_source");
     };
     let body = ensure_post_processing(body);
+    let body = enrich_multimodal_messages(st, &body);
     let model = body.get("model").and_then(|v| v.as_str()).unwrap_or("-");
     let stream = body.get("stream").and_then(|v| v.as_bool()).unwrap_or(false);
     let n_msgs = body
@@ -798,6 +799,118 @@ pub(crate) fn ensure_post_processing(body: &Value) -> Value {
     out.as_object_mut()
         .unwrap()
         .insert("messages".into(), processed);
+    out
+}
+
+fn resolve_image_to_data_url(st: &BackendState, url: &str) -> Option<String> {
+    if url.starts_with("data:") || url.starts_with("http://") || url.starts_with("https://") {
+        return Some(url.to_string());
+    }
+    let clean = url.trim().trim_start_matches('/');
+    let rel_path = if let Some(stripped) = clean.strip_prefix("user-images/") {
+        stripped
+    } else if let Some(stripped) = clean.strip_prefix("user/images/") {
+        stripped
+    } else {
+        clean
+    };
+    let base_dir = st.data_root.join("default-user").join("user").join("images");
+    let segs: Vec<&str> = rel_path.split('/').filter(|s| !s.is_empty()).collect();
+    let safe_path = crate::pathguard::join_under(&base_dir, &segs).ok()?;
+    if !safe_path.is_file() {
+        return None;
+    }
+    let bytes = std::fs::read(&safe_path).ok()?;
+    let ext = safe_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("png")
+        .to_ascii_lowercase();
+    let mime = match ext.as_str() {
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        _ => "image/png",
+    };
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Some(format!("data:{mime};base64,{b64}"))
+}
+
+pub(crate) fn enrich_multimodal_messages(st: &BackendState, body: &Value) -> Value {
+    let Some(msgs) = body.get("messages").and_then(|m| m.as_array()) else {
+        return body.clone();
+    };
+    let mut modified = false;
+    let mut new_msgs = Vec::new();
+    for msg in msgs {
+        let mut msg_obj = match msg.as_object() {
+            Some(o) => o.clone(),
+            None => {
+                new_msgs.push(msg.clone());
+                continue;
+            }
+        };
+
+        if let Some(img_val) = msg_obj.remove("image") {
+            if let Some(img_str) = img_val.as_str() {
+                if let Some(data_url) = resolve_image_to_data_url(st, img_str) {
+                    let current_text = msg_obj
+                        .get("content")
+                        .and_then(|c| c.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let content_arr = json!([
+                        { "type": "text", "text": current_text },
+                        { "type": "image_url", "image_url": { "url": data_url } }
+                    ]);
+                    msg_obj.insert("content".into(), content_arr);
+                    modified = true;
+                }
+            }
+        } else if let Some(content_arr) = msg_obj.get("content").and_then(|c| c.as_array()) {
+            let mut parts_modified = false;
+            let mut new_parts = Vec::new();
+            for part in content_arr {
+                let mut part_obj = match part.as_object() {
+                    Some(o) => o.clone(),
+                    None => {
+                        new_parts.push(part.clone());
+                        continue;
+                    }
+                };
+                if part_obj.get("type").and_then(|t| t.as_str()) == Some("image_url") {
+                    if let Some(iu) = part_obj.get("image_url").and_then(|u| u.as_object()) {
+                        if let Some(url_str) = iu.get("url").and_then(|u| u.as_str()) {
+                            if !url_str.starts_with("data:") {
+                                if let Some(data_url) = resolve_image_to_data_url(st, url_str) {
+                                    part_obj.insert(
+                                        "image_url".into(),
+                                        json!({ "url": data_url }),
+                                    );
+                                    parts_modified = true;
+                                }
+                            }
+                        }
+                    }
+                }
+                new_parts.push(Value::Object(part_obj));
+            }
+            if parts_modified {
+                msg_obj.insert("content".into(), Value::Array(new_parts));
+                modified = true;
+            }
+        }
+        new_msgs.push(Value::Object(msg_obj));
+    }
+
+    if !modified {
+        return body.clone();
+    }
+    let mut out = body.clone();
+    out.as_object_mut()
+        .unwrap()
+        .insert("messages".into(), Value::Array(new_msgs));
     out
 }
 
@@ -2030,6 +2143,46 @@ async fn pollinations_status(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn enrich_multimodal_resolves_image_and_data_url() {
+        let tmp = super::super::test_support::TestBackend::temp("stoc-provider-multimodal-");
+        let root = tmp.path().to_path_buf();
+        let user_img_dir = root.join("default-user").join("user").join("images").join("test_char");
+        std::fs::create_dir_all(&user_img_dir).unwrap();
+        let png_bytes = crate::compat::png::minimal_png();
+        std::fs::write(user_img_dir.join("photo.png"), &png_bytes).unwrap();
+
+        let st = super::super::test_support::TestBackend::new(
+            tmp,
+            BackendState {
+                token: std::sync::Arc::new("t".into()),
+                data_root: root,
+                max_body_bytes: 10 << 20,
+                settings_svc: Default::default(),
+                chats_svc: Default::default(),
+                maid_tokens: Default::default(),
+                vault: std::sync::Arc::new(crate::backend::vault::Vault::new_memory()),
+            },
+        );
+
+        let body = json!({
+            "messages": [
+                { "role": "user", "content": "看图", "image": "user-images/test_char/photo.png" }
+            ]
+        });
+        let enriched = enrich_multimodal_messages(&st, &body);
+        let msgs = enriched["messages"].as_array().unwrap();
+        assert_eq!(msgs.len(), 1);
+        let content = msgs[0]["content"].as_array().unwrap();
+        assert_eq!(content.len(), 2);
+        assert_eq!(content[0]["type"], "text");
+        assert_eq!(content[0]["text"], "看图");
+        assert_eq!(content[1]["type"], "image_url");
+        let url = content[1]["image_url"]["url"].as_str().unwrap();
+        assert!(url.starts_with("data:image/png;base64,"));
+        assert!(msgs[0].get("image").is_none());
+    }
 
     #[test]
     fn egress_gateway_rules() {

@@ -11,6 +11,7 @@ import { adaptCardMarkup, splitEmbedSegments } from '@/services/st/embed'
 import HtmlEmbedFrame from '@/components/HtmlEmbedFrame.vue'
 import { detectFenceLanguages } from '@/utils/codeDetect'
 import { substituteMacros } from '@/services/st/prompt'
+import { stBase } from '@/services/st/client'
 import type { DisplayMessage } from '@/services/st/chatdoc'
 
 /**
@@ -66,6 +67,9 @@ const emit = defineEmits<{
 const reasonManual = ref<boolean | null>(null)
 const reasonOpen = computed(() => reasonManual.value ?? !!props.m.pending)
 
+/* ---- MCP 工具调用审计折叠 ---- */
+const toolsOpen = ref(false)
+
 /* ---- 行内编辑 ---- */
 const editing = ref(false)
 const editText = ref('')
@@ -87,6 +91,16 @@ function saveEdit(): void {
   editing.value = false
   if (t && t !== props.m.content) emit('edit', props.index, t)
 }
+
+/* ---- 多模态图片与灯箱预览 ---- */
+const lightbox = ref(false)
+const messageImage = computed(() => {
+  const img = props.m.extra?.image
+  if (!img || typeof img !== 'string') return null
+  if (img.startsWith('http') || img.startsWith('data:')) return img
+  const clean = img.replace(/^\/+/, '').replace(/^user\/images\//, 'user-images/')
+  return `${stBase()}/${clean}`
+})
 
 /* ---- 复制 ---- */
 const copied = ref(false)
@@ -120,6 +134,29 @@ function onTranslateClick(): void {
     return
   }
   showTrans.value = !showTrans.value
+}
+
+/* ---- 文生图插图生成 ---- */
+const drawing = ref(false)
+async function onDrawClick(customPrompt?: string): Promise<void> {
+  if (drawing.value) return
+  drawing.value = true
+  try {
+    const { generateImage } = await import('@/services/st/imageGen')
+    const prompt =
+      customPrompt ||
+      (props.charName ? `${props.charName}, ` : '') +
+        props.m.content.slice(0, 150).replace(/["`\n\r]/g, ' ')
+    const res = await generateImage({ prompt })
+    if (res?.url) {
+      if (!props.m.extra) props.m.extra = {}
+      props.m.extra.image = res.url
+    }
+  } catch (e) {
+    console.error('生图失败', e)
+  } finally {
+    drawing.value = false
+  }
 }
 
 /* ---- 显示通路正则（正则脚本由 chat store 预加载到模块缓存） ---- */
@@ -210,6 +247,27 @@ const isDark = computed(() => theme.mode === 'dark' || theme.mode === 'dusk')
         </div>
       </div>
 
+      <!-- MCP 工具调用审计微件 -->
+      <div v-if="m.extra?.tool_calls && Array.isArray(m.extra.tool_calls) && m.extra.tool_calls.length" class="tool-calls-block">
+        <button class="tool-calls-head" type="button" @click="toolsOpen = !toolsOpen">
+          <span class="tc-icon">🔧</span>
+          <span>工具调用 ({{ m.extra.tool_calls.length }} 项)</span>
+          <span class="tc-arrow" :class="{ open: toolsOpen }">▾</span>
+        </button>
+        <div v-show="toolsOpen" class="tool-calls-body">
+          <div v-for="(tc, tci) in (m.extra.tool_calls as any[])" :key="tci" class="tool-call-item">
+            <div class="tool-name">
+              <strong>{{ tc.function?.name || '未知工具' }}</strong>
+            </div>
+            <pre class="tool-code">{{ typeof tc.function?.arguments === 'string' ? tc.function.arguments : JSON.stringify(tc.function?.arguments, null, 2) }}</pre>
+            <div v-if="tc.result" class="tool-res">
+              <span class="res-tag">执行结果:</span>
+              <pre class="tool-code">{{ tc.result }}</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- 气泡：AI 走 markstream 流式渲染（trusted 策略放行卡内 HTML/<style>，
            <thinking> 块映射为折叠组件），用户保持纯文本；译文态整体替换内容 -->
       <div
@@ -219,6 +277,10 @@ const isDark = computed(() => theme.mode === 'dark' || theme.mode === 'dusk')
         :id="m.role === 'user' ? 'customized-question-content' : 'customized-answer-content'"
         :data-has-css="hasCss ? 'true' : 'false'"
       >
+        <!-- 附带图片展示 -->
+        <div v-if="messageImage" class="bubble-image-wrap">
+          <img :src="messageImage" class="bubble-image" alt="attached image" @click="lightbox = true" />
+        </div>
         <div v-if="showTrans && translation" class="txt trans-txt">{{ translation }}</div>
         <template v-else>
           <!-- 分段渲染：embed 段（酒馆助手语义 HTML 应用）走 iframe 沙箱，
@@ -337,6 +399,16 @@ const isDark = computed(() => theme.mode === 'dark' || theme.mode === 'dusk')
           {{ speaking ? '■' : '🔊' }}
         </button>
         <button
+          v-if="m.role === 'assistant'"
+          class="op"
+          type="button"
+          :class="{ busy: drawing }"
+          :title="drawing ? '正在生成插图…' : '为此条消息生成插图'"
+          @click="onDrawClick()"
+        >
+          {{ drawing ? '◌' : '🎨' }}
+        </button>
+        <button
           v-if="!groupChat"
           class="op"
           type="button"
@@ -349,10 +421,49 @@ const isDark = computed(() => theme.mode === 'dark' || theme.mode === 'dusk')
         <button v-if="!groupChat" id="customized-delete-button" class="op danger" type="button" title="删除" @click="emit('remove', index)">✕</button>
       </div>
     </div>
+
+    <!-- 灯箱图片放大预览 -->
+    <Teleport to="body">
+      <div v-if="lightbox && messageImage" class="lightbox-modal" @click="lightbox = false">
+        <img :src="messageImage" class="lightbox-img" alt="lightbox view" />
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <style scoped>
+.bubble-image-wrap {
+  margin-bottom: 8px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  max-width: 360px;
+  max-height: 280px;
+  cursor: zoom-in;
+}
+.bubble-image {
+  width: 100%;
+  height: auto;
+  display: block;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+}
+.lightbox-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  cursor: zoom-out;
+}
+.lightbox-img {
+  max-width: 90vw;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: 6px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
 .msg {
   display: flex;
   gap: 9px;
@@ -460,6 +571,71 @@ const isDark = computed(() => theme.mode === 'dark' || theme.mode === 'dusk')
   line-height: 1.7;
   color: var(--c-text-2);
   border-top: 1px dashed var(--c-border);
+}
+
+/* MCP 工具调用折叠块 */
+.tool-calls-block {
+  margin-bottom: 6px;
+  border-radius: 8px;
+  background: var(--c-panel-soft, rgba(0, 0, 0, 0.05));
+  border: 1px solid var(--c-border);
+  overflow: hidden;
+}
+.tool-calls-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--c-text-2);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+.tool-calls-head:hover {
+  color: var(--c-text);
+}
+.tc-arrow {
+  margin-left: auto;
+  transition: transform 0.15s;
+}
+.tc-arrow.open {
+  transform: rotate(180deg);
+}
+.tool-calls-body {
+  padding: 6px 10px;
+  border-top: 1px dashed var(--c-border);
+  font-size: 11px;
+}
+.tool-call-item {
+  margin-bottom: 6px;
+}
+.tool-call-item:last-child {
+  margin-bottom: 0;
+}
+.tool-name code {
+  color: #6366f1;
+  font-weight: 600;
+}
+.tool-code {
+  margin: 2px 0 4px;
+  padding: 4px 6px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+  font-size: 10px;
+  font-family: monospace;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+.tool-res {
+  margin-top: 2px;
+}
+.res-tag {
+  font-size: 10px;
+  color: var(--c-text-3);
 }
 .reason-body :deep(p) {
   margin: 6px 0;

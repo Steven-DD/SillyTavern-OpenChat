@@ -274,6 +274,20 @@ async fn st_data_import(state: tauri::State<'_, DataRootState>, src: String) -> 
     })
 }
 
+#[tauri::command]
+async fn st_sync_test(cfg: backend::sync::SyncConfig) -> Result<String, String> {
+    backend::sync::test_connection(&cfg).await
+}
+
+#[tauri::command]
+async fn st_sync_execute(
+    state: tauri::State<'_, DataRootState>,
+    cfg: backend::sync::SyncConfig,
+) -> Result<backend::sync::SyncResult, String> {
+    let root = state.0.clone();
+    Ok(backend::sync::sync_push(&cfg, &root).await)
+}
+
 /* ================================================================== *
  * 入口
  * ================================================================== */
@@ -300,6 +314,8 @@ pub fn run() {
             character_export_png,
             st_data_export,
             st_data_import,
+            st_sync_test,
+            st_sync_execute,
         ])
         .setup(|app| {
             let config_dir = app.path().app_config_dir()?;

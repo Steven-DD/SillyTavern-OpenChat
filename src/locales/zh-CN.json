@@ -1,0 +1,46 @@
+{
+  "nav": {
+    "chats": "消息",
+    "contacts": "角色",
+    "worlds": "世界书",
+    "personas": "人设",
+    "settings": "设置"
+  },
+  "chat": {
+    "placeholder": "发消息给 {name}…（Enter 发送 / Shift+Enter 换行）",
+    "placeholderEmpty": "选择或新建一个会话后开始聊天",
+    "send": "发 送",
+    "stop": "停 止",
+    "impersonate": "代写",
+    "regenerate": "再来一轮",
+    "stream": "流式",
+    "block": "整块",
+    "attachImg": "附加参考图片（视觉输入）",
+    "removeImg": "移除图片",
+    "thinking": "已深度思考",
+    "thinkingActive": "深度思考中…",
+    "showTrans": "显示译文",
+    "showOrig": "显示原文",
+    "hiddenMsg": "已隐藏 · 不进上下文"
+  },
+  "settings": {
+    "model": "模型",
+    "instruct": "指令/格式",
+    "theme": "通用",
+    "data": "数据",
+    "language": "语言",
+    "fontSize": "字号",
+    "fontFamily": "字体族",
+    "themeMode": "主题模式"
+  },
+  "common": {
+    "save": "保存",
+    "cancel": "取消",
+    "delete": "删除",
+    "edit": "编辑",
+    "copy": "复制",
+    "copied": "已复制",
+    "loading": "加载中…",
+    "confirm": "确认"
+  }
+}

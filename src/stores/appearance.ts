@@ -1,4 +1,5 @@
 import { defineStore, acceptHMRUpdate } from 'pinia'
+import { setAppLanguage } from '@/i18n'
 
 /**
  * 外观偏好：字号档位 / 字体族 / 语言。
@@ -14,7 +15,7 @@ export const useAppearanceStore = defineStore('appearance', {
     fontScale: 'md' as FontScale,
     /** 字体族 CSS 值；'' = 系统默认（走 base.css 的默认栈） */
     fontFamily: '',
-    /** 语言偏好（i18n 落地前仅存储，界面暂只有中文） */
+    /** 语言偏好（支持 zh-CN 和 en-US） */
     lang: 'zh-CN' as Lang,
   }),
 
@@ -36,6 +37,7 @@ export const useAppearanceStore = defineStore('appearance', {
     },
     setLang(v: Lang) {
       this.lang = v
+      setAppLanguage(v)
       this.persist()
     },
     apply() {
@@ -58,6 +60,7 @@ export const useAppearanceStore = defineStore('appearance', {
       } catch {
         /* 坏数据按默认值走 */
       }
+      setAppLanguage(this.lang)
       this.apply()
     },
   },

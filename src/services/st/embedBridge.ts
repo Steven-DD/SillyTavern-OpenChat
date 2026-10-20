@@ -1,7 +1,7 @@
 /**
  * 前端界面 iframe 沙箱的宿主侧 API 桥（TavernHelper 兼容层的宿主半边）。
  *
- * iframe 内卡脚本调用 shim（window.TavernHelper / 同名全局函数）→
+ * iframe 内卡脚本调用 shim（window.TavernHelper / window.SillyTavern / 同名全局函数）→
  * postMessage 转到这里 → 映射到 App 现有会话引擎。只暴露白名单 API：
  * 沙箱无 allow-same-origin，卡脚本无法绕过桥直连 ST 后端。
  */
@@ -73,6 +73,61 @@ function getVariables(): Record<string, unknown> {
   return { ...useChatStore().chatVariables }
 }
 
+/** getVariable：获取单个会话变量 */
+function getVariable(args: unknown): unknown {
+  const { key } = (args ?? {}) as { key?: unknown }
+  if (typeof key !== 'string') return undefined
+  return useChatStore().chatVariables[key]
+}
+
+/** setVariable：单键改写变量并即时排队落盘 */
+function setVariable(args: unknown): true {
+  const { key, value } = (args ?? {}) as { key?: unknown; value?: unknown }
+  if (typeof key !== 'string') throw new Error('setVariable 需要字符串 key')
+  const chat = useChatStore()
+  chat.chatVariables[key] = value
+  chat.scheduleChatVarFlush()
+  return true
+}
+
+/** getContext：获取当前会话上下文（角色名、会话文件、用户名、全量变量等） */
+function getContext(): Record<string, unknown> {
+  const chat = useChatStore()
+  return {
+    characterId: chat.currentAvatar,
+    chatId: chat.currentFile,
+    name1: chat.userName,
+    name2: chat.currentCharacter?.name ?? '',
+    characterName: chat.currentCharacter?.name ?? '',
+    groupId: chat.group?.id,
+    variables: { ...chat.chatVariables },
+  }
+}
+
+/** getStorage：读取持久化的卡内 localStorage 字典 */
+function getStorage(): Record<string, string> {
+  const chat = useChatStore()
+  const raw = chat.chatVariables.__local_storage__
+  if (raw && typeof raw === 'object') return { ...(raw as Record<string, string>) }
+  return {}
+}
+
+/** setStorage：卡内 localStorage 变动持久化同步 */
+function setStorage(args: unknown): true {
+  const { key, value } = (args ?? {}) as { key?: unknown; value?: unknown }
+  if (typeof key !== 'string') throw new Error('setStorage 需要 key')
+  const chat = useChatStore()
+  const store = ((chat.chatVariables.__local_storage__ as Record<string, string>) ?? {})
+  if (value === null || value === undefined) {
+    delete store[key]
+  } else {
+    store[key] = String(value)
+  }
+  chat.chatVariables.__local_storage__ = store
+  chat.scheduleChatVarFlush()
+  return true
+}
+
 /** setChatMessages：按楼层改写消息（含落盘），供脚本更新状态栏/正文 */
 function setChatMessages(args: unknown): true {
   const { message_id, message } = (args ?? {}) as { message_id?: unknown; message?: unknown }
@@ -134,6 +189,11 @@ const API_TABLE: Record<string, (args: unknown) => unknown> = {
   getChatMessages: (args) => getChatMessages((args as { range?: unknown })?.range),
   setChatMessages: (args) => setChatMessages(args),
   getVariables: () => getVariables(),
+  getVariable: (args) => getVariable(args),
+  setVariable: (args) => setVariable(args),
+  getContext: () => getContext(),
+  getStorage: () => getStorage(),
+  setStorage: (args) => setStorage(args),
   replaceVariables: (args) =>
     replaceVariables((args as { value?: unknown })?.value ?? (args as unknown)),
   insertVariables: (args) =>

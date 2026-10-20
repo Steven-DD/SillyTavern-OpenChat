@@ -51,10 +51,6 @@ unicode-normalization = "0.1"
 tiktoken-rs = "0.6"
 # T12：OS keychain vault（Windows CredMan / macOS Keychain / Linux secret service）
 keyring = "3"
-# T14：扩展 git 安装（libgit2 本地库实现 —— 不走 system git，消除命令执行向量；
-# S19：install/update 前探测全局 gitconfig 的 url.*.insteadOf，命中即拒 400
-# —— libgit2 对 insteadOf 的 URL 重写支持不完整且版本相关，不能依赖其缺席，须显式设防）
-git2 = { version = "0.19", default-features = false, features = ["https"] }
 # HIGH-1：thumbnail/sprites query 值与静态路径段的 percent-decode（先解码再过 pathguard）
 percent-encoding = "2"
 # vertexai full 模式：服务账号 JWT(RS256) → OAuth2 access token 交换
@@ -64,6 +60,15 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 # 日志（操作审计 + 调试：console + 滚动文件，前端 @tauri-apps/plugin-log 配套）
 tauri-plugin-log = "2"
+
+# T14：扩展 git 安装（libgit2 本地库实现 —— 不走 system git，消除命令执行向量；
+# S19：install/update 前探测全局 gitconfig 的 url.*.insteadOf，命中即拒 400
+# —— libgit2 对 insteadOf 的 URL 重写支持不完整且版本相关，不能依赖其缺席，须显式设防）
+[target.'cfg(not(target_os = "android"))'.dependencies]
+git2 = { version = "0.19", default-features = false, features = ["https"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+git2 = { version = "0.19", default-features = false }
 
 [dev-dependencies]
 # 测试临时目录：TempDir 在用例结束（含 panic unwind）时自动删树，

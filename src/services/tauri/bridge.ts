@@ -27,9 +27,11 @@ export const desktop = reactive({
   error: '',
 })
 
-function hasTauri(): boolean {
+export function hasTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 }
+
+export const isTauri = hasTauri
 
 /** 旧存储键 → 新键（一次性迁移；'st.relayToken' 已废弃，不读取也不迁移，仅清理残留） */
 const LEGACY_STORAGE_KEYS: [string, string][] = [

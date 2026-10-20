@@ -289,6 +289,20 @@ async fn route(
                 Err(_) => bad_json(origin),
             }
         }
+        ("POST", "/api/images/generate") => {
+            match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+                Ok(v) => super::image_gen::generate(&st, &v, origin).await,
+                Err(_) => bad_json(origin),
+            }
+        }
+        // MCP 协议与原生工具调用族（P2 级能力）
+        ("POST", "/api/mcp/tools") => super::mcp::list_tools(origin),
+        ("POST", "/api/mcp/call") => {
+            match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+                Ok(v) => super::mcp::call_tool(&st, &v, origin).await,
+                Err(_) => bad_json(origin),
+            }
+        }
         ("GET", "/api/sprites/get") => {
             let q = path_q.split_once('?').map(|(_, q)| q).unwrap_or("");
             super::assets::sprites_get(&st, q, origin)

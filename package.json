@@ -13,7 +13,11 @@
     "clean:test": "node scripts/clean-test-artifacts.mjs",
     "preview": "vite preview",
     "icons": "node scripts/gen-app-icon.mjs && tauri icon src-tauri/icons/app-icon.png",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build:android:split:x86_64": "tauri android build --apk --split-per-abi --target x86_64",
+    "build:android:split:arm64": "tauri android build --apk --split-per-abi --target aarch64",
+    "build:android:split": "tauri android build --apk --split-per-abi",
+    "build:android:universal": "tauri android build --apk"
   },
   "engines": {
     "node": ">=20"
@@ -25,6 +29,7 @@
     "@tauri-apps/plugin-process": "^2.4.0",
     "@tauri-apps/plugin-updater": "^2.13.1",
     "dompurify": "^3.4.16",
+    "fengari": "^0.1.5",
     "handlebars": "^4.7.9",
     "highlight.js": "^11.12.0",
     "markstream-vue": "^2.0.17",
@@ -32,6 +37,7 @@
     "seedrandom": "^3.0.5",
     "stream-diffs": "^0.0.2",
     "vue": "^3.5.13",
+    "vue-i18n": "^11.4.16",
     "vue-router": "^4.5.0"
   },
   "devDependencies": {

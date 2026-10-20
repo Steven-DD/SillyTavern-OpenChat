@@ -1,0 +1,46 @@
+{
+  "nav": {
+    "chats": "Chats",
+    "contacts": "Characters",
+    "worlds": "Lorebooks",
+    "personas": "Personas",
+    "settings": "Settings"
+  },
+  "chat": {
+    "placeholder": "Message {name}… (Enter to send / Shift+Enter for newline)",
+    "placeholderEmpty": "Select or create a chat to begin",
+    "send": "Send",
+    "stop": "Stop",
+    "impersonate": "Impersonate",
+    "regenerate": "Regenerate",
+    "stream": "Stream",
+    "block": "Block",
+    "attachImg": "Attach image (Vision)",
+    "removeImg": "Remove image",
+    "thinking": "Thought completed",
+    "thinkingActive": "Thinking deeply…",
+    "showTrans": "Show translation",
+    "showOrig": "Show original",
+    "hiddenMsg": "Hidden · excluded from context"
+  },
+  "settings": {
+    "model": "Model",
+    "instruct": "Instruct / Format",
+    "theme": "General",
+    "data": "Data",
+    "language": "Language",
+    "fontSize": "Font Size",
+    "fontFamily": "Font Family",
+    "themeMode": "Theme Mode"
+  },
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "copy": "Copy",
+    "copied": "Copied",
+    "loading": "Loading…",
+    "confirm": "Confirm"
+  }
+}

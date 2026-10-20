@@ -3,6 +3,7 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
+import { i18n } from './i18n'
 import { useThemeStore } from '@/stores/theme'
 import { useAppearanceStore } from '@/stores/appearance'
 import { initDesktopBridge } from '@/services/tauri/bridge'
@@ -16,6 +17,7 @@ import './styles/base.css'
 const app = createApp(App)
 app.use(createPinia())
 app.use(router)
+app.use(i18n)
 
 // 全局错误捕获（Vue errorHandler + window error/unhandledrejection → 日志）
 installGlobalErrorHook(app)

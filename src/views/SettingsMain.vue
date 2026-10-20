@@ -24,8 +24,10 @@ import { stGetText } from '@/services/st/client'
 import { check } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
 import DataDirCard from '@/components/DataDirCard.vue'
+import SyncSettingsCard from '@/components/SyncSettingsCard.vue'
 import PromptManagerCard from '@/components/PromptManagerCard.vue'
 import ExtensionsCard from '@/components/ExtensionsCard.vue'
+import InstructSettingsCard from '@/components/InstructSettingsCard.vue'
 import { useBackgroundStore } from '@/stores/background'
 
 const route = useRoute()
@@ -507,10 +509,10 @@ const FONT_FAMILIES: { value: string; name: string }[] = [
   { value: "'KaiTi', serif", name: '楷体' },
 ]
 
-/* ---------- 通用：语言（i18n 落地前仅存偏好） ---------- */
+/* ---------- 通用：语言 ---------- */
 const LANGS: { value: Lang; name: string; ready: boolean }[] = [
   { value: 'zh-CN', name: '简体中文', ready: true },
-  { value: 'en-US', name: 'English', ready: false },
+  { value: 'en-US', name: 'English', ready: true },
 ]
 
 /* ---------- 通用：版本与更新 + 开发者模式彩蛋 ---------- */
@@ -598,7 +600,7 @@ onMounted(() => {
   <main class="main page" data-page="settings">
     <header class="head">
       <h3>
-        {{ sec === 'api' ? '模型' : sec === 'theme' ? '通用' : '数据' }}
+        {{ sec === 'api' ? '模型' : sec === 'instruct' ? '提示词与指令格式' : sec === 'theme' ? '通用' : '数据' }}
       </h3>
     </header>
 
@@ -923,6 +925,11 @@ onMounted(() => {
         </section>
       </template>
 
+      <!-- ============ 提示词格式与指令模式 ============ -->
+      <template v-else-if="sec === 'instruct'">
+        <InstructSettingsCard />
+      </template>
+
       <!-- ============ 通用 ============ -->
       <template v-else-if="sec === 'theme'">
         <section class="card">
@@ -1036,6 +1043,9 @@ onMounted(() => {
 
         <!-- 数据目录（简版）：位置/大小 + 导入导出；默认配置由应用自动生成 -->
         <DataDirCard />
+
+        <!-- WebDAV 云端增量同步 -->
+        <SyncSettingsCard />
 
         <!-- 数据巡检 -->
         <section class="card">

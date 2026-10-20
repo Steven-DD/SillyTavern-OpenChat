@@ -27,6 +27,7 @@ import Handlebars from 'handlebars'
 export interface PromptMessage {
   role: 'system' | 'user' | 'assistant'
   content: string
+  image?: string
 }
 
 export interface BuildPromptOptions {
@@ -490,7 +491,12 @@ function historyToMessages(
       m.is_user && (wrap?.prefix || wrap?.suffix)
         ? [wrap?.prefix, content, wrap?.suffix].filter(Boolean).join('\n')
         : content
-    out.push({ role: m.is_user ? 'user' : 'assistant', content: wrapped })
+    const img = (m.extra as { image?: string } | undefined)?.image
+    out.push({
+      role: m.is_user ? 'user' : 'assistant',
+      content: wrapped,
+      ...(img ? { image: img } : {}),
+    })
   }
   return out
 }

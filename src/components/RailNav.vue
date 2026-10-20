@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { usePersonaStore } from '@/stores/persona'
 import { useLayoutStore } from '@/stores/layout'
 import { personaAvatarUrl } from '@/services/st/persona'
@@ -15,31 +16,33 @@ interface Entry {
   viewBox?: string
 }
 
-// 左栏入口 · 全局固定（会话/角色卡/插件/设置）
+const { t } = useI18n()
+
+// 左栏入口 · 全局固定（会话/角色卡/世界书/设置）
 // 用户设置走**顶部头像**（与微信一致的入口形态），不再单列一项
-const entries: Entry[] = [
+const entries = computed<Entry[]>(() => [
   {
     path: '/chats',
-    label: '会话',
+    label: t('nav.chats'),
     icon: 'M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2zM18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1',
   },
   {
     path: '/contacts',
-    label: '角色卡',
+    label: t('nav.contacts'),
     icon: 'M12.832 8.445a1 1 0 00-1.589-.098l-2.075 3.098a1 1 0 000 1.11l2 3a1 1 0 001.664 0l2-3a1 1 0 000-1.11zM7 2h10a2 2 0 012 2v16a2 2 0 01-2 2H7a2 2 0 01-2-2V4a2 2 0 012-2z',
   },
   {
     path: '/worlds',
-    label: '世界书',
+    label: t('nav.worlds'),
     // Lucide book-open
     icon: 'M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2zM22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z',
   },
   {
     path: '/settings',
-    label: '设置',
+    label: t('nav.settings'),
     icon: 'M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
   },
-]
+])
 
 const emit = defineEmits<{ (e: 'change'): void }>()
 
@@ -51,13 +54,13 @@ const layout = useLayoutStore()
  * 用户入口：桌面走**顶部头像**；窄屏（底部 Tab）需要一个图标项，
  * 否则用户设置就进不去了（微信底部也是「我」这一项）。
  */
-const ME_ENTRY: Entry = {
+const meEntry = computed<Entry>(() => ({
   path: '/personas',
-  label: '我',
+  label: t('nav.personas'),
   icon: 'M20 21a8 8 0 0 0-16 0M12 13a5 5 0 1 0 0-10 5 5 0 0 0 0 10z',
-}
+}))
 
-const visibleEntries = computed(() => (layout.isNarrow ? [...entries, ME_ENTRY] : entries))
+const visibleEntries = computed(() => (layout.isNarrow ? [...entries.value, meEntry.value] : entries.value))
 
 /** 点导航项：先通知外层复位到列表页（窄屏单栏用） */
 function go(): void {

@@ -45,7 +45,10 @@ pub mod translate;
 pub mod vault;
 mod uploads;
 pub mod worldinfo_groups;
+pub mod sync;
 pub mod vertexai_auth;
+pub mod image_gen;
+pub mod mcp;
 
 /// 测试专用：带 TempDir 守卫的 BackendState（仅测试构建编译）
 #[cfg(test)]
@@ -190,7 +193,7 @@ fn is_exempt_from_auth(method: &Method, path: &str) -> bool {
 }
 
 /// Response 版 CORS 注入（handler 已构造好 Response 时用）
-fn apply_cors_resp(mut resp: Response, origin: Option<HeaderValue>) -> Response {
+pub(crate) fn apply_cors_resp(mut resp: Response, origin: Option<HeaderValue>) -> Response {
     if let Some(o) = origin {
         let h = resp.headers_mut();
         h.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, o);

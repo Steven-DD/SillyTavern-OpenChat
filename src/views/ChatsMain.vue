@@ -9,9 +9,15 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import NewChatDialog from '@/components/NewChatDialog.vue'
 import CharacterPickerDialog from '@/components/CharacterPickerDialog.vue'
 import ChatPanel from '@/components/ChatPanel.vue'
+import BranchingTreeDrawer from '@/components/BranchingTreeDrawer.vue'
+import AvatarStage from '@/components/AvatarStage.vue'
+import { stageLayout } from '@/services/st/modelStage'
+import { avatarThumb } from '@/services/st/data'
+import { startSpeechRecognition, stopSpeechRecognition } from '@/services/st/stt'
 import { dayLabel } from '@/utils/time'
 import { estimateTokens, fmtCost, fmtTok, priceOf } from '@/services/usage'
 import { loadStTextColors, stTextColorsToVars, type StTextColors } from '@/services/st/theme'
+import { stPostJson } from '@/services/st/client'
 import { useThemeStore } from '@/stores/theme'
 import type { StCharacter } from '@/services/st/types'
 import type { DisplayMessage } from '@/services/st/chatdoc'
@@ -91,8 +97,38 @@ function toggleBgm(): void {
   try {
     localStorage.setItem('app.bgm.on', bgmOn.value ? '1' : '0')
   } catch {
-    /* 存储不可用仅本会话生效 */
+    /* ignore */
   }
+}
+
+/* ---- STT 语音识别录音状态与处理 ---- */
+const isRecording = ref(false)
+
+function toggleSttRecording(): void {
+  if (isRecording.value) {
+    stopSpeechRecognition()
+    isRecording.value = false
+    return
+  }
+
+  isRecording.value = true
+  void startSpeechRecognition({
+    onStart: () => {
+      isRecording.value = true
+    },
+    onFinal: (text) => {
+      if (text) {
+        draft.value = (draft.value ? `${draft.value} ` : '') + text
+      }
+    },
+    onError: (err) => {
+      isRecording.value = false
+      chat.lastError = `语音识别错误: ${err}`
+    },
+    onEnd: () => {
+      isRecording.value = false
+    },
+  })
 }
 
 /** 是否已打开具体会话（未打开时主区显示中性空状态，不显示自动选中的角色占位） */
@@ -100,6 +136,11 @@ const inSession = computed(() => !!chat.currentFile)
 
 /* ---- 会话配置面板（顶栏 ··· 唤起，推挤式） ---- */
 const panelOpen = ref(false)
+/* ---- 剧情分支树抽屉 ---- */
+const treeOpen = ref(false)
+function toggleStage(): void {
+  stageLayout.value = stageLayout.value === 'hidden' ? 'docked' : 'hidden'
+}
 
 /* ---- 新建会话：第一步选角色（角色选择弹窗），第二步配置（NewChatDialog） ---- */
 /** 角色选择弹窗选中的角色（配置弹窗的目标；不依赖会话页此前是否有选中角色） */
@@ -264,11 +305,81 @@ const usageTip = computed(() => {
   return lines.join('\n')
 })
 
+/* ---- 附带图片状态与处理 ---- */
+const attachedImage = ref<{ name: string; size: number; dataUrl: string; file: File } | null>(null)
+
+function handleImageFile(file: File) {
+  if (!file.type.startsWith('image/')) return
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    attachedImage.value = {
+      name: file.name || 'image.png',
+      size: file.size,
+      dataUrl: e.target?.result as string,
+      file,
+    }
+  }
+  reader.readAsDataURL(file)
+}
+
+function onImageFilePicked(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (file) handleImageFile(file)
+  input.value = ''
+}
+
+function onTextareaPaste(e: ClipboardEvent) {
+  const items = e.clipboardData?.items
+  if (!items) return
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].type.startsWith('image/')) {
+      const file = items[i].getAsFile()
+      if (file) {
+        handleImageFile(file)
+        e.preventDefault()
+        return
+      }
+    }
+  }
+}
+
+function onInputDrop(e: DragEvent) {
+  const file = e.dataTransfer?.files?.[0]
+  if (file && file.type.startsWith('image/')) {
+    handleImageFile(file)
+  }
+}
+
+function clearAttachedImage() {
+  attachedImage.value = null
+}
+
 async function send() {
   const text = draft.value
-  if (!text.trim() || chat.streaming) return
+  if ((!text.trim() && !attachedImage.value) || chat.streaming) return
   draft.value = ''
-  await chat.send(text)
+  let imagePath: string | undefined
+  if (attachedImage.value) {
+    try {
+      const base64 = attachedImage.value.dataUrl.replace(/^data:image\/[a-z]+;base64,/, '')
+      const ext = attachedImage.value.name.split('.').pop()?.toLowerCase() || 'png'
+      const chName = chat.currentAvatar?.replace(/\.png$/i, '') || 'default'
+      const r = await stPostJson<{ path?: string }>('/api/images/upload', {
+        image: base64,
+        format: ext,
+        ch_name: chName,
+        filename: `img_${Date.now()}`,
+      })
+      if (r?.path) {
+        imagePath = r.path
+      }
+    } catch (e) {
+      console.warn('图片上传失败：', e)
+    }
+    attachedImage.value = null
+  }
+  await chat.send(text, { image: imagePath })
 }
 
 function scrollToEnd(force = false) {
@@ -331,6 +442,29 @@ watch(
             @click="toggleBgm"
           >
             ♪
+          </button>
+          <button
+            class="dots btn-tree-toggle"
+            :class="{ on: treeOpen }"
+            title="剧情分支树 (Chat Tree)"
+            aria-label="剧情分支树"
+            @click="treeOpen = !treeOpen"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="6" y1="3" x2="6" y2="15"></line>
+              <circle cx="18" cy="6" r="3"></circle>
+              <circle cx="6" cy="18" r="3"></circle>
+              <path d="M18 9a9 9 0 0 1-9 9"></path>
+            </svg>
+          </button>
+          <button
+            class="dots btn-stage-toggle"
+            :class="{ on: stageLayout !== 'hidden' }"
+            title="角色动态立绘视口 (Live2D / 3D)"
+            aria-label="动态立绘"
+            @click="toggleStage"
+          >
+            👤
           </button>
           <button
             id="header-setting-button"
@@ -516,7 +650,20 @@ watch(
           {{ q.label }}
         </button>
       </div>
-      <div id="customized-ai-input-container" class="input-box">
+      <div
+        id="customized-ai-input-container"
+        class="input-box"
+        @dragover.prevent
+        @drop.prevent="onInputDrop"
+      >
+        <!-- 附带图片预览条 -->
+        <div v-if="attachedImage" class="img-preview-bar">
+          <div class="img-thumb-wrap">
+            <img :src="attachedImage.dataUrl" class="img-thumb" alt="preview" />
+            <button class="img-remove-btn" type="button" title="移除图片" @click="clearAttachedImage">✕</button>
+          </div>
+          <span class="img-name">{{ attachedImage.name }}</span>
+        </div>
         <textarea
           id="ai-chat-input"
           v-model="draft"
@@ -529,10 +676,18 @@ watch(
           rows="2"
           :disabled="!inSession || chat.streaming"
           @keydown.enter.exact.prevent="send"
+          @paste="onTextareaPaste"
         />
         <div id="ai-input-controls" class="tools">
           <span v-if="draftTokens" id="ai-input-control-input-length" class="tok-est" title="本地估算，仅供预览">≈ {{ draftTokens }} tok</span>
           <span v-if="chat.lastError" class="err-tip" :title="chat.lastError">{{ chat.lastError }}</span>
+          <!-- 附带图片按钮 -->
+          <label class="btn-attach-img" :class="{ disabled: !inSession || chat.streaming }" title="附加参考图片（视觉输入）">
+            <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden :disabled="!inSession || chat.streaming" @change="onImageFilePicked" />
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
+            </svg>
+          </label>
           <!-- 群聊：再来一轮（按当前编排重掷发言人） -->
           <button
             v-if="chat.group && !chat.streaming"
@@ -567,12 +722,29 @@ watch(
           >
             {{ streamMode ? '流式' : '整块' }}
           </button>
+          <!-- STT 语音输入按钮 -->
+          <button
+            class="btn-impersonate btn-stt"
+            :class="{ recording: isRecording }"
+            type="button"
+            :disabled="chat.streaming"
+            :title="isRecording ? '正在录音识别…点击停止' : '语音输入 (STT)'"
+            aria-label="语音输入"
+            @click="toggleSttRecording"
+          >
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+              <line x1="12" y1="19" x2="12" y2="23"></line>
+              <line x1="8" y1="23" x2="16" y2="23"></line>
+            </svg>
+          </button>
           <!-- 流式期间变「停止」：中断 SSE，已生成部分保留落盘 -->
           <button
             id="ai-send-button"
             class="btn-send"
             :class="{ stop: chat.streaming }"
-            :disabled="!inSession || (!chat.streaming && !draft.trim())"
+            :disabled="!inSession || (!chat.streaming && !draft.trim() && !attachedImage)"
             @click="chat.streaming ? chat.stopGeneration() : send()"
           >
             {{ chat.streaming ? '停 止' : '发 送' }}
@@ -584,6 +756,17 @@ watch(
 
     <!-- 会话配置面板：推挤式二级内容区（展开/收起不中断流式） -->
     <ChatPanel :open="panelOpen" @close="panelOpen = false" />
+
+    <!-- 剧情分支树抽屉 -->
+    <BranchingTreeDrawer :open="treeOpen" @close="treeOpen = false" />
+
+    <!-- 动态立绘视口 (Live2D / VRM / 动态表情) -->
+    <AvatarStage
+      v-if="stageLayout !== 'hidden' && chat.currentCharacter"
+      :avatar="avatarThumb(chat.currentCharacter.avatar)"
+      :character-name="chat.currentCharacter.name"
+      @close="stageLayout = 'hidden'"
+    />
   </main>
 </template>
 
@@ -662,6 +845,13 @@ watch(
 .dots.on i,
 .dots:hover i {
   background: var(--c-text);
+}
+.btn-tree-toggle {
+  color: var(--c-text-2);
+}
+.btn-tree-toggle:hover,
+.btn-tree-toggle.on {
+  color: var(--brand-primary, var(--p-600));
 }
 .ghost:hover:not(:disabled) {
   border-color: var(--p-400);
@@ -863,6 +1053,22 @@ watch(
   opacity: 0.5;
   cursor: not-allowed;
 }
+.btn-stt {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+}
+.btn-stt.recording {
+  background: #fee2e2;
+  color: #dc2626;
+  border-color: #f87171;
+  animation: pulse-stt 1.2s infinite;
+}
+@keyframes pulse-stt {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.08); }
+}
 .btn-send:hover:not(:disabled) {
   background: var(--p-600);
   transform: scale(1.04);
@@ -883,6 +1089,73 @@ watch(
 .btn-send.stop:hover:not(:disabled) {
   background: var(--c-border);
   transform: none;
+}
+
+/* ---- 多模态图片附加与预览条 ---- */
+.btn-attach-img {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  color: var(--c-text-2);
+  cursor: pointer;
+  border: 1px solid var(--c-border);
+  background: var(--c-bg);
+  transition: all 0.15s ease;
+}
+.btn-attach-img:hover:not(.disabled) {
+  border-color: var(--p-400);
+  color: var(--p-600);
+}
+.btn-attach-img.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.img-preview-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 4px;
+}
+.img-thumb-wrap {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--c-border);
+  flex-shrink: 0;
+}
+.img-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.img-remove-btn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border: none;
+}
+.img-name {
+  font-size: 11px;
+  color: var(--c-text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 240px;
 }
 
 /* ---- 消息多选 ---- */

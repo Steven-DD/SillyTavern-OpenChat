@@ -89,6 +89,9 @@ const ROUTE_SNAPSHOT: &[(&str, Rule)] = &[
     ("POST", Exact("/api/avatars/delete")),
     ("POST", Exact("/api/backgrounds/all")),
     ("POST", Exact("/api/images/upload")),
+    ("POST", Exact("/api/images/generate")),
+    ("POST", Exact("/api/mcp/tools")),
+    ("POST", Exact("/api/mcp/call")),
     ("GET", Exact("/api/sprites/get")),
     ("GET", Prefix("/characters/")),
     ("GET", Prefix("/backgrounds/")),
@@ -274,6 +277,8 @@ const IPC_COMMANDS: &[&str] = &[
     "character_export_png",
     "st_data_export",
     "st_data_import",
+    "st_sync_test",
+    "st_sync_execute",
 ];
 
 /// 读 lib.rs 源码文本，抽出 invoke_handler(tauri::generate_handler![...]) 内的

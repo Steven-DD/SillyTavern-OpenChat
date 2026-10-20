@@ -987,7 +987,64 @@ pub async fn import(
             let data = serde_json::to_string(&normalized).unwrap_or_default();
             import_card(&data, &display).unwrap_or_else(|| error_true(StatusCode::BAD_REQUEST))
         }
-        // yaml/charx/byaf：族四（灰度降级 —— 明确 501，不伪造成功）
+        "charx" => {
+            let parsed = match crate::compat::charx::parse_charx(&file_bytes) {
+                Ok(p) => p,
+                Err(e) => {
+                    log::warn!(target: super::logx::FS, "characters/import charx 解析失败：{e}");
+                    return error_true(StatusCode::BAD_REQUEST);
+                }
+            };
+            let safe = crate::pathguard::sanitize(&parsed.display_name);
+            if safe.is_empty() {
+                return error_true(StatusCode::BAD_REQUEST);
+            }
+            let png_name = get_png_name(&characters_dir(st), &safe);
+            let mut card = parsed.card;
+            if let Some(o) = card.as_object_mut() {
+                o.insert("name".into(), json!(safe));
+                if let Some(d) = o.get_mut("data").and_then(|d| d.as_object_mut()) {
+                    d.insert("name".into(), json!(safe));
+                }
+                o.insert("create_date".into(), json!(now_iso.clone()));
+            }
+            let char_str = serde_json::to_string(&card).unwrap_or_default();
+
+            // 写入头像主卡
+            if write_character_data(st, &parsed.avatar_image, &char_str, &png_name).is_err() {
+                return error_true(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+
+            // 解压角色资产（立绘、表情、背景）至 characters/<png_name>/
+            if !parsed.assets.is_empty() {
+                let char_assets_dir = characters_dir(st).join(&png_name);
+                for (rel_path, asset_bytes) in parsed.assets {
+                    let target = char_assets_dir.join(&rel_path);
+                    if let Some(parent) = target.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    let _ = std::fs::write(&target, &asset_bytes);
+                }
+            }
+
+            // 解压绑定世界书至 worlds/
+            if !parsed.lorebooks.is_empty() {
+                let worlds = st.data_root.join("default-user").join("worlds");
+                let _ = std::fs::create_dir_all(&worlds);
+                for (filename, lb_bytes) in parsed.lorebooks {
+                    let target = worlds.join(&filename);
+                    if !target.exists() {
+                        let _ = std::fs::write(&target, &lb_bytes);
+                    }
+                }
+            }
+
+            apply_cors_resp(
+                Json(json!({ "file_name": format!("{png_name}.png") })).into_response(),
+                origin.clone(),
+            )
+        }
+        // yaml/byaf：灰度降级 —— 明确 501，不伪造成功
         other => {
             let resp = (
                 StatusCode::NOT_IMPLEMENTED,
@@ -1711,18 +1768,73 @@ mod tests {
         let r = import(&st, Some(&ct), axum::body::Bytes::from(body), None).await;
         assert_eq!(r.status().as_u16(), 400);
 
-        // charx（族四）→ 501 NOT_MIGRATED（S20 降级）
+        // charx 损坏包 → 400
         let (ct, body) = make_multipart(
             "PnD3",
             Some("x.charx"),
-            Some(b"PK\x03\x04"),
+            Some(b"PK\x03\x04corrupted"),
             &[("file_type", "charx")],
         );
         let r = import(&st, Some(&ct), axum::body::Bytes::from(body), None).await;
-        assert_eq!(r.status().as_u16(), 501);
+        assert_eq!(r.status().as_u16(), 400);
+
+        // 合法 charx 导入成功 → 200，并释放资产与世界书
+        let mut zip_buf = Vec::new();
+        {
+            use std::io::Write;
+            let mut writer = zip::ZipWriter::new(std::io::Cursor::new(&mut zip_buf));
+            writer
+                .start_file("card.json", zip::write::SimpleFileOptions::default())
+                .unwrap();
+            let card_json = serde_json::json!({
+                "spec": "chara_card_v3",
+                "spec_version": "3.0",
+                "data": {
+                    "name": "CharX测试卡",
+                    "description": "测试卡描述",
+                }
+            });
+            writer.write_all(serde_json::to_string(&card_json).unwrap().as_bytes()).unwrap();
+            writer
+                .start_file("assets/icon.png", zip::write::SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(&crate::compat::png::minimal_png()).unwrap();
+            writer
+                .start_file("assets/joy.png", zip::write::SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(b"fake_joy_png").unwrap();
+            writer
+                .start_file("lorebooks/test_world.json", zip::write::SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(b"{\"entries\":{}}").unwrap();
+            writer.finish().unwrap();
+        }
+        let (ct, body) = make_multipart(
+            "PnD3",
+            Some("valid.charx"),
+            Some(&zip_buf),
+            &[("file_type", "charx")],
+        );
+        let r = import(&st, Some(&ct), axum::body::Bytes::from(body), None).await;
+        assert_eq!(r.status().as_u16(), 200);
         let bytes = axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap();
         let v: Value = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(v["error"]["code"], "NOT_MIGRATED");
+        let file_name = v["file_name"].as_str().unwrap();
+        assert!(file_name.ends_with(".png"));
+        assert!(characters_dir(&st).join(file_name).is_file());
+        let stem = file_name.trim_end_matches(".png");
+        assert!(characters_dir(&st).join(stem).join("joy.png").is_file());
+        assert!(st.data_root.join("default-user").join("worlds").join("test_world.json").is_file());
+
+        // yaml/byaf 未迁移仍保持 501
+        let (ct, body) = make_multipart(
+            "PnD3",
+            Some("x.byaf"),
+            Some(b"byaf"),
+            &[("file_type", "byaf")],
+        );
+        let r = import(&st, Some(&ct), axum::body::Bytes::from(body), None).await;
+        assert_eq!(r.status().as_u16(), 501);
     }
 
     #[test]

@@ -146,6 +146,7 @@ import {
 } from '@/services/st/vectors'
 import { emptyContext, getGlobalVarStore, getStringHash, runMacros, type MacroContext, type MacroVariables } from '@/services/st/macros'
 import { runScript, type ScriptContext } from '@/services/st/stscript'
+import { eventBus } from '@/services/st/eventBus'
 import { formatInstructChat, loadInstruct, type InstructSettings } from '@/services/st/instruct'
 import { loadAutoContinue, saveAutoContinue, type AutoContinueSettings } from '@/services/st/data'
 
@@ -744,6 +745,8 @@ export const useChatStore = defineStore('chat', {
         }
         setActiveScopedAvatar(avatar)
         this.messages = toDisplayMessages(raw, { userFallback: this.userName, charFallback: charName })
+        void eventBus.emit('on_character_loaded', { avatar, name: charName })
+        void eventBus.emit('on_session_changed', { avatar, file: fileId })
         // 翻译持久化回填：按正文哈希匹配（换会话/重开不丢）
         {
           const tKey = `${avatar}/${fileId}`
@@ -1210,6 +1213,7 @@ export const useChatStore = defineStore('chat', {
       this.streaming = true
       this.lastError = ''
       this.lastGenAborted = false
+      void eventBus.emit('before_generation', { characterName: char.name, promptLength: this.messages.length })
 
       // 中断控制器：stopGeneration() 触发 abort，fetch 立即断开
       const ctl = new AbortController()
@@ -1854,6 +1858,32 @@ export const useChatStore = defineStore('chat', {
           }, 4000)
         },
         sys: (text) => this.addNarrator(text),
+        toast: (text) => {
+          this.scriptEcho = text
+          window.setTimeout(() => {
+            if (this.scriptEcho === text) this.scriptEcho = ''
+          }, 4000)
+        },
+        popup: (title, text) => {
+          if (typeof window !== 'undefined') {
+            window.alert(`${title}\n\n${text}`)
+          }
+        },
+        cut: async (count) => {
+          for (let i = 0; i < count; i++) {
+            if (this.messages.length) this.messages.pop()
+          }
+          await this.saveCurrent()
+        },
+        fork: async () => {
+          if (this.messages.length) await this.branchFrom(this.messages.length - 1)
+        },
+        setAuthorsNote: async (text, depth) => {
+          await this.setAuthorsNote({ prompt: text, depth: depth ?? 4, position: 1, role: 0, interval: 1 })
+        },
+        abort: () => {
+          this.stopGeneration()
+        },
       }
       try {
         await runScript(script, ctx)
@@ -2305,9 +2335,10 @@ export const useChatStore = defineStore('chat', {
       await this.runGroupTurn({ isUserInput: false, activationText })
     },
 
-    async send(text: string) {
+    async send(text: string, options?: { image?: string }) {
       const t = text.trim()
-      if (!t || this.streaming) return
+      const img = options?.image
+      if ((!t && !img) || this.streaming) return
       // `/` 开头 → STscript（单聊/群聊通用）
       if (t.startsWith('/')) {
         await this.runUserScript(t)
@@ -2326,26 +2357,44 @@ export const useChatStore = defineStore('chat', {
         this.lastError = '未选择角色卡'
         return
       }
+
+      // 生命周期拦截钩子：发送前处理（可修改内容或拦截）
+      const hookRes = await eventBus.pipeline('before_message_send', {
+        text: t,
+        image: img,
+        characterName: this.currentCharacter.name,
+      })
+      if (hookRes.abort) return
+      const finalT = hookRes.text
+      const finalImg = hookRes.image
+
       this.messages.push({
         role: 'user',
-        content: t,
+        content: finalT,
         name: this.userName,
         sendDate: Date.now(),
+        ...(finalImg ? { extra: { image: finalImg } } : {}),
       })
       // 先落盘用户行：
       // 生成期间崩溃/断电不丢整轮输入。失败回落全量保存（saveCurrent 现已保全 header）。
       await this.persistUserLine()
-      log.op('chat.send', '发送消息', { file: this.currentFile, len: t.length })
-      emitScriptHostEvent('message_sent', { file: this.currentFile, message: t })
+      log.op('chat.send', '发送消息', { file: this.currentFile, len: finalT.length })
+      emitScriptHostEvent('message_sent', { file: this.currentFile, message: finalT })
       await this.generateReply()
       // M-19 auto-continue：回复过短时自动续写（generateReply 的 streaming 状态已复位）
       if (this.autoContinueEnabled && !this.lastGenAborted) {
         await this.autoContinueReply(this.autoContinueTarget)
       }
       await this.saveCurrent()
+      const lastReply = this.messages[this.messages.length - 1]?.content ?? ''
+      await eventBus.emit('after_message_receive', {
+        text: lastReply,
+        characterName: this.currentCharacter.name,
+        isStreaming: false,
+      })
       emitScriptHostEvent('message_received', {
         file: this.currentFile,
-        message: this.messages[this.messages.length - 1]?.content ?? '',
+        message: lastReply,
       })
       emitScriptHostEvent('generation_ended', { file: this.currentFile })
       log.op('chat.send.done', '本轮完成', {
@@ -2704,6 +2753,27 @@ export const useChatStore = defineStore('chat', {
           return
         } catch (e) {
           this.error = e instanceof Error ? e.message : String(e)
+        }
+      }
+      await this.saveCurrent()
+    },
+
+    /** 切换消息的 Swipe 备选分支 */
+    async switchSwipe(index: number, swipeId: number) {
+      if (this.streaming) return
+      const m = this.messages[index]
+      if (!m || !m.swipes || swipeId < 0 || swipeId >= m.swipes.length) return
+      m.swipeId = swipeId
+      m.content = m.swipes[swipeId]!
+      const opLine = m.lineIndex
+      if (opLine !== undefined && this.currentAvatar && this.currentFile) {
+        try {
+          await chatMutateLines(this.currentAvatar, this.currentFile, [
+            { op: 'replace', index: opLine, json: this.currentMessageJson(m) },
+          ])
+          return
+        } catch {
+          // fallback save
         }
       }
       await this.saveCurrent()

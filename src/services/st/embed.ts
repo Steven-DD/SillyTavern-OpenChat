@@ -341,15 +341,30 @@ export const SANDBOX_BOOTSTRAP = `
   function reportErr(kind, msg, where) {
     postToHost({ source: 'tavern-embed', type: 'th-error', msg: String(msg), where: String(where ?? '') })
   }
-  // 沙箱无 allow-same-origin → localStorage/sessionStorage 访问必抛 SecurityError，
-  // 避免卡片脚本（如日志和配置存取）因此中断；使用内存存储回退，不跨帧持久化，与酒馆助手语义一致。
+  // 沙箱无 allow-same-origin → localStorage/sessionStorage 访问必抛 SecurityError。
+  // 通过宿主桥（getStorage/setStorage）双向同步到 chat_metadata.variables.__local_storage__，保证卡内小游戏/状态持久化。
   function makeStorage() {
     var store = {}
+    try {
+      call('getStorage', {}).then(function (s) {
+        if (s && typeof s === 'object') {
+          Object.keys(s).forEach(function (k) { store[k] = String(s[k]) })
+        }
+      }).catch(function () {})
+    } catch (e) {}
     return {
       getItem: function (k) { return Object.prototype.hasOwnProperty.call(store, String(k)) ? store[String(k)] : null },
-      setItem: function (k, v) { store[String(k)] = String(v) },
-      removeItem: function (k) { delete store[String(k)] },
-      clear: function () { store = {} },
+      setItem: function (k, v) {
+        store[String(k)] = String(v)
+        try { call('setStorage', { key: String(k), value: String(v) }).catch(function () {}) } catch (e) {}
+      },
+      removeItem: function (k) {
+        delete store[String(k)]
+        try { call('setStorage', { key: String(k), value: null }).catch(function () {}) } catch (e) {}
+      },
+      clear: function () {
+        store = {}
+      },
       key: function (i) { return Object.keys(store)[i] ?? null },
       get length() { return Object.keys(store).length },
     }
@@ -394,6 +409,9 @@ export const SANDBOX_BOOTSTRAP = `
     getChatMessages: function (range) { return call('getChatMessages', { range: range }) },
     setChatMessages: function (message_id, message) { return call('setChatMessages', { message_id: message_id, message: message }) },
     getVariables: function () { return call('getVariables', {}) },
+    getVariable: function (key) { return call('getVariable', { key: key }) },
+    setVariable: function (key, value) { return call('setVariable', { key: key, value: value }) },
+    getContext: function () { return call('getContext', {}) },
     replaceVariables: function (value) { return call('replaceVariables', { value: value }) },
     insertVariables: function (value) { return call('insertVariables', { value: value }) },
     triggerSlash: function (cmds) { return call('triggerSlash', { cmds: cmds }) },
@@ -430,6 +448,15 @@ export const SANDBOX_BOOTSTRAP = `
     })
   })
   window.TavernHelper = api
+  window.SillyTavern = {
+    getContext: function () { return call('getContext', {}) },
+    getVariable: function (key) { return call('getVariable', { key: key }) },
+    getVariables: function () { return call('getVariables', {}) },
+    setVariable: function (key, value) { return call('setVariable', { key: key, value: value }) },
+    replaceVariables: function (value) { return call('replaceVariables', { value: value }) },
+    insertVariables: function (value) { return call('insertVariables', { value: value }) },
+    triggerSlash: function (cmds) { return call('triggerSlash', { cmds: cmds }) },
+  }
   Object.keys(api).forEach(function (k) { window[k] = api[k] })
   // 高度上报：必须测「内容高度」而不是 document.documentElement.scrollHeight ——
   // 后者的下界是帧自身视口高度，父页把帧调高后它永远 >= 当前高度，于是折叠/收起

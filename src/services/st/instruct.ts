@@ -48,6 +48,23 @@ export async function loadInstruct(): Promise<InstructSettings> {
   return ins
 }
 
+/** 保存 Instruct 设置至 settings.json 的 power_user.instruct（走防抖写队列） */
+export async function saveInstruct(v: InstructSettings): Promise<void> {
+  const { mutateSettings } = await import('./settings-writequeue')
+  await mutateSettings((s) => {
+    const cur = s as Record<string, unknown>
+    const pu = (cur.power_user as Record<string, unknown> | undefined) ?? {}
+    cur.power_user = {
+      ...pu,
+      instruct: {
+        ...(pu.instruct as Record<string, unknown> | undefined),
+        ...v,
+      },
+    }
+    return { next: cur as import('./types').StSettingsLite }
+  })
+}
+
 function subst(seq: string | undefined, name: string): string {
   return (seq ?? '').replace(/{{name}}/gi, name)
 }

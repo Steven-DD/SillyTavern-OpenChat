@@ -6,4 +6,5 @@
 //! 后续批次：charx（zip）、byaf、jsonl、worldinfo、settings 映射。
 
 pub mod chara_card;
+pub mod charx;
 pub mod png;

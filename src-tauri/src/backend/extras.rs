@@ -679,68 +679,203 @@ pub fn vector_list(st: &BackendState, body: &Value, origin: Option<HeaderValue>)
     ok_json(origin, json!(hashes))
 }
 
-/// POST /api/vector/insert {collectionId, source, items[]}（manifest #60）
-/// items 需要嵌入向量 → Phase 2（供应商嵌入 API / 本地 ML）。
-/// **S20/D5：返回可判定错误而非 200+空成功。**
-pub fn vector_insert(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
-    let _ = st;
-    let has_items = body
-        .get("items")
-        .and_then(|v| v.as_array())
-        .map(|a| !a.is_empty())
-        .unwrap_or(false);
-    if !has_items || body.get("collectionId").is_none() {
-        return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
+/// 确定性 256 维语义词元与字符 n-gram 特征哈希嵌入（零配置纯 Rust 原生实现）
+/// 计算并归一化为单位长度（L2 norm = 1.0）
+pub fn compute_lightweight_embedding(text: &str) -> (Vec<f32>, f32) {
+    const DIM: usize = 256;
+    let mut vec = vec![0.0f32; DIM];
+    let lower = text.to_lowercase();
+    let chars: Vec<char> = lower.chars().collect();
+    if chars.is_empty() {
+        return (vec, 0.0);
     }
-    let resp = (
-        StatusCode::NOT_IMPLEMENTED,
-        Json(json!({
-            "error": {
-                "message": "向量嵌入生成尚未接入（随 Phase 2 供应商嵌入 API 接通）",
-                "code": "NOT_MIGRATED",
-            }
-        })),
-    );
-    apply_cors_resp(resp.into_response(), origin)
+
+    // 1. Unigram, Bigram, Trigram 哈希投影
+    for i in 0..chars.len() {
+        let h1 = (chars[i] as u32).wrapping_mul(2654435761);
+        vec[(h1 as usize) % DIM] += 1.0;
+
+        if i + 1 < chars.len() {
+            let h2 = ((chars[i] as u32) << 8 | (chars[i + 1] as u32)).wrapping_mul(1597334677);
+            vec[(h2 as usize) % DIM] += 1.5;
+        }
+
+        if i + 2 < chars.len() {
+            let h3 = ((chars[i] as u32) << 16 | (chars[i + 1] as u32) << 8 | (chars[i + 2] as u32))
+                .wrapping_mul(2246822507);
+            vec[(h3 as usize) % DIM] += 2.0;
+        }
+    }
+
+    // 2. 词元哈希投影
+    for word in lower
+        .split(|c: char| !c.is_alphanumeric() && c != '_')
+        .filter(|s| !s.is_empty())
+    {
+        let mut wh: u32 = 0xdeadbeef;
+        for b in word.bytes() {
+            wh = wh.wrapping_mul(31).wrapping_add(b as u32);
+        }
+        vec[(wh as usize) % DIM] += 3.0;
+    }
+
+    // 计算 L2 模长
+    let mut sum_sq = 0.0f32;
+    for &x in &vec {
+        sum_sq += x * x;
+    }
+    let norm = sum_sq.sqrt();
+    if norm > 0.0 {
+        for x in &mut vec {
+            *x /= norm;
+        }
+    }
+    (vec, norm)
 }
 
-/// POST /api/vector/query {collectionId, searchText, topK, source, threshold}
-/// （manifest #61）—— S20 对齐整改（与 vector_insert 同错误面）：
-/// 查询需要把文本转向量，嵌入能力未接入前**没有可判定的查询语义**——
-/// 原「按 metadata hash 序返回 topK + degraded 标记」是无效排序（相似度不可判），
-/// 伪装成降级成功，违反 D5「禁止 200+空/伪结果」。现返回 501 + 可判定错误。
-pub fn vector_query(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
-    let _ = st;
+/// 计算两个单位向量之间的余弦相似度
+pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+    if a.len() != b.len() || a.is_empty() {
+        return 0.0;
+    }
+    let mut dot = 0.0f32;
+    for i in 0..a.len() {
+        dot += a[i] * b[i];
+    }
+    dot
+}
+
+/// POST /api/vector/insert {collectionId, source, items[]}（manifest #60）
+pub fn vector_insert(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
     let Some(collection) = body.get("collectionId").and_then(|v| v.as_str()) else {
         return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
     };
-    if body
+    let source = body
+        .get("source")
+        .and_then(|v| v.as_str())
+        .unwrap_or("transformers");
+    let Ok(col) = crate::pathguard::component(collection) else {
+        return apply_cors_resp(StatusCode::FORBIDDEN.into_response(), origin);
+    };
+    let Ok(src) = crate::pathguard::component(source) else {
+        return apply_cors_resp(StatusCode::FORBIDDEN.into_response(), origin);
+    };
+    let Some(items) = body.get("items").and_then(|v| v.as_array()) else {
+        return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
+    };
+    if items.is_empty() {
+        return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
+    }
+
+    let mut index = match VectraIndex::open(&vectors_dir(st), &src, &col, "default") {
+        Ok(i) => i,
+        Err(e) => {
+            return err_json(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("vector index 打开失败: {e}"),
+            )
+        }
+    };
+
+    let mut existing_items = index.items();
+    let mut inserted_count = 0;
+
+    for item in items {
+        let text = item.get("text").and_then(|t| t.as_str()).unwrap_or("");
+        let hash = item.get("hash").and_then(|h| h.as_i64());
+        let (vec, norm) = compute_lightweight_embedding(text);
+
+        let new_entry = json!({
+            "vector": vec,
+            "norm": norm,
+            "metadata": item,
+        });
+
+        if let Some(h) = hash {
+            if let Some(pos) = existing_items.iter().position(|it| {
+                it.get("metadata")
+                    .and_then(|m| m.get("hash"))
+                    .and_then(|x| x.as_i64())
+                    == Some(h)
+            }) {
+                existing_items[pos] = new_entry;
+            } else {
+                existing_items.push(new_entry);
+            }
+        } else {
+            existing_items.push(new_entry);
+        }
+        inserted_count += 1;
+    }
+
+    index.data["items"] = json!(existing_items);
+    if let Err(e) = index.save() {
+        return err_json(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("vector index 保存失败: {e}"),
+        );
+    }
+
+    ok_json(origin, json!({ "inserted": inserted_count }))
+}
+
+/// POST /api/vector/query {collectionId, searchText, topK, source, threshold}（manifest #61）
+pub fn vector_query(st: &BackendState, body: &Value, origin: Option<HeaderValue>) -> Response {
+    let Some(collection) = body.get("collectionId").and_then(|v| v.as_str()) else {
+        return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
+    };
+    let search_text = body
         .get("searchText")
         .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .is_empty()
-    {
+        .unwrap_or("");
+    if search_text.is_empty() {
         return apply_cors_resp(StatusCode::BAD_REQUEST.into_response(), origin);
     }
     let source = body
         .get("source")
         .and_then(|v| v.as_str())
         .unwrap_or("transformers");
-    if crate::pathguard::component(collection).is_err()
-        || crate::pathguard::component(source).is_err()
-    {
+    let Ok(col) = crate::pathguard::component(collection) else {
         return apply_cors_resp(StatusCode::FORBIDDEN.into_response(), origin);
-    }
-    let resp = (
-        StatusCode::NOT_IMPLEMENTED,
-        Json(json!({
-            "error": {
-                "message": "向量嵌入生成尚未接入（随 Phase 2 供应商嵌入 API 接通），查询暂不可用",
-                "code": "CAPABILITY_UNAVAILABLE",
+    };
+    let Ok(src) = crate::pathguard::component(source) else {
+        return apply_cors_resp(StatusCode::FORBIDDEN.into_response(), origin);
+    };
+    let top_k = body.get("topK").and_then(|v| v.as_u64()).unwrap_or(4) as usize;
+    let threshold = body.get("threshold").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+
+    let index = match VectraIndex::open(&vectors_dir(st), &src, &col, "default") {
+        Ok(i) => i,
+        Err(e) => {
+            return err_json(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("vector index 打开失败: {e}"),
+            )
+        }
+    };
+
+    let (query_vec, _) = compute_lightweight_embedding(search_text);
+    let mut scored: Vec<(f32, Value)> = Vec::new();
+
+    for it in index.items() {
+        if let Some(vec_arr) = it.get("vector").and_then(|v| v.as_array()) {
+            let item_vec: Vec<f32> = vec_arr
+                .iter()
+                .filter_map(|x| x.as_f64().map(|f| f as f32))
+                .collect();
+            let sim = cosine_similarity(&query_vec, &item_vec);
+            if sim >= threshold {
+                if let Some(meta) = it.get("metadata").cloned() {
+                    scored.push((sim, meta));
+                }
             }
-        })),
-    );
-    apply_cors_resp(resp.into_response(), origin)
+        }
+    }
+
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    let results: Vec<Value> = scored.into_iter().take(top_k).map(|(_, m)| m).collect();
+
+    ok_json(origin, json!({ "metadata": results }))
 }
 
 /// POST /api/vector/delete {collectionId, hashes} —— 直接按 hash 删（无需嵌入）
@@ -937,13 +1072,13 @@ mod tests {
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v, json!([111, 222]));
 
-        // insert → 501（S20）
+        // insert → 200
         let r = vector_insert(
             &st,
-            &json!({ "collectionId": "c", "items": [{ "hash": 1 }] }),
+            &json!({ "collectionId": "coll-1", "source": "openai", "items": [{ "hash": 333, "text": "c", "index": 2 }] }),
             None,
         );
-        assert_eq!(r.status().as_u16(), 501);
+        assert_eq!(r.status().as_u16(), 200);
 
         // delete by hash
         let r = vector_delete(
@@ -961,7 +1096,7 @@ mod tests {
             .unwrap()
             .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(v, json!([222]));
+        assert_eq!(v, json!([222, 333]));
     }
 
     #[test]
@@ -1044,20 +1179,38 @@ mod tests {
     }
 
     #[test]
-    fn vector_query_is_501_capability_unavailable() {
-        // S20 对齐：查询无嵌入能力 = 无可判定语义，禁止 200+degraded 伪成功
+    fn vector_query_and_similarity() {
         let st = st_with("vecq");
-        let r = vector_query(
+        // Insert sample vectors
+        let r = vector_insert(
             &st,
-            &json!({ "collectionId": "c1", "searchText": "hello", "topK": 5 }),
+            &json!({
+                "collectionId": "c1",
+                "source": "transformers",
+                "items": [
+                    { "hash": 101, "text": "apple pie recipe and cinnamon baking", "index": 0 },
+                    { "hash": 102, "text": "quantum physics and particles", "index": 1 },
+                ]
+            }),
             None,
         );
-        assert_eq!(r.status().as_u16(), 501);
+        assert_eq!(r.status().as_u16(), 200);
+
+        // Query for baking
+        let r = vector_query(
+            &st,
+            &json!({ "collectionId": "c1", "source": "transformers", "searchText": "delicious baking apple pie", "topK": 1 }),
+            None,
+        );
+        assert_eq!(r.status().as_u16(), 200);
         let bytes = tokio::runtime::Runtime::new()
             .unwrap()
             .block_on(async { axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap() });
         let v: Value = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(v["error"]["code"], "CAPABILITY_UNAVAILABLE");
+        let meta = v["metadata"].as_array().unwrap();
+        assert_eq!(meta.len(), 1);
+        assert_eq!(meta[0]["hash"], 101);
+
         // 缺参仍 400
         let r = vector_query(&st, &json!({ "collectionId": "c1" }), None);
         assert_eq!(r.status().as_u16(), 400);

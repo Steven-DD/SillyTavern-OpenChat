@@ -10,6 +10,7 @@
 import { stPost } from './client'
 import { getSettings } from './data'
 import { mutateSettings } from './settings-writequeue'
+import { currentLipSync, calculateLipSyncLevel } from './modelStage'
 
 export interface SpeechSettings {
   model: string
@@ -155,9 +156,77 @@ async function synthesize(text: string, tts: TtsProviderSettings): Promise<Blob>
 let currentAudio: HTMLAudioElement | null = null
 let currentUrl: string | null = null
 let currentOnEnded: (() => void) | null = null
+let lipSyncAnimFrame: number | null = null
+
+function stopLipSyncLoop(): void {
+  if (lipSyncAnimFrame !== null && typeof cancelAnimationFrame !== 'undefined') {
+    cancelAnimationFrame(lipSyncAnimFrame)
+    lipSyncAnimFrame = null
+  }
+  currentLipSync.value = 0
+}
+
+function startSimulatedLipSync(): void {
+  stopLipSyncLoop()
+  let tick = 0
+  const loop = () => {
+    if (!isSpeaking()) {
+      stopLipSyncLoop()
+      return
+    }
+    tick += 0.25
+    currentLipSync.value = Math.max(0, Math.sin(tick) * 0.75)
+    if (typeof requestAnimationFrame !== 'undefined') {
+      lipSyncAnimFrame = requestAnimationFrame(loop)
+    }
+  }
+  loop()
+}
+
+function startAudioLipSync(audio: HTMLAudioElement): void {
+  stopLipSyncLoop()
+  try {
+    const AudioCtx =
+      typeof window !== 'undefined'
+        ? window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+        : null
+    if (!AudioCtx) {
+      startSimulatedLipSync()
+      return
+    }
+    const ctx = new AudioCtx()
+    const source = ctx.createMediaElementSource(audio)
+    const analyser = ctx.createAnalyser()
+    analyser.fftSize = 256
+    source.connect(analyser)
+    analyser.connect(ctx.destination)
+
+    const buffer = new Uint8Array(analyser.frequencyBinCount)
+    const loop = () => {
+      if (audio.paused || audio.ended) {
+        stopLipSyncLoop()
+        try {
+          void ctx.close()
+        } catch {
+          /* 忽略 */
+        }
+        return
+      }
+      analyser.getByteTimeDomainData(buffer)
+      currentLipSync.value = calculateLipSyncLevel(buffer)
+      if (typeof requestAnimationFrame !== 'undefined') {
+        lipSyncAnimFrame = requestAnimationFrame(loop)
+      }
+    }
+    loop()
+  } catch {
+    startSimulatedLipSync()
+  }
+}
 
 /** 释放当前音频：暂停 + revoke blob URL + 触发结束回调（此前换曲时 URL 泄漏） */
 function releaseCurrent(): void {
+  stopLipSyncLoop()
   currentOnEnded?.()
   currentOnEnded = null
   if (currentAudio) {
@@ -168,7 +237,9 @@ function releaseCurrent(): void {
     URL.revokeObjectURL(currentUrl)
     currentUrl = null
   }
-  window.speechSynthesis?.cancel()
+  if (typeof window !== 'undefined') {
+    window.speechSynthesis?.cancel()
+  }
 }
 
 export function stopSpeech(): void {
@@ -201,6 +272,7 @@ export async function speakText(text: string, onEnded?: () => void): Promise<voi
     const utter = new SpeechSynthesisUtterance(t)
     utter.addEventListener('end', done)
     utter.addEventListener('error', done)
+    startSimulatedLipSync()
     synth.speak(utter)
     return
   }
@@ -212,6 +284,7 @@ export async function speakText(text: string, onEnded?: () => void): Promise<voi
   currentUrl = url
   currentOnEnded = onEnded ?? null
   const done = () => {
+    stopLipSyncLoop()
     if (currentAudio === audio) {
       currentAudio = null
       currentUrl = null
@@ -222,5 +295,6 @@ export async function speakText(text: string, onEnded?: () => void): Promise<voi
   }
   audio.addEventListener('ended', done)
   audio.addEventListener('error', done)
+  startAudioLipSync(audio)
   await audio.play()
 }

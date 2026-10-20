@@ -369,7 +369,7 @@ reg('pick', ({ unnamed, raw, ctx }) => {
 })
 
 /** droll 子集：[N]dM[+K/-K]、裸数字 = 1dX（{{roll::20}} = 1d20） */
-function rollDice(formula: string): number | null {
+export function rollDice(formula: string): number | null {
   const f = s(formula).trim().toLowerCase()
   const norm = /^\d+$/.test(f) ? `1d${f}` : f
   const m = /^(\d*)d(\d+)(?:([+-])(\d+))?$/.exec(norm)
