@@ -254,6 +254,7 @@ export interface PmConfig {
   main?: string
   nsfw?: string
   jailbreak?: string
+  customBlocks?: { identifier: string; content: string }[]
 }
 
 /** 系统提示装配结果：pre = 历史前的 system 块；post = chatHistory 之后的块（逐条 system 消息） */
@@ -314,8 +315,11 @@ export function buildSystemParts(
         return sub(worldInfo?.after)
       case 'dialogueExamples':
         return includeExamples ? sub(character.mes_example) : ''
-      default:
+      default: {
+        const found = pm?.customBlocks?.find((c) => c.identifier === id)
+        if (found?.content) return sub(found.content)
         return '' // enhanceDefinitions 等无 App 对应块 → 跳过
+      }
     }
   }
 

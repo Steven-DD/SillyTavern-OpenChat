@@ -1148,6 +1148,9 @@ export const useChatStore = defineStore('chat', {
           main: pm.main,
           nsfw: pm.nsfw,
           jailbreak: pm.jailbreak,
+          customBlocks: pm.rawPrompts
+            .filter((p) => p.identifier && !['main', 'nsfw', 'jailbreak'].includes(p.identifier) && p.content)
+            .map((p) => ({ identifier: p.identifier, content: p.content || '' })),
         },
       })
 

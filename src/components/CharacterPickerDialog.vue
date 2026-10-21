@@ -39,7 +39,12 @@ function pick(c: StCharacter): void {
       <div class="dlg" role="dialog" aria-modal="true">
         <header class="head">
           <span class="tt">选择角色</span>
-          <button class="x" title="关闭" @click="emit('cancel')">×</button>
+          <button class="x" title="关闭" @click="emit('cancel')">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
         </header>
         <div class="body">
           <input v-model="q" class="search" type="text" placeholder="搜索角色（名称 / 描述 / 标签）" />

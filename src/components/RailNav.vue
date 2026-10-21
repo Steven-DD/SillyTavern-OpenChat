@@ -92,7 +92,7 @@ onMounted(() => {
     形态全靠断点：窄屏底部 Tab / 宽屏侧栏（尺寸在 uno.config 的 rail-* shortcuts）。
     order：窄屏是 flex-col 布局，导航要沉到底部（微信手机形态）；宽屏 row 时回到最左。
   -->
-  <nav class="rail-bottom lg:rail-side order-last lg:order-first">
+  <nav class="rail-bottom lg:rail-side order-last lg:order-first safe-bottom-nav">
     <RouterLink
       to="/personas"
       class="hidden lg:flex avatar-btn"
@@ -119,6 +119,7 @@ onMounted(() => {
       @click="go()"
     >
       <svg
+        class="w-20px h-20px flex-none mb-1px transition-transform active:scale-90"
         :viewBox="e.viewBox ?? '0 0 24 24'"
         :fill="e.fill ? 'currentColor' : 'none'"
         :stroke="e.fill ? 'none' : 'currentColor'"
@@ -128,7 +129,7 @@ onMounted(() => {
       >
         <path :d="e.icon" />
       </svg>
-      <span class="text-10px leading-tight lg:hidden">{{ e.label }}</span>
+      <span class="text-10px leading-tight font-medium lg:hidden">{{ e.label }}</span>
     </RouterLink>
 
     <div class="hidden lg:block flex-1" />
@@ -139,11 +140,20 @@ onMounted(() => {
 /* 布局尺寸已移到 uno.config 的 rail-bottom / rail-side / rail-item shortcuts，
    这里只保留「状态」与「头像」这类原子类不适合表达的部分 */
 .rail-item.active {
-  color: var(--p-600);
-  background: var(--p-100);
+  color: var(--c-accent);
 }
-.rail-item:hover {
-  background: var(--c-panel);
+
+@media (min-width: 900px) {
+  .rail-item {
+    color: var(--c-text-2);
+  }
+  .rail-item.active {
+    color: var(--c-accent);
+    background: var(--p-100);
+  }
+  .rail-item:hover {
+    background: var(--c-panel);
+  }
 }
 
 .avatar-btn {

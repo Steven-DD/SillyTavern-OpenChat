@@ -784,13 +784,16 @@ watch(
   flex-direction: column;
 }
 .head {
-  height: 56px;
+  height: 54px;
   flex: none;
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 0 16px;
   border-bottom: 1px solid var(--c-border);
+  background: var(--glass-bg, var(--c-bg));
+  backdrop-filter: var(--glass-blur, none);
+  z-index: 10;
 }
 .head .ava {
   width: 32px;
@@ -821,41 +824,47 @@ watch(
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 /* 微信风格「···」会话设置按钮（三个圆点用 <i> 画，不依赖字体） */
 .dots {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 3px;
-  padding: 7px 9px;
+  width: 32px;
+  height: 32px;
   border-radius: var(--radius-md);
-  transition: background 0.15s;
+  border: 1px solid transparent;
+  color: var(--c-text-2);
+  transition: all 0.15s ease;
 }
 .dots i {
   width: 3.5px;
   height: 3.5px;
   border-radius: 50%;
-  background: var(--c-text-2);
+  background: currentColor;
 }
-.dots:hover,
-.dots.on {
+.dots:hover {
   background: var(--c-panel);
+  border-color: var(--c-border);
+  color: var(--c-text);
 }
-.dots.on i,
-.dots:hover i {
-  background: var(--c-text);
+.dots.on {
+  background: color-mix(in srgb, var(--p-500) 14%, var(--c-panel));
+  border-color: color-mix(in srgb, var(--p-500) 30%, transparent);
+  color: var(--p-500);
 }
 .btn-tree-toggle {
   color: var(--c-text-2);
 }
 .btn-tree-toggle:hover,
 .btn-tree-toggle.on {
-  color: var(--brand-primary, var(--p-600));
+  color: var(--brand-primary, var(--c-accent));
 }
 .ghost:hover:not(:disabled) {
-  border-color: var(--p-400);
-  color: var(--p-600);
+  border-color: var(--c-accent);
+  color: var(--c-accent);
 }
 .ghost:disabled {
   opacity: 0.5;
@@ -897,41 +906,52 @@ watch(
   flex: none;
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 5px 18px;
-  font-size: 10px;
+  gap: 8px;
+  padding: 4px 18px 4px;
+  font-size: 11px;
   color: var(--c-text-3);
-  border-top: 1px dashed var(--c-border);
+  border-top: none;
 }
 .dot-mini {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--c-text-3);
+  box-shadow: 0 0 6px transparent;
+  transition: all 0.2s ease;
 }
 .dot-mini.online {
   background: var(--s-success);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--s-success) 60%, transparent);
 }
 .dot-mini.offline {
   background: var(--s-error);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--s-error) 60%, transparent);
 }
 .model {
   font-family: var(--font-mono);
   color: var(--c-text-2);
+  font-weight: 500;
 }
 /* 用量胶囊：本轮 ↑输入 ↓输出 ≈费用（悬停看会话累计与单价） */
 .pill {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 2px 9px;
+  gap: 6px;
+  padding: 2px 10px;
   border-radius: 99px;
   background: var(--c-panel);
+  border: 1px solid var(--c-border);
   font-family: var(--font-mono);
+  font-size: 10px;
   cursor: default;
+  transition: all 0.15s ease;
+}
+.pill:hover {
+  border-color: var(--p-400);
 }
 .pill .up {
-  color: var(--p-600);
+  color: var(--p-500);
 }
 .pill .down {
   color: var(--s-success);
@@ -947,9 +967,11 @@ watch(
   opacity: 0.6;
 }
 .tag {
-  padding: 0 5px;
+  padding: 1px 7px;
   border-radius: 6px;
   background: var(--c-panel);
+  border: 1px solid var(--c-border);
+  font-size: 10px;
 }
 .spacer {
   margin-left: auto;
@@ -960,7 +982,7 @@ watch(
 
 .input-area {
   flex: none;
-  padding: 8px 16px 12px;
+  padding: 4px 16px calc(14px + var(--sab, 0px));
 }
 .qr-bar {
   display: flex;
@@ -970,16 +992,19 @@ watch(
 }
 .qr {
   flex: none;
-  padding: 3px 10px;
+  padding: 4px 11px;
   font-size: 11px;
-  border: 1px solid var(--p-400, var(--c-border));
+  border: 1px solid var(--c-border-strong);
   border-radius: 999px;
-  color: var(--p-600);
+  color: var(--c-accent);
   background: var(--c-panel);
   white-space: nowrap;
+  transition: all 0.15s ease;
 }
 .qr:hover:not(:disabled) {
-  background: var(--p-50);
+  background: var(--p-100);
+  border-color: var(--c-accent);
+  transform: translateY(-1px);
 }
 .qr:disabled {
   opacity: 0.5;
@@ -987,11 +1012,14 @@ watch(
 .input-box {
   border: 1px solid var(--c-border);
   border-radius: var(--radius-lg);
-  background: var(--c-bg);
-  transition: border-color 0.2s;
+  background: var(--c-panel);
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.08);
+  backdrop-filter: var(--glass-blur, none);
+  transition: all 0.2s ease;
 }
 .input-box:focus-within {
   border-color: var(--p-400);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--p-500) 18%, transparent), 0 6px 24px -2px rgba(0, 0, 0, 0.12);
 }
 .ta {
   width: 100%;
@@ -1000,8 +1028,8 @@ watch(
   resize: none;
   background: transparent;
   color: var(--c-text);
-  padding: 11px 14px 6px;
-  font-size: 13px;
+  padding: 12px 14px 6px;
+  font-size: 13.5px;
   line-height: 1.6;
 }
 .ta:disabled {
@@ -1010,7 +1038,7 @@ watch(
 .tools {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   padding: 0 10px 8px;
   /* 按钮簇恒定靠右：tok 估算/错误提示（可显隐）出现时靠左占位，
      避免代写等按钮随条件元素的出现消失左右漂移 */
@@ -1032,22 +1060,53 @@ watch(
   font-size: 12px;
   font-weight: 600;
   padding: 6px 18px;
+  box-shadow: 0 2px 8px -1px color-mix(in srgb, var(--p-500) 40%, transparent);
   transition:
     transform 0.15s ease,
-    background 0.2s;
+    background 0.2s,
+    box-shadow 0.2s;
+}
+.btn-send:hover:not(:disabled) {
+  background: var(--p-600);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--p-500) 50%, transparent);
+}
+.btn-send:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.btn-send:disabled {
+  background: var(--c-border-strong);
+  box-shadow: none;
+  transform: none;
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+/* 停止态：中性底色，与发送区分 */
+.btn-send.stop {
+  background: var(--c-panel-hover, var(--c-border-strong));
+  color: var(--c-text);
+  border: 1px solid var(--c-border-strong);
+  box-shadow: none;
+}
+.btn-send.stop:hover:not(:disabled) {
+  background: var(--c-panel);
+  border-color: var(--s-error);
+  color: var(--s-error);
 }
 /* 代写按钮（输入框工具条） */
 .btn-impersonate {
-  padding: 6px 12px;
-  font-size: 12px;
+  padding: 5px 11px;
+  font-size: 11px;
   border: 1px solid var(--c-border);
   border-radius: var(--radius-md);
   color: var(--c-text-2);
   background: var(--c-bg);
+  transition: all 0.15s ease;
 }
 .btn-impersonate:hover:not(:disabled) {
-  border-color: var(--p-400);
-  color: var(--p-600);
+  border-color: var(--c-accent);
+  color: var(--c-accent);
+  background: color-mix(in srgb, var(--p-500) 8%, var(--c-bg));
 }
 .btn-impersonate:disabled {
   opacity: 0.5;
@@ -1106,8 +1165,8 @@ watch(
   transition: all 0.15s ease;
 }
 .btn-attach-img:hover:not(.disabled) {
-  border-color: var(--p-400);
-  color: var(--p-600);
+  border-color: var(--c-accent);
+  color: var(--c-accent);
 }
 .btn-attach-img.disabled {
   opacity: 0.4;

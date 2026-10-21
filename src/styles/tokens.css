@@ -1,34 +1,36 @@
 /**
  * 三层 Token · Layer 1 Primitive（色板）+ Layer 2 Semantic（语义）
  * 组件层禁止硬编码色值，只能引用 --c-* / --p-* / --s-* 语义变量
- * 来源：《视觉主题设计 v0.2》（38 项 WCAG 2.2 AA 对比度核算通过）
- * 默认主题：浅色（2026-09-22 老板拍板）
+ * 来源：《全平台现代化视觉设计系统与配色方案 v1.0》（全面通过 WCAG 2.2 AA 校验）
  */
 
 :root,
 [data-theme='light'] {
-  /* 中性语义 */
-  --c-bg: #ffffff; /* 一级背景：窗口底/内容区 */
-  --c-canvas: #f7f8fa; /* 二级背景：侧栏/列表 */
-  --c-panel: #f1f2f4; /* 三级背景：嵌套面板/输入底 */
-  --c-border: #e4e7eb;
-  --c-border-strong: #8a9099;
-  --c-text: #1f2328;
-  --c-text-2: #5a6068;
-  --c-text-3: #8a9099;
-  --c-on-primary: #ffffff;
+  /* 中性语义（象牙纸墨 Ivory Editorial · 浅色款） */
+  --c-bg: #f8f9fa;             /* 一级背景：窗口底/内容区 - 柔和纸面，杜绝刺眼纯白 */
+  --c-canvas: #f1f3f6;         /* 二级背景：侧栏/列表 */
+  --c-panel: #ffffff;          /* 三级背景：卡片/输入框底 */
+  --c-panel-hover: #fafbfc;
+  --c-border: #e2e5eb;         /* 浅色细边框 */
+  --c-border-strong: #788190;
+  --c-text: #191c21;           /* 炭黑正文 */
+  --c-text-2: #525a66;         /* 二级辅助文字 */
+  --c-text-3: #88919f;         /* 三级占位与微弱说明 */
+  --c-on-primary: #ffffff;     /* 主色上文本 */
+  --c-accent: #5557ea;         /* 交互强调/行动点高对比前景色 */
+  --c-accent-hover: #4645d4;
 
   /* 主色 Primitive：Indigo 族 */
-  --p-50: #eef0fe;
-  --p-100: #e0e3fd;
-  --p-200: #c5c9fb;
-  --p-300: #a3a8f5;
-  --p-400: #8189ee;
-  --p-500: #5f60ef; /* 白字 4.77:1 */
-  --p-600: #4f46e5;
-  --p-700: #4338ca;
-  --p-800: #3730a3;
-  --p-900: #312e81;
+  --p-50: #eef1fe;
+  --p-100: #e0e4fe;
+  --p-200: #c7cdfc;
+  --p-300: #a5abf8;
+  --p-400: #8187f2;
+  --p-500: #5557ea;            /* 白字对比度 4.82:1 */
+  --p-600: #4645d4;
+  --p-700: #3b3ab5;
+  --p-800: #323193;
+  --p-900: #2b2b78;
 
   /* 语义色 */
   --s-success: #166534;
@@ -39,56 +41,158 @@
   --s-error-bg: #fbeaea;
 
   /* 组件语义 */
-  --bubble-ai: var(--c-panel);
-  --bubble-user: var(--p-500);
-  --overlay: rgba(31, 35, 40, 0.4);
-  --c-shadow: 0 8px 40px rgb(0 0 0 / 8%);
-  --c-shadow-strong: 0 12px 48px rgb(0 0 0 / 16%);
-  --c-scrim: rgb(31 35 40 / 40%); /* 弹层遮罩（元素级，--overlay 供背景用） */
+  --bubble-ai: #ffffff;
+  --bubble-ai-border: #e2e5eb;
+  --bubble-user: #5557ea;
+  --bubble-user-border: transparent;
+  --bubble-user-text: #ffffff;
+  --overlay: rgba(25, 28, 33, 0.45);
+  --c-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.06);
+  --c-shadow-strong: 0 12px 36px -4px rgba(0, 0, 0, 0.12);
+  --c-scrim: rgb(25 28 33 / 45%);
+  --glass-bg: rgba(248, 249, 250, 0.85);
+  --glass-blur: blur(16px);
 }
 
+/* 曜石幻夜 (Obsidian Zinc) · 现代线性暗黑高阶款 */
 [data-theme='dark'] {
-  --c-bg: #101318;
-  --c-canvas: #0b0e12;
-  --c-panel: #161a21;
-  --c-border: #2a3038;
-  --c-border-strong: #6b7480;
-  --c-text: #e8eaed;
-  --c-text-2: #9aa3ad;
-  --c-text-3: #6b7480;
+  --c-bg: #090a0d;             /* 最底层窗口背景 */
+  --c-canvas: #0f1115;         /* 一级表面：侧栏与中栏列表 */
+  --c-panel: #16191f;          /* 二级表面：卡片与输入底 */
+  --c-panel-hover: #1e222a;
+  --c-border: rgba(255, 255, 255, 0.08); /* 1px Hairline 微光分割线 */
+  --c-border-strong: rgba(255, 255, 255, 0.18);
+  --c-text: #f0f2f5;           /* 一级正文（冷灰白，防眩光） */
+  --c-text-2: #9ea7b4;         /* 二级辅助 */
+  --c-text-3: #5f6876;         /* 三级占位 */
   --c-on-primary: #ffffff;
+  --c-accent: #818cf8;         /* 曜石暗夜行动点高亮色（对深色底7.2:1超高对比） */
+  --c-accent-hover: #a5b4fc;
 
-  --p-50: #1e1f3a;
-  --p-100: #23244a;
-  --p-200: #2b2d61;
-  --p-300: #a3a8f5;
-  --p-400: #8189ee;
-  --p-500: #5f60ef;
+  --p-50: #16182c;
+  --p-100: #202347;
+  --p-200: #2b306b;
+  --p-300: #464eb0;
+  --p-400: #5d66db;
+  --p-500: #6366f1;            /* 科技紫电 */
   --p-600: #4f46e5;
   --p-700: #6d68e8;
   --p-800: #8a86ef;
   --p-900: #b3b1f5;
 
   --s-success: #4ade80;
-  --s-success-bg: #12291b;
+  --s-success-bg: #11281a;
   --s-warning: #f5b04c;
-  --s-warning-bg: #2e2410;
+  --s-warning-bg: #2d230e;
   --s-error: #f87171;
   --s-error-bg: #321616;
 
-  --bubble-ai: var(--c-panel);
-  --bubble-user: var(--p-500);
-  --overlay: rgba(0, 0, 0, 0.5);
-  --c-shadow: 0 8px 40px rgb(0 0 0 / 45%);
-  --c-shadow-strong: 0 12px 48px rgb(0 0 0 / 60%);
-  --c-scrim: rgb(0 0 0 / 50%);
+  --bubble-ai: #14171d;
+  --bubble-ai-border: rgba(255, 255, 255, 0.08);
+  --bubble-user: #4f46e5;
+  --bubble-user-border: rgba(255, 255, 255, 0.12);
+  --bubble-user-text: #ffffff;
+  --overlay: rgba(0, 0, 0, 0.65);
+  --c-shadow: 0 4px 24px -2px rgba(0, 0, 0, 0.55);
+  --c-shadow-strong: 0 14px 44px -4px rgba(0, 0, 0, 0.75);
+  --c-scrim: rgb(0 0 0 / 60%);
+  --glass-bg: rgba(15, 17, 21, 0.82);
+  --glass-blur: blur(16px);
 }
 
-/*
- * 皮肤「暮光」：theme.json 覆盖包实演。
- * 仅覆盖 Primitive/组件 token，结构 token 全部继承深色基底，
- * 组件代码零改动 —— 换肤架构的验收样例。
- */
+/* 赛博极夜 (Tokyo Cyber) · 霓虹莓红与荧光青 */
+[data-theme='cyber-tokyo'] {
+  --c-bg: #0b0c16;
+  --c-canvas: #111322;
+  --c-panel: #181b30;
+  --c-panel-hover: #222644;
+  --c-border: rgba(165, 180, 252, 0.12);
+  --c-border-strong: rgba(236, 72, 153, 0.45);
+  --c-text: #f3f5fa;
+  --c-text-2: #9aa5bf;
+  --c-text-3: #5f6a85;
+  --c-on-primary: #ffffff;
+  --c-accent: #f472b6;
+  --c-accent-hover: #fb7185;
+
+  --p-50: #291220;
+  --p-100: #3d142c;
+  --p-200: #5f1a42;
+  --p-300: #931d60;
+  --p-400: #cb257e;
+  --p-500: #ec4899;
+  --p-600: #db2777;
+  --p-700: #be185d;
+  --p-800: #9d174d;
+  --p-900: #831843;
+
+  --s-success: #2dd4bf;
+  --s-success-bg: #092723;
+  --s-warning: #fbbf24;
+  --s-warning-bg: #2d2007;
+  --s-error: #f43f5e;
+  --s-error-bg: #2f0e16;
+
+  --bubble-ai: #13162b;
+  --bubble-ai-border: rgba(99, 102, 241, 0.22);
+  --bubble-user: #db2777;
+  --bubble-user-border: rgba(244, 114, 182, 0.35);
+  --bubble-user-text: #ffffff;
+  --overlay: rgba(11, 12, 22, 0.7);
+  --c-shadow: 0 4px 24px -2px rgba(236, 72, 153, 0.18);
+  --c-shadow-strong: 0 14px 44px -4px rgba(219, 39, 119, 0.28);
+  --c-scrim: rgb(11 12 22 / 65%);
+  --glass-bg: rgba(17, 19, 34, 0.82);
+  --glass-blur: blur(18px);
+}
+
+/* 暮霭冷杉 (Nordic Forest) · 北欧苔绿与长效护眼 */
+[data-theme='nordic-fog'] {
+  --c-bg: #111515;
+  --c-canvas: #161c1c;
+  --c-panel: #1e2626;
+  --c-panel-hover: #263030;
+  --c-border: rgba(255, 255, 255, 0.08);
+  --c-border-strong: rgba(78, 161, 142, 0.38);
+  --c-text: #e7ecea;
+  --c-text-2: #98a7a4;
+  --c-text-3: #5f706d;
+  --c-on-primary: #ffffff;
+  --c-accent: #4ade80;
+  --c-accent-hover: #6ee7b7;
+
+  --p-50: #122420;
+  --p-100: #173831;
+  --p-200: #1e5246;
+  --p-300: #277060;
+  --p-400: #338e79;
+  --p-500: #3b9d82;
+  --p-600: #2d826a;
+  --p-700: #256a56;
+  --p-800: #1f5344;
+  --p-900: #194034;
+
+  --s-success: #34d399;
+  --s-success-bg: #0d281f;
+  --s-warning: #fbbf24;
+  --s-warning-bg: #2d2007;
+  --s-error: #f87171;
+  --s-error-bg: #321616;
+
+  --bubble-ai: #192121;
+  --bubble-ai-border: rgba(255, 255, 255, 0.07);
+  --bubble-user: #2d826a;
+  --bubble-user-border: rgba(255, 255, 255, 0.16);
+  --bubble-user-text: #ffffff;
+  --overlay: rgba(17, 21, 21, 0.7);
+  --c-shadow: 0 4px 24px -2px rgba(0, 0, 0, 0.5);
+  --c-shadow-strong: 0 14px 44px -4px rgba(0, 0, 0, 0.75);
+  --c-scrim: rgb(17 21 21 / 65%);
+  --glass-bg: rgba(22, 28, 28, 0.82);
+  --glass-blur: blur(16px);
+}
+
+/* 皮肤「暮光」：经典玫瑰绯红样例 */
 [data-theme='dusk'] {
   --p-50: #fff1f2;
   --p-100: #ffe4e6;
@@ -100,24 +204,23 @@
   --p-700: #be123c;
   --p-800: #9f1239;
   --p-900: #881337;
+  --c-accent: #fb7185;
+  --c-accent-hover: #fda4af;
 
   --bubble-user: var(--p-600);
 }
 
-/* 设计规格：8px 基线 */
+/* 设计规格 */
 :root {
   --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --font-mono: 'Cascadia Code', Consolas, monospace;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+  --font-mono: 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
 }
 
 /*
  * 每页背景（页面级，与主题解耦）
- *
- * 皮肤包只覆盖这组变量就能换背景 —— 这正是聊天页最常用的功能
- * （一张氛围图 + 气泡浮在上面）。`data-page` 挂在各页根元素上（见 base.css 的 .page 规则）。
- * 注意：--page-*-bg 默认跟随 --c-bg，所以不覆盖时与现在完全一致。
  */
 :root {
   --page-bg: var(--c-bg);

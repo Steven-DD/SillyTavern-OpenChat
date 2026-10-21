@@ -93,7 +93,7 @@ function go(id: string) {
 }
 .cat.active {
   background: var(--p-100);
-  color: var(--p-600);
+  color: var(--c-accent);
 }
 .cat.active .lb {
   font-weight: 600;

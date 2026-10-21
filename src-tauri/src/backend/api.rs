@@ -115,6 +115,31 @@ async fn route(
                 Err(_) => bad_json(origin),
             }
         }
+        // presets 族（预设管理：TextGen / OpenAI / Instruct / Context）
+        ("POST", "/api/presets/list") => {
+            match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+                Ok(v) => super::presets::list(&st, &v, origin),
+                Err(_) => super::presets::list(&st, &serde_json::json!({}), origin),
+            }
+        }
+        ("POST", "/api/presets/get") => {
+            match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+                Ok(v) => super::presets::get(&st, &v, origin),
+                Err(_) => bad_json(origin),
+            }
+        }
+        ("POST", "/api/presets/save") => {
+            match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+                Ok(v) => super::presets::save(&st, &v, origin),
+                Err(_) => bad_json(origin),
+            }
+        }
+        ("POST", "/api/presets/delete") => {
+            match serde_json::from_slice::<serde_json::Value>(body_bytes) {
+                Ok(v) => super::presets::delete(&st, &v, origin),
+                Err(_) => bad_json(origin),
+            }
+        }
         // characters 族 JSON 面（Phase 1 · manifest #1/#2/#3/#6/#7）
         ("POST", "/api/characters/all") => super::characters::all(&st, origin),
         ("POST", "/api/characters/get") => {

@@ -124,6 +124,8 @@ function load(): GenSettings {
 export const useSettingsStore = defineStore('settings', {
   state: () => ({
     ...load(),
+    /** 当前激活的预设名称 */
+    currentPresetName: localStorage.getItem('app.gen.preset_name') || 'default',
     /** 从 ST 实时拉取的模型列表（主/备模型的下拉候选，与手填预设合并去重） */
     modelOptions: loadModelOptions(),
     /** ST 侧设置的用户名（用于 {{user}} 宏，也是映射的输入之一） */
@@ -189,6 +191,11 @@ export const useSettingsStore = defineStore('settings', {
     update(patch: Partial<GenSettings>) {
       Object.assign(this, patch)
       this.persist()
+    },
+
+    setPresetName(name: string) {
+      this.currentPresetName = name
+      localStorage.setItem('app.gen.preset_name', name)
     },
 
     /** 保存「从 ST 拉取的模型列表」（持久化，reset 不清） */

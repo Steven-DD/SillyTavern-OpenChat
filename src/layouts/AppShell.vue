@@ -44,17 +44,17 @@ function onNavChange(): void {
       <!-- 窄屏内容页：统一返回条 -->
       <div
         v-if="layout.isNarrow && layout.detail"
-        class="flex-none flex items-center gap-2 px-10px py-6px border-b border-t-0 border-l-0 border-r-0 border-solid border-line bg-canvas"
+        class="flex-none flex items-center gap-2 px-12px pb-8px border-b border-t-0 border-l-0 border-r-0 border-solid border-line bg-canvas/95 backdrop-blur-md z-20 safe-top-bar"
       >
-        <button class="btn" @click="layout.showList()">
-          <span class="inline-flex items-center gap-3px">
+        <button class="btn inline-flex items-center gap-1.5 py-6px px-12px rounded-lg font-medium" @click="layout.showList()">
+          <span class="inline-flex items-center gap-4px">
             <svg
               viewBox="0 0 24 24"
-              width="14"
-              height="14"
+              width="15"
+              height="15"
               fill="none"
               stroke="currentColor"
-              stroke-width="2"
+              stroke-width="2.2"
               stroke-linecap="round"
               stroke-linejoin="round"
             >

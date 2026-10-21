@@ -227,6 +227,22 @@ pub fn trigger_autosave(st: &BackendState, svc: &SettingsService) -> bool {
  * Handlers（由 api.rs route() 分发接入）
  * ------------------------------------------------------------------ */
 
+fn scan_presets_dir(dir: &std::path::Path) -> Vec<String> {
+    let mut names = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_file() && p.extension().map(|e| e == "json").unwrap_or(false) {
+                if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
+                    names.push(stem.to_string());
+                }
+            }
+        }
+    }
+    names.sort();
+    names
+}
+
 /// POST /api/settings/get —— settings 为文件原文字符串（前端 data.ts:503 双形态兼容）
 pub fn get(st: &BackendState, origin: Option<HeaderValue>) -> Response {
     let p = settings_path(&st.data_root);
@@ -256,8 +272,14 @@ pub fn get(st: &BackendState, origin: Option<HeaderValue>) -> Response {
             return super::apply_cors_resp(resp, origin);
         }
     };
-    // 前端只消费 settings 字段；presets 聚合字段占位空数组（App 形态无多预设目录）
-    let body = Json(json!({ "settings": settings }));
+    // 对齐 ST 契约：返回 settings 及 presets / openAIPresets 聚合列表
+    let presets = scan_presets_dir(&st.data_root.join("default-user").join("presets"));
+    let openai_presets = scan_presets_dir(&st.data_root.join("default-user").join("OpenAI Settings"));
+    let body = Json(json!({
+        "settings": settings,
+        "presets": presets,
+        "openAIPresets": openai_presets,
+    }));
     super::apply_cors_resp(body.into_response(), origin)
 }
 

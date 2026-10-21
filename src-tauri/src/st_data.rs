@@ -42,7 +42,7 @@ pub fn external_data_root(config_dir: &Path) -> PathBuf {
 /// 「目录缺失即报错」的契约（如 characters.js `/all` 的 readdir 失败 → 500）
 /// 在 ST 永不触发；本后端此前只在写路径惰性 `create_dir_all`，**新机安装首启**
 /// （一次写都没有）时它们全不存在 → `/api/characters/all` 立即 500。
-pub const USER_DATA_DIRS: [&str; 14] = [
+pub const USER_DATA_DIRS: [&str; 18] = [
     "characters",       // 角色卡（/api/characters/*）
     "chats",            // 单聊会话 JSONL
     "group chats",      // 群聊会话 JSONL
@@ -57,6 +57,10 @@ pub const USER_DATA_DIRS: [&str; 14] = [
     "extensions",       // 扩展
     "QuickReplies",     // 快速回复（extensions.rs，ST 字面目录名）
     "backups",          // settings / chats 备份轮换
+    "presets",          // TextGen / 本地采样预设
+    "OpenAI Settings",  // OpenAI / Chat Completion 采样预设
+    "instruct",         // Instruct 格式预设
+    "context",          // 上下文故事模板预设
 ];
 
 /// 建齐 default-user 数据骨架（幂等：已存在的目录不动）。

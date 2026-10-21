@@ -22,6 +22,19 @@ app.use(i18n)
 // 全局错误捕获（Vue errorHandler + window error/unhandledrejection → 日志）
 installGlobalErrorHook(app)
 
+// 移动端安全区域避让（针对 Android WebView env() 为 0 时的保底策略）
+if (typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)) {
+  const root = document.documentElement
+  const computedSat = getComputedStyle(root).getPropertyValue('--sat').trim()
+  if (!computedSat || computedSat === '0px' || computedSat === 'env(safe-area-inset-top, 0px)') {
+    root.style.setProperty('--sat', '40px')
+  }
+  const computedSab = getComputedStyle(root).getPropertyValue('--sab').trim()
+  if (!computedSab || computedSab === '0px' || computedSab === 'env(safe-area-inset-bottom, 0px)') {
+    root.style.setProperty('--sab', '24px')
+  }
+}
+
 // 主题在挂载前应用，避免闪烁
 useThemeStore().apply()
 // 外观偏好（字号/字体/语言）同样在挂载前应用，避免二次跳动

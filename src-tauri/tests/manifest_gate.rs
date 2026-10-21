@@ -50,6 +50,11 @@ const ROUTE_SNAPSHOT: &[(&str, Rule)] = &[
     // settings（#28/#29）
     ("POST", Exact("/api/settings/get")),
     ("POST", Exact("/api/settings/save")),
+    // presets（预设管理族）
+    ("POST", Exact("/api/presets/list")),
+    ("POST", Exact("/api/presets/get")),
+    ("POST", Exact("/api/presets/save")),
+    ("POST", Exact("/api/presets/delete")),
     // characters（#1-#8）
     ("POST", Exact("/api/characters/all")),
     ("POST", Exact("/api/characters/get")),

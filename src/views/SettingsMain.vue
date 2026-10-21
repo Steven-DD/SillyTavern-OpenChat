@@ -28,6 +28,18 @@ import SyncSettingsCard from '@/components/SyncSettingsCard.vue'
 import PromptManagerCard from '@/components/PromptManagerCard.vue'
 import ExtensionsCard from '@/components/ExtensionsCard.vue'
 import InstructSettingsCard from '@/components/InstructSettingsCard.vue'
+import ContextTemplateCard from '@/components/ContextTemplateCard.vue'
+import {
+  BUILTIN_GEN_PRESETS,
+  listPresets,
+  getPreset,
+  savePreset,
+  deletePreset,
+  importPresetFile,
+  exportPresetFile,
+  presetToGenSettings,
+  genSettingsToPreset,
+} from '@/services/st/presets'
 import { useBackgroundStore } from '@/stores/background'
 
 const route = useRoute()
@@ -485,9 +497,11 @@ function show(v: unknown): string {
 }
 
 const THEMES: { mode: ThemeMode; name: string; desc: string }[] = [
-  { mode: 'light', name: '浅色', desc: '默认主题（Indigo 主色）' },
-  { mode: 'dark', name: '深色', desc: '夜间长时间阅读' },
-  { mode: 'dusk', name: '暮光', desc: '示例皮肤 · 仅覆盖主色 token，验证换肤通道' },
+  { mode: 'dark', name: '曜石幻夜', desc: '线性高级暗黑 · 次表面微光（推荐）' },
+  { mode: 'light', name: '象牙纸墨', desc: '出版级暖调纸面 · 柔和防眩光' },
+  { mode: 'cyber-tokyo', name: '赛博极夜', desc: '霓虹莓红 × 荧光青 · 沉浸二次元' },
+  { mode: 'nordic-fog', name: '暮霭冷杉', desc: '北欧苔绿与雾灰 · 长效护眼沉浸' },
+  { mode: 'dusk', name: '玫瑰暮光', desc: '经典绯红皮肤 · 温润个性' },
 ]
 
 /* ---------- 通用：字体与大小 ---------- */
@@ -583,9 +597,105 @@ async function checkUpdate(): Promise<void> {
   }
 }
 
+/* ---------- 生成与采样预设 ---------- */
+const userPresets = ref<string[]>([])
+const presetMsg = ref('')
+
+async function reloadGenPresets() {
+  const type = gen.genType === 'text' ? 'text' : 'openai'
+  userPresets.value = await listPresets(type)
+}
+
+async function onSelectGenPreset(val: string) {
+  gen.setPresetName(val)
+  // 1. 内置预设
+  const builtin = BUILTIN_GEN_PRESETS.find((b) => b.id === val || b.name === val)
+  if (builtin) {
+    gen.update(builtin.settings)
+    presetMsg.value = `已载入预设「${builtin.name}」`
+    setTimeout(() => (presetMsg.value = ''), 2500)
+    return
+  }
+  // 2. 用户预设
+  const type = gen.genType === 'text' ? 'text' : 'openai'
+  const raw = await getPreset(val, type)
+  if (raw) {
+    const patch = presetToGenSettings(raw, gen)
+    gen.update(patch)
+    presetMsg.value = `已载入预设「${val}」`
+    setTimeout(() => (presetMsg.value = ''), 2500)
+  }
+}
+
+async function onSaveCurrentGenPreset() {
+  const name = gen.currentPresetName
+  if (!name || name === 'default' || BUILTIN_GEN_PRESETS.some((b) => b.id === name)) {
+    await onSaveAsNewGenPreset()
+    return
+  }
+  const type = gen.genType === 'text' ? 'text' : 'openai'
+  const payload = genSettingsToPreset(gen, type)
+  await savePreset(name, payload, type)
+  await reloadGenPresets()
+  presetMsg.value = `已保存预设「${name}」`
+  setTimeout(() => (presetMsg.value = ''), 2500)
+}
+
+async function onSaveAsNewGenPreset() {
+  const name = prompt('请输入新生成预设名称：', gen.currentPresetName || 'My_Sampler_Preset')
+  if (!name || !name.trim()) return
+  const cleanName = name.trim()
+  const type = gen.genType === 'text' ? 'text' : 'openai'
+  const payload = genSettingsToPreset(gen, type)
+  await savePreset(cleanName, payload, type)
+  await reloadGenPresets()
+  gen.setPresetName(cleanName)
+  presetMsg.value = `已另存为新预设「${cleanName}」`
+  setTimeout(() => (presetMsg.value = ''), 2500)
+}
+
+async function onDeleteCurrentGenPreset() {
+  const name = gen.currentPresetName
+  if (BUILTIN_GEN_PRESETS.some((b) => b.id === name || b.name === name) || name === 'default') {
+    alert('内置预设不可删除')
+    return
+  }
+  if (!confirm(`确定删除生成预设「${name}」吗？`)) return
+  const type = gen.genType === 'text' ? 'text' : 'openai'
+  await deletePreset(name, type)
+  await reloadGenPresets()
+  await onSelectGenPreset('default')
+  presetMsg.value = `已删除预设「${name}」`
+  setTimeout(() => (presetMsg.value = ''), 2500)
+}
+
+async function onImportGenPresetFile(e: Event) {
+  const target = e.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (!file) return
+  try {
+    const type = gen.genType === 'text' ? 'text' : 'openai'
+    const imported = await importPresetFile(file, type)
+    await reloadGenPresets()
+    await onSelectGenPreset(imported.name)
+    alert(`成功导入生成预设「${imported.name}」`)
+  } catch (err) {
+    alert(`导入预设失败：${err instanceof Error ? err.message : String(err)}`)
+  } finally {
+    target.value = ''
+  }
+}
+
+function onExportGenPresetFile() {
+  const type = gen.genType === 'text' ? 'text' : 'openai'
+  const payload = genSettingsToPreset(gen, type)
+  exportPresetFile(gen.currentPresetName || 'preset', payload)
+}
+
 onMounted(() => {
   void loadStInfo()
   void persona.load()
+  void reloadGenPresets()
   onSourceChanged()
   textServerDraft.value = gen.textServer
   // auto-continue 当前配置
@@ -763,7 +873,43 @@ onMounted(() => {
         </section>
 
         <section class="card">
-          <h4>对话参数</h4>
+          <div class="preset-head-bar">
+            <h4>对话参数与生成预设</h4>
+            <div class="btn-group">
+              <button class="btn btn-sm" @click="onSaveCurrentGenPreset">保存当前预设</button>
+              <button class="btn btn-sm" @click="onSaveAsNewGenPreset">另存为新预设</button>
+              <button class="btn btn-sm" @click="onExportGenPresetFile">导出 (.json)</button>
+              <label class="btn btn-sm btn-file">
+                导入 (.json)
+                <input type="file" accept=".json" class="file-hidden" @change="onImportGenPresetFile" />
+              </label>
+              <button
+                class="btn btn-sm btn-danger"
+                :disabled="BUILTIN_GEN_PRESETS.some((b) => b.id === gen.currentPresetName || b.name === gen.currentPresetName) || gen.currentPresetName === 'default'"
+                @click="onDeleteCurrentGenPreset"
+              >
+                删除
+              </button>
+            </div>
+          </div>
+
+          <label class="fld">
+            <span class="lb">选择生成预设 (Generation Preset)：</span>
+            <select :value="gen.currentPresetName" class="field" @change="onSelectGenPreset(($event.target as HTMLSelectElement).value)">
+              <optgroup label="内置经典预设">
+                <option v-for="p in BUILTIN_GEN_PRESETS" :key="p.id" :value="p.id">
+                  {{ p.name }} — {{ p.description }}
+                </option>
+              </optgroup>
+              <optgroup v-if="userPresets.length" label="自定义/导入预设">
+                <option v-for="p in userPresets" :key="p" :value="p">
+                  {{ p }}
+                </option>
+              </optgroup>
+            </select>
+          </label>
+          <p v-if="presetMsg" class="rsp okish">{{ presetMsg }}</p>
+
           <label class="fld">
             <span class="lb">温度：{{ gen.temperature.toFixed(2) }}</span>
             <input
@@ -928,6 +1074,7 @@ onMounted(() => {
       <!-- ============ 提示词格式与指令模式 ============ -->
       <template v-else-if="sec === 'instruct'">
         <InstructSettingsCard />
+        <ContextTemplateCard />
       </template>
 
       <!-- ============ 通用 ============ -->
@@ -1346,8 +1493,7 @@ code {
   color: var(--p-600);
   font-weight: 600;
 }
-[data-theme='dark'] .src.on,
-[data-theme='dusk'] .src.on {
+[data-theme]:not([data-theme='light']) .src.on {
   background: color-mix(in srgb, var(--p-500) 14%, transparent);
 }
 .src.off {
@@ -1378,8 +1524,7 @@ code {
   border-color: var(--p-500);
   background: var(--p-50);
 }
-[data-theme='dark'] .radio.on,
-[data-theme='dusk'] .radio.on {
+[data-theme]:not([data-theme='light']) .radio.on {
   background: color-mix(in srgb, var(--p-500) 14%, transparent);
 }
 .rt {
@@ -1451,26 +1596,38 @@ code {
 }
 .themes {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 9px;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
 }
 .thm {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding: 11px 12px;
+  gap: 4px;
+  padding: 12px 14px;
   text-align: left;
   border: 1px solid var(--c-border);
   border-radius: var(--radius-md);
-  background: var(--c-bg);
+  background: var(--c-panel);
+  transition: all 0.2s ease;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+.thm:hover {
+  border-color: var(--p-400);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 .thm.on {
   border-color: var(--p-500);
-  background: var(--p-50);
+  background: color-mix(in srgb, var(--p-500) 12%, var(--c-panel));
+  box-shadow: 0 0 0 1px var(--p-500), 0 4px 16px -2px color-mix(in srgb, var(--p-500) 25%, transparent);
 }
 [data-theme='dark'] .thm.on,
+[data-theme='cyber-tokyo'] .thm.on,
+[data-theme='nordic-fog'] .thm.on,
 [data-theme='dusk'] .thm.on {
-  background: color-mix(in srgb, var(--p-500) 14%, transparent);
+  background: color-mix(in srgb, var(--p-500) 15%, var(--c-panel));
 }
 .tn {
   font-size: 12px;
@@ -1548,8 +1705,7 @@ code {
   font-weight: 600;
   box-shadow: 0 1px 3px var(--c-shadow);
 }
-[data-theme='dark'] .seg-item.on,
-[data-theme='dusk'] .seg-item.on {
+[data-theme]:not([data-theme='light']) .seg-item.on {
   background: color-mix(in srgb, var(--p-500) 18%, transparent);
   color: var(--p-300);
   box-shadow: none;
@@ -1589,8 +1745,7 @@ code {
   color: var(--p-600);
   font-weight: 600;
 }
-[data-theme='dark'] .lang-item.on,
-[data-theme='dusk'] .lang-item.on {
+[data-theme]:not([data-theme='light']) .lang-item.on {
   background: color-mix(in srgb, var(--p-500) 14%, transparent);
   color: var(--p-300);
 }
@@ -1612,5 +1767,39 @@ code {
 }
 .ver:hover {
   color: var(--c-text);
+}
+.preset-head-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.preset-head-bar h4 {
+  margin: 0;
+}
+.btn-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.btn-file {
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+}
+.file-hidden {
+  position: absolute;
+  top: 0;
+  left: 0;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+.btn-danger {
+  color: #ef4444;
 }
 </style>

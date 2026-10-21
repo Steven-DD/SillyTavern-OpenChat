@@ -22,6 +22,7 @@ import { getCharacter } from '@/services/st/data'
 import type { StCharacter } from '@/services/st/types'
 import { fmtCost, fmtTok } from '@/services/usage'
 import { listSprites, classifyEmotion, matchSprite, loadSpriteFallback, spriteUrl, type Sprite } from '@/services/st/expressions'
+import { BUILTIN_GEN_PRESETS, listPresets, getPreset, presetToGenSettings } from '@/services/st/presets'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
@@ -106,9 +107,37 @@ watch(
     topP.value = ov?.topP ?? gen.topP
     maxTokens.value = ov?.maxTokens ?? gen.maxTokens
     void reloadSprites()
+    void loadSessionPresets()
   },
   { immediate: true },
 )
+
+const sessionPresetList = ref<string[]>([])
+async function loadSessionPresets() {
+  const type = gen.genType === 'text' ? 'text' : 'openai'
+  sessionPresetList.value = await listPresets(type)
+}
+
+async function applyPresetToSession(val: string) {
+  if (!val) return
+  const builtin = BUILTIN_GEN_PRESETS.find((b) => b.id === val || b.name === val)
+  if (builtin) {
+    if (builtin.settings.temperature !== undefined) temperature.value = builtin.settings.temperature
+    if (builtin.settings.topP !== undefined) topP.value = builtin.settings.topP
+    if (builtin.settings.maxTokens !== undefined) maxTokens.value = builtin.settings.maxTokens
+    pushGen()
+    return
+  }
+  const type = gen.genType === 'text' ? 'text' : 'openai'
+  const raw = await getPreset(val, type)
+  if (raw) {
+    const s = presetToGenSettings(raw)
+    if (s.temperature !== undefined) temperature.value = s.temperature
+    if (s.topP !== undefined) topP.value = s.topP
+    if (s.maxTokens !== undefined) maxTokens.value = s.maxTokens
+    pushGen()
+  }
+}
 
 function applyGen(on: boolean): void {
   useGen.value = on
@@ -541,6 +570,18 @@ function goWorlds(): void {
         </label>
 
         <template v-if="useGen">
+          <label class="fld">
+            <span class="lbl">快速套用预设</span>
+            <select class="field field-select" @change="applyPresetToSession(($event.target as HTMLSelectElement).value)">
+              <option value="">选择预设直接套用…</option>
+              <optgroup label="内置预设">
+                <option v-for="p in BUILTIN_GEN_PRESETS" :key="p.id" :value="p.id">{{ p.name }}</option>
+              </optgroup>
+              <optgroup v-if="sessionPresetList.length" label="自定义预设">
+                <option v-for="p in sessionPresetList" :key="p" :value="p">{{ p }}</option>
+              </optgroup>
+            </select>
+          </label>
           <label class="fld">
             <span class="lbl">温度 <span class="mono">{{ temperature.toFixed(2) }}</span></span>
             <input v-model.number="temperature" type="range" min="0" max="2" step="0.05" :disabled="chat.streaming" @change="pushGen" />

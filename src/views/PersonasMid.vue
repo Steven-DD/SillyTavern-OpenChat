@@ -68,27 +68,40 @@ onMounted(() => {
 <style scoped>
 .search {
   width: 100%;
-  padding: 6px 9px;
+  padding: 7px 11px;
   font-size: 12px;
   color: var(--c-text);
   background: var(--c-bg);
   border: 1px solid var(--c-border);
   border-radius: var(--radius-md);
   outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.search:focus {
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.2);
 }
 .add {
   width: 100%;
   margin-top: 6px;
-  padding: 6px 9px;
+  padding: 8px 10px;
   font-size: 12px;
-  border: 1px dashed var(--c-border);
+  font-weight: 500;
+  border: 1px dashed var(--c-border-strong);
   border-radius: var(--radius-md);
-  color: var(--p-600);
-  background: transparent;
+  color: var(--c-accent);
+  background: var(--c-panel);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.15s ease;
 }
 .add:hover {
-  border-color: var(--p-400);
-  background: var(--p-50);
+  border-color: var(--c-accent);
+  border-style: solid;
+  color: var(--c-accent-hover);
+  background: var(--c-panel-hover);
 }
 .empty-hint {
   padding: 10px 12px;
@@ -100,9 +113,9 @@ onMounted(() => {
   margin-left: auto;
   padding: 3px 9px;
   font-size: 11px;
-  border: 1px solid var(--p-400);
+  border: 1px solid var(--c-accent);
   border-radius: var(--radius-md);
-  color: var(--p-600);
+  color: var(--c-accent);
   background: var(--c-canvas);
   opacity: 0;
 }
@@ -136,7 +149,7 @@ onMounted(() => {
 }
 .list-row.on {
   background: var(--p-100);
-  color: var(--p-600);
+  color: var(--c-accent);
 }
 .face {
   width: 34px;

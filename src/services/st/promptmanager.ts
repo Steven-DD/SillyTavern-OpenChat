@@ -118,25 +118,30 @@ const s = (v: unknown): string => (typeof v === 'string' ? v : '')
 export async function savePm(
   slots: { main?: string; nsfw?: string; jailbreak?: string },
   order: { identifier: string; enabled: boolean }[],
+  customBlocks?: PmEntry[],
 ): Promise<void> {
   await mutateSettings((settings) => {
     const prompts = (Array.isArray(settings.prompts) ? settings.prompts : []) as PmEntry[]
     const merged = [...prompts]
-    const upsert = (identifier: string, content: string): void => {
-      const i = merged.findIndex((p) => p.identifier === identifier)
-      if (i >= 0) merged[i] = { ...merged[i]!, content }
-      else
-        merged.push({
-          identifier,
-          name: identifier,
-          system_prompt: true,
-          role: 'system',
-          content,
-        })
+    const upsert = (entry: PmEntry): void => {
+      const i = merged.findIndex((p) => p.identifier === entry.identifier)
+      if (i >= 0) merged[i] = { ...merged[i]!, ...entry }
+      else merged.push(entry)
     }
-    if (slots.main !== undefined) upsert('main', slots.main)
-    if (slots.nsfw !== undefined) upsert('nsfw', slots.nsfw)
-    if (slots.jailbreak !== undefined) upsert('jailbreak', slots.jailbreak)
+    if (slots.main !== undefined) {
+      upsert({ identifier: 'main', name: 'main', system_prompt: true, role: 'system', content: slots.main })
+    }
+    if (slots.nsfw !== undefined) {
+      upsert({ identifier: 'nsfw', name: 'nsfw', system_prompt: true, role: 'system', content: slots.nsfw })
+    }
+    if (slots.jailbreak !== undefined) {
+      upsert({ identifier: 'jailbreak', name: 'jailbreak', system_prompt: true, role: 'system', content: slots.jailbreak })
+    }
+    if (customBlocks?.length) {
+      for (const cb of customBlocks) {
+        upsert(cb)
+      }
+    }
 
     const orderList = (Array.isArray(settings.prompt_order)
       ? (settings.prompt_order as PmOrderItem[])
@@ -158,4 +163,60 @@ export async function savePm(
     }
   })
   invalidatePmCache()
+}
+
+/** 导出当前 Prompt Manager 配置为 ST 兼容 JSON */
+export function exportPmPreset(name: string, pm: PmData): void {
+  const payload = {
+    name,
+    prompts: pm.rawPrompts,
+    prompt_order: pm.order,
+  }
+  const str = JSON.stringify(payload, null, 4)
+  const blob = new Blob([str], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${name.trim() || 'prompt-preset'}.json`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+/** 导入 ST Prompt Manager 预设 JSON */
+export async function importPmPreset(file: File): Promise<PmData> {
+  const text = await file.text()
+  const raw = JSON.parse(text) as Record<string, unknown>
+  const rawPrompts = (Array.isArray(raw.prompts) ? raw.prompts : []) as PmEntry[]
+  let order: { identifier: string; enabled: boolean }[] = []
+  if (Array.isArray(raw.prompt_order)) {
+    order = raw.prompt_order as { identifier: string; enabled: boolean }[]
+  } else {
+    order = DEFAULT_ORDER.map((x) => ({ ...x }))
+  }
+
+  const findContent = (id: string) => rawPrompts.find((p) => p.identifier === id)?.content ?? ''
+
+  await mutateSettings((settings) => {
+    const orderList = (Array.isArray(settings.prompt_order)
+      ? (settings.prompt_order as PmOrderItem[])
+      : []
+    ).filter((o) => o.character_id !== DUMMY_ID)
+    orderList.push({ character_id: DUMMY_ID, order: order.map((x) => ({ ...x })) })
+
+    return {
+      next: { ...settings, prompts: rawPrompts, prompt_order: orderList },
+    }
+  })
+
+  invalidatePmCache()
+  return {
+    main: findContent('main'),
+    nsfw: findContent('nsfw'),
+    jailbreak: findContent('jailbreak'),
+    order,
+    rawPrompts,
+    loaded: true,
+  }
 }

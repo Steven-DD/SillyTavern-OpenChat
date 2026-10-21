@@ -271,12 +271,24 @@ onMounted(async () => {
 .add {
   width: 100%;
   margin-top: 6px;
-  padding: 6px 9px;
+  padding: 8px 10px;
   font-size: 12px;
-  border: 1px dashed var(--c-border);
+  font-weight: 500;
+  border: 1px dashed var(--c-border-strong);
   border-radius: var(--radius-md);
-  color: var(--p-600);
-  background: transparent;
+  color: var(--c-accent);
+  background: var(--c-panel);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+.add:hover {
+  border-color: var(--c-accent);
+  border-style: solid;
+  color: var(--c-accent-hover);
+  background: var(--c-panel-hover);
 }
 .add:disabled {
   color: var(--c-text-3);
@@ -287,15 +299,18 @@ onMounted(async () => {
 .search {
   width: 100%;
   margin-top: 8px;
-  padding: 6px 9px;
+  padding: 7px 11px;
   font-size: 12px;
   border: 1px solid var(--c-border);
   border-radius: var(--radius-md);
   background: var(--c-bg);
+  color: var(--c-text);
   outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .search:focus {
-  border-color: var(--p-400);
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.2);
 }
 .empty-hint {
   margin: 10px 4px;

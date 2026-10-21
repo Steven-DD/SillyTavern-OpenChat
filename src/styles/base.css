@@ -14,9 +14,29 @@ body,
 }
 
 :root {
+  /* 移动端与全屏刘海/导航手势条避让安全边距（搭配 viewport-fit=cover） */
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+
   /* 默认字体栈：外观偏好设为「系统默认」时走这里（见 stores/appearance.ts） */
   --font-default:
     'PingFang SC', 'Microsoft YaHei', 'Segoe UI', system-ui, sans-serif;
+}
+
+/* 全屏与刘海安全区工具类（原生 CSS 编写，免疫 UnoCSS 任意值逗号截断问题） */
+.safe-top-mid {
+  padding-top: calc(14px + var(--sat, 0px)) !important;
+}
+.safe-top-bar {
+  padding-top: calc(8px + var(--sat, 0px)) !important;
+}
+.safe-bottom-nav {
+  padding-bottom: calc(6px + var(--sab, 0px)) !important;
+}
+.safe-bottom-input {
+  padding-bottom: calc(14px + var(--sab, 0px)) !important;
 }
 
 body {

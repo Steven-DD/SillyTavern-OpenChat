@@ -16,9 +16,9 @@ defineProps<{
     ⚠ 避免使用 lg:(...) 变体组语法；该语法依赖未配置的 transformerVariantGroup，可能导致类名无法解析。
   -->
   <aside class="w-full flex-1 min-h-0 flex flex-col bg-canvas">
-    <div class="px-14px pt-14px pb-8px flex-none">
-      <h3 class="text-14px font-600">{{ title }}</h3>
-      <div v-if="subtitle" class="text-11px color-ink-3 mt-2px">{{ subtitle }}</div>
+    <div class="px-14px pb-8px flex-none safe-top-mid">
+      <h3 class="text-15px font-600 tracking-tight">{{ title }}</h3>
+      <div v-if="subtitle" class="text-11px color-ink-3 mt-1px">{{ subtitle }}</div>
       <!-- 供各入口放入搜索框 / 工具栏，保持「左固定+中列表+右内容」一致性 -->
       <slot name="head" />
     </div>

@@ -6,12 +6,23 @@ import {
   saveInstruct,
   type InstructSettings,
 } from '@/services/st/instruct'
-import { INSTRUCT_PRESETS } from '@/services/st/instructPresets'
+import {
+  INSTRUCT_PRESETS,
+  loadUserInstructPresets,
+  saveUserInstructPreset,
+  deleteUserInstructPreset,
+  importInstructPresetFile,
+  exportInstructPresetFile,
+  type InstructPresetItem,
+} from '@/services/st/instructPresets'
 import type { PromptMessage } from '@/services/st/prompt'
 
 const loading = ref(true)
 const saving = ref(false)
 const savedTip = ref(false)
+const userPresets = ref<InstructPresetItem[]>([])
+
+const allPresets = computed(() => [...INSTRUCT_PRESETS, ...userPresets.value])
 
 const form = ref<InstructSettings>({
   enabled: false,
@@ -34,12 +45,17 @@ const form = ref<InstructSettings>({
 
 const selectedPresetId = ref('default')
 
+async function reloadUserPresets() {
+  userPresets.value = await loadUserInstructPresets()
+}
+
 onMounted(async () => {
   try {
+    await reloadUserPresets()
     const s = await loadInstruct()
     if (s && Object.keys(s).length) {
       form.value = { ...form.value, ...s }
-      const matched = INSTRUCT_PRESETS.find(
+      const matched = allPresets.value.find(
         (p) => p.settings.preset?.toLowerCase() === s.preset?.toLowerCase(),
       )
       if (matched) selectedPresetId.value = matched.id
@@ -53,7 +69,7 @@ onMounted(async () => {
 })
 
 function onPresetChange() {
-  const p = INSTRUCT_PRESETS.find((x) => x.id === selectedPresetId.value)
+  const p = allPresets.value.find((x) => x.id === selectedPresetId.value)
   if (!p) return
   form.value = {
     ...form.value,
@@ -66,6 +82,10 @@ async function onSave() {
   saving.value = true
   try {
     await saveInstruct(form.value)
+    if (form.value.preset && form.value.preset !== 'Default' && form.value.preset !== 'Custom') {
+      await saveUserInstructPreset(form.value.preset, form.value)
+      await reloadUserPresets()
+    }
     savedTip.value = true
     setTimeout(() => (savedTip.value = false), 2000)
   } catch (e) {
@@ -73,6 +93,56 @@ async function onSave() {
   } finally {
     saving.value = false
   }
+}
+
+async function onSaveAs() {
+  const name = prompt('请输入新 Instruct 预设名称：', form.value.preset || 'My_Instruct')
+  if (!name || !name.trim()) return
+  const cleanName = name.trim()
+  form.value.preset = cleanName
+  await saveUserInstructPreset(cleanName, form.value)
+  await reloadUserPresets()
+  selectedPresetId.value = `user_${cleanName}`
+  await saveInstruct(form.value)
+  savedTip.value = true
+  setTimeout(() => (savedTip.value = false), 2000)
+}
+
+function onExport() {
+  exportInstructPresetFile(form.value.preset || 'instruct', form.value)
+}
+
+async function onImport(e: Event) {
+  const target = e.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (!file) return
+  try {
+    const item = await importInstructPresetFile(file)
+    await reloadUserPresets()
+    selectedPresetId.value = item.id
+    form.value = { ...item.settings }
+    await saveInstruct(form.value)
+    alert(`成功导入指令预设「${item.name}」`)
+  } catch (err) {
+    alert(`导入失败：${err instanceof Error ? err.message : String(err)}`)
+  } finally {
+    target.value = ''
+  }
+}
+
+async function onDeleteCurrent() {
+  const matched = userPresets.value.find((p) => p.id === selectedPresetId.value)
+  if (!matched) {
+    alert('内置预设不可删除')
+    return
+  }
+  const cleanName = matched.settings.preset || matched.name
+  if (!confirm(`确定删除指令预设「${cleanName}」吗？`)) return
+  await deleteUserInstructPreset(cleanName)
+  await reloadUserPresets()
+  selectedPresetId.value = 'default'
+  onPresetChange()
+  await saveInstruct(form.value)
 }
 
 // 模拟三轮对话测试样本
@@ -128,15 +198,39 @@ const livePreview = computed(() => {
     <div v-else class="card-body">
       <!-- 预设选择与核心参数 -->
       <div class="row-presets">
-        <label class="fld">
-          <span class="lb">选择指令预设 (Preset)：</span>
-          <select v-model="selectedPresetId" class="in-sel" @change="onPresetChange">
-            <option v-for="p in INSTRUCT_PRESETS" :key="p.id" :value="p.id">
-              {{ p.name }}
-            </option>
-            <option value="custom">自定义 (Custom)</option>
-          </select>
-        </label>
+        <div class="preset-top-bar">
+          <label class="fld grow">
+            <span class="lb">选择指令预设 (Preset)：</span>
+            <select v-model="selectedPresetId" class="in-sel" @change="onPresetChange">
+              <optgroup label="内置标准预设">
+                <option v-for="p in INSTRUCT_PRESETS" :key="p.id" :value="p.id">
+                  {{ p.name }}
+                </option>
+              </optgroup>
+              <optgroup v-if="userPresets.length" label="自定义/导入预设">
+                <option v-for="p in userPresets" :key="p.id" :value="p.id">
+                  {{ p.name }}
+                </option>
+              </optgroup>
+              <option value="custom">自定义编辑 (Custom)</option>
+            </select>
+          </label>
+          <div class="btn-group">
+            <button class="btn btn-sm" @click="onSaveAs">另存为新预设</button>
+            <button class="btn btn-sm" @click="onExport">导出 (.json)</button>
+            <label class="btn btn-sm btn-file">
+              导入 (.json)
+              <input type="file" accept=".json" class="file-hidden" @change="onImport" />
+            </label>
+            <button
+              class="btn btn-sm btn-danger"
+              :disabled="!userPresets.some((u) => u.id === selectedPresetId)"
+              @click="onDeleteCurrent"
+            >
+              删除
+            </button>
+          </div>
+        </div>
 
         <label class="fld">
           <span class="lb">发言人名字处理 (Names)：</span>
@@ -287,12 +381,45 @@ const livePreview = computed(() => {
 }
 .row-presets {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  flex-direction: column;
   gap: 14px;
   background: var(--c-bg);
   padding: 12px;
   border-radius: var(--radius-md);
+}
+.preset-top-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+.grow {
+  flex-grow: 1;
+}
+.btn-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.btn-file {
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+}
+.file-hidden {
+  position: absolute;
+  top: 0;
+  left: 0;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+.btn-danger {
+  color: #ef4444;
 }
 .fld {
   display: flex;

@@ -53,6 +53,8 @@ export default defineConfig({
       'ink-2': 'var(--c-text-2)',
       'ink-3': 'var(--c-text-3)',
       'on-brand': 'var(--c-on-primary)',
+      accent: 'var(--c-accent)',
+      'accent-hover': 'var(--c-accent-hover)',
       /* 主色阶（--p-*） */
       brand: 'var(--p-500)',
       'brand-50': 'var(--p-50)',
@@ -86,17 +88,17 @@ export default defineConfig({
 
   shortcuts: {
     /* ---- 视觉块（原各页面重复定义的 .card / .ghost / .in 统一到这里）---- */
-    card: 'bg-canvas border border-solid border-line rounded-lg p-[13px_15px]',
+    card: 'bg-panel border border-solid border-line rounded-lg p-[13px_15px] shadow-card',
     'card-hd': 'text-13px font-600 mb-[9px]',
     hint: 'text-11px leading-[1.7] text-ink-3',
 
     // 按钮：中性（原 .ghost）
-    btn: 'px-12px py-6px text-12px border border-solid border-line rounded-md text-ink-2 bg-[var(--c-bg)] whitespace-nowrap hover:border-brand-400 hover:text-brand-600 disabled:(opacity-55 cursor-not-allowed)',
-    'btn-primary': 'btn bg-brand border-brand text-on-brand font-semibold hover:bg-brand-600 hover:border-brand-600 hover:text-on-brand',
+    btn: 'px-12px py-6px text-12px border border-solid border-line rounded-md text-ink-2 bg-[var(--c-panel)] whitespace-nowrap hover:border-brand-400 hover:text-brand-600 active:scale-97 transition-all duration-150 disabled:(opacity-55 cursor-not-allowed transform-none)',
+    'btn-primary': 'btn bg-brand border-brand text-on-brand font-semibold hover:bg-brand-600 hover:border-brand-600 hover:text-on-brand shadow-sm',
     'btn-danger': 'btn bg-error border-error text-on-brand font-semibold hover:opacity-88',
 
     // 输入
-    field: 'w-full px-10px py-7px text-12px text-ink bg-[var(--c-bg)] border border-solid border-line rounded-md outline-none focus:border-brand-400 [font-family:inherit]',
+    field: 'w-full px-10px py-7px text-12px text-ink bg-[var(--c-bg)] border border-solid border-line rounded-md outline-none focus:(border-brand-400 ring-2 ring-brand-400/20) transition-all [font-family:inherit]',
     fld: 'block mb-10px',
     'field-select': 'field appearance-none',
     'field-area': 'field resize-y leading-[1.6]',
@@ -111,11 +113,11 @@ export default defineConfig({
      * ⚠ border-* 教训：`border-solid` 只设 border-style，border-width 的 CSS 初始值是
      *   medium（3px）！必须把不要的边显式写 0，否则凭空长出 3px 粗框（踩过一次）。 */
     'rail-bottom':
-      'w-full flex-none flex flex-row items-center justify-around py-4px bg-canvas border-t border-r-0 border-b-0 border-l-0 border-solid border-line',
+      'w-full flex-none flex flex-row items-center justify-around pt-6px bg-canvas/95 backdrop-blur-md border-t border-r-0 border-b-0 border-l-0 border-solid border-line z-20',
     'rail-side':
       'w-60px h-full flex-none flex flex-col items-center gap-6px py-14px bg-canvas border-r border-t-0 border-b-0 border-l-0 border-solid border-line',
     /** 导航项：窄屏竖排(图标+文字)、宽屏只留图标 */
-    'rail-item': 'flex flex-col items-center justify-center gap-2px px-0 py-2px color-ink-2 hover:color-brand-600',
+    'rail-item': 'flex flex-col items-center justify-center gap-3px px-0 py-2px color-ink-3 transition-colors select-none',
     'rail-item-side': 'w-36px h-36px rounded-md flex items-center justify-center',
 
     /* ---- 中栏 / 内容栏 ----

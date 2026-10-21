@@ -121,6 +121,61 @@ export async function exportQrPreset(name: string, list: QuickReply[]): Promise<
   })
 }
 
+/** 从本地 .json 文件直接导入 QR 按钮集 */
+export async function importQrFile(file: File): Promise<number> {
+  const text = await file.text()
+  const raw = JSON.parse(text) as Record<string, unknown>
+  const qrList = Array.isArray(raw.qrList) ? (raw.qrList as Record<string, unknown>[]) : []
+  const cur = await loadQuickReplies(true)
+  const labels = new Set(cur.map((q) => q.label))
+  const add = qrList
+    .filter((q) => q && typeof q.label === 'string' && !labels.has(q.label as string))
+    .map((q) => ({ label: q.label as string, message: String(q.message ?? ''), enabled: true }))
+  await saveQuickReplies([...cur, ...add])
+  return add.length
+}
+
+/** 将当前 QR 列表导出为独立 .json 文件供下载 */
+export function exportQrFile(name: string, list: QuickReply[]): void {
+  const payload = {
+    version: 2,
+    id: `stoc-${name}`,
+    name,
+    disableSend: false,
+    placeBeforeInput: false,
+    injectInput: false,
+    color: 'transparent',
+    onlyBorderColor: false,
+    idIndex: list.length + 1,
+    qrList: list.map((q, i) => ({
+      id: i + 1,
+      showLabel: true,
+      label: q.label,
+      title: '',
+      message: q.message,
+      contextList: [],
+      preventAutoExecute: false,
+      isHidden: !q.enabled,
+      executeOnStartup: false,
+      executeOnUser: false,
+      executeOnAi: false,
+      executeOnChatChange: false,
+      executeOnGroupMemberDraft: false,
+      executeOnNewChat: false,
+    })),
+  }
+  const str = JSON.stringify(payload, null, 4)
+  const blob = new Blob([str], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${name.trim() || 'quick-replies'}.json`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
 /* ------------------------------------------------------------------ *
  * 扩展管理（安装 / 更新 / 版本 / 删除 / 启停 / 分支 / 移动）
  * 注意：ST 这些端点的错误响应是纯文本（非 JSON），统一用 stPost + 手工解析

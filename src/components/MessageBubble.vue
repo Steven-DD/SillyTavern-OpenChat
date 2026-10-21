@@ -343,12 +343,26 @@ const isDark = computed(() => theme.mode === 'dark' || theme.mode === 'dusk')
           class="op bm"
           :title="`已书签 → ${m.bookmarkLink}`"
         >
-          ⚑
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor">
+            <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+            <line x1="4" y1="22" x2="4" y2="15" stroke="currentColor" stroke-width="2" />
+          </svg>
         </span>
         <button id="customized-copy-button" class="op" type="button" :title="copied ? '已复制' : '复制'" @click="copyText">
-          {{ copied ? '✓' : '⧉' }}
+          <svg v-if="!copied" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+          </svg>
+          <svg v-else viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
         </button>
-        <button v-if="!editing && !groupChat" id="customized-edit-button" class="op" type="button" title="编辑" @click="startEdit">✎</button>
+        <button v-if="!editing && !groupChat" id="customized-edit-button" class="op" type="button" title="编辑" @click="startEdit">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 20h9" />
+            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+          </svg>
+        </button>
         <button
           v-if="m.role === 'user' && !groupChat"
           id="customized-resend-button"
@@ -357,7 +371,10 @@ const isDark = computed(() => theme.mode === 'dark' || theme.mode === 'dusk')
           title="重发（删除此后的消息并重新生成）"
           @click="emit('resend', index)"
         >
-          ↻
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+            <path d="M3 3v5h5" />
+          </svg>
         </button>
         <button
           v-else-if="!groupChat && m.role === 'assistant' && isLast && !m.pending && !m.error"
@@ -367,7 +384,9 @@ const isDark = computed(() => theme.mode === 'dark' || theme.mode === 'dusk')
           title="继续生成（从当前内容续写）"
           @click="emit('continue', index)"
         >
-          ⏵
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor">
+            <polygon points="5 3 19 12 5 21 5 3" />
+          </svg>
         </button>
         <button
           v-if="!groupChat && m.role === 'assistant' && isLast && !m.pending && !m.error"
@@ -376,10 +395,25 @@ const isDark = computed(() => theme.mode === 'dark' || theme.mode === 'dusk')
           title="重新生成（保留旧回复为备选）"
           @click="emit('regenerate')"
         >
-          ⟳
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10" />
+            <polyline points="1 20 1 14 7 14" />
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+          </svg>
         </button>
-        <button v-if="!groupChat" id="customized-branch-and-share-button" class="op" type="button" title="从此分支" @click="emit('branch', index)">⑂</button>
-        <button v-if="!groupChat" class="op" type="button" title="添加书签" @click="emit('bookmark', index)">⚑</button>
+        <button v-if="!groupChat" id="customized-branch-and-share-button" class="op" type="button" title="从此分支" @click="emit('branch', index)">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="6" y1="3" x2="6" y2="15" />
+            <circle cx="18" cy="6" r="3" />
+            <circle cx="6" cy="18" r="3" />
+            <path d="M18 9a9 9 0 0 1-9 9" />
+          </svg>
+        </button>
+        <button v-if="!groupChat" class="op" type="button" title="添加书签" @click="emit('bookmark', index)">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+          </svg>
+        </button>
         <button
           class="op"
           type="button"
@@ -387,7 +421,15 @@ const isDark = computed(() => theme.mode === 'dark' || theme.mode === 'dusk')
           :title="transBtnTitle"
           @click="onTranslateClick"
         >
-          {{ translating ? '◌' : '译' }}
+          <span v-if="translating" class="spin-icon">◌</span>
+          <svg v-else viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m5 8 6 6" />
+            <path d="m4 14 6-6 2-3" />
+            <path d="M2 5h12" />
+            <path d="M7 2h1" />
+            <path d="m22 22-5-10-5 10" />
+            <path d="M14 18h6" />
+          </svg>
         </button>
         <button
           class="op"
@@ -396,7 +438,14 @@ const isDark = computed(() => theme.mode === 'dark' || theme.mode === 'dusk')
           :title="speaking ? '停止朗读' : '朗读'"
           @click="emit('speak', index)"
         >
-          {{ speaking ? '■' : '🔊' }}
+          <svg v-if="!speaking" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+          </svg>
+          <svg v-else viewBox="0 0 24 24" width="13" height="13" fill="currentColor">
+            <rect x="6" y="6" width="12" height="12" rx="2" />
+          </svg>
         </button>
         <button
           v-if="m.role === 'assistant'"
@@ -406,7 +455,12 @@ const isDark = computed(() => theme.mode === 'dark' || theme.mode === 'dusk')
           :title="drawing ? '正在生成插图…' : '为此条消息生成插图'"
           @click="onDrawClick()"
         >
-          {{ drawing ? '◌' : '🎨' }}
+          <span v-if="drawing" class="spin-icon">◌</span>
+          <svg v-else viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18.37 2.63 14 7l-1.59-1.59a2 2 0 0 0-2.82 0L8 7l9 9 1.59-1.59a2 2 0 0 0 0-2.82L17 10l4.37-4.37a2.12 2.12 0 1 0-3-3Z" />
+            <path d="M9 8c-2 3-4 3.5-7 4l8 8c.5-3 1-5 4-7" />
+            <path d="M14.5 17.5 4.5 7.5" />
+          </svg>
         </button>
         <button
           v-if="!groupChat"
@@ -416,9 +470,21 @@ const isDark = computed(() => theme.mode === 'dark' || theme.mode === 'dusk')
           :title="m.isSystem ? '取消隐藏（恢复进 prompt）' : '隐藏（不进 prompt）'"
           @click="emit('hide', index)"
         >
-          {{ m.isSystem ? '👁' : '🚫' }}
+          <svg v-if="!m.isSystem" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+          <svg v-else viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+            <line x1="1" y1="1" x2="23" y2="23" />
+          </svg>
         </button>
-        <button v-if="!groupChat" id="customized-delete-button" class="op danger" type="button" title="删除" @click="emit('remove', index)">✕</button>
+        <button v-if="!groupChat" id="customized-delete-button" class="op danger" type="button" title="删除" @click="emit('remove', index)">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
       </div>
     </div>
 
@@ -643,20 +709,27 @@ const isDark = computed(() => theme.mode === 'dark' || theme.mode === 'dusk')
 
 /* 气泡 */
 .bubble {
-  padding: 8px 12px;
+  padding: 9px 13px;
   border-radius: var(--radius-lg);
   background: var(--bubble-ai);
-  font-size: 13px;
-  line-height: 1.65;
+  border: 1px solid var(--bubble-ai-border, var(--c-border));
+  font-size: 13.5px;
+  line-height: 1.68;
   color: var(--c-text);
   word-break: break-word;
   min-width: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 .msg.user .bubble {
   background: var(--bubble-user);
+  border: 1px solid var(--bubble-user-border, transparent);
+  color: var(--bubble-user-text, #ffffff);
+  box-shadow: 0 2px 10px -2px color-mix(in srgb, var(--bubble-user) 35%, transparent);
 }
 .bubble.err {
   background: var(--s-error-bg, var(--bubble-ai));
+  border-color: var(--s-error);
   color: var(--s-error);
 }
 .txt {
@@ -770,36 +843,53 @@ const isDark = computed(() => theme.mode === 'dark' || theme.mode === 'dusk')
   color: #fff;
 }
 
-/* 操作工具条 */
+/* 操作工具条：悬浮微型玻璃胶囊 */
 .ops {
-  display: flex;
-  gap: 2px;
-  margin-top: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 5px;
+  padding: 2px 5px;
+  border-radius: 20px;
+  background: var(--c-panel);
+  border: 1px solid var(--c-border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  backdrop-filter: var(--glass-blur, none);
   opacity: 0;
-  transition: opacity 0.12s;
+  transform: translateY(2px);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+  width: fit-content;
 }
 .msg:hover .ops {
   opacity: 1;
+  transform: translateY(0);
 }
 .msg.user .ops {
-  justify-content: flex-end;
+  margin-left: auto;
 }
 .op {
-  width: 24px;
-  height: 22px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--radius-sm);
-  color: var(--c-text-3);
-  font-size: 12px;
+  width: 25px;
+  height: 23px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  color: var(--c-text-2);
+  font-size: 11px;
   line-height: 1;
+  transition: all 0.15s ease;
+  background: transparent;
 }
 .op:hover {
-  background: var(--c-panel);
+  background: color-mix(in srgb, var(--c-text) 10%, transparent);
   color: var(--c-text);
+  transform: scale(1.08);
+}
+.op:active {
+  transform: scale(0.95);
 }
 .op.danger:hover {
-  background: color-mix(in srgb, var(--s-error) 12%, transparent);
+  background: color-mix(in srgb, var(--s-error) 15%, transparent);
   color: var(--s-error);
 }
 .op.bm {
@@ -809,6 +899,14 @@ const isDark = computed(() => theme.mode === 'dark' || theme.mode === 'dusk')
 .op.active {
   background: var(--p-50);
   color: var(--p-600);
+}
+.spin-icon {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 /* 翻译：译文态直接替换气泡内容；下方只留轻量切换 */

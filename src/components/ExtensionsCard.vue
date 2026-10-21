@@ -20,6 +20,8 @@ import {
   listQrPresets,
   importQrPreset,
   exportQrPreset,
+  importQrFile,
+  exportQrFile,
   type QuickReply,
   type StQrPreset,
 } from '@/services/st/extensions'
@@ -163,6 +165,27 @@ async function doExportPreset(): Promise<void> {
   } finally {
     presetBusy.value = false
   }
+}
+
+async function doImportQrFile(e: Event): Promise<void> {
+  const target = e.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (!file) return
+  try {
+    const count = await importQrFile(file)
+    await reloadQrs()
+    note(`成功从文件「${file.name}」导入 ${count} 个按钮`)
+  } catch (err) {
+    note(`导入文件失败：${err instanceof Error ? err.message : String(err)}`, false)
+  } finally {
+    target.value = ''
+  }
+}
+
+function doExportQrFile(): void {
+  const name = exportName.value.trim() || 'quick-replies'
+  exportQrFile(name, qrs.value)
+  note(`已将当前按钮集下载为 ${name}.json`)
 }
 
 /* ---- Instruct 模板（只读透传） ---- */
@@ -435,6 +458,15 @@ onMounted(async () => {
             <button class="btn btn-sm" :disabled="!exportName.trim() || presetBusy" @click="doExportPreset">导出</button>
           </div>
         </label>
+      </div>
+      <div class="file-ops-row">
+        <label class="btn btn-sm btn-file">
+          从本地 .json 文件导入
+          <input type="file" accept=".json" class="file-hidden" @change="doImportQrFile" />
+        </label>
+        <button class="btn btn-sm" :disabled="!qrs.length" @click="doExportQrFile">
+          下载当前按钮为 .json 文件
+        </button>
       </div>
       <p class="hint">套装文件存于 QuickReplies/*.json：导入会把条目追加进上方按钮条；导出的文件可由外部 QR 管理器导入。</p>
     </div>
@@ -769,5 +801,25 @@ onMounted(async () => {
 .w-mode {
   width: 104px;
   flex: none;
+}
+.file-ops-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.btn-file {
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+}
+.file-hidden {
+  position: absolute;
+  top: 0;
+  left: 0;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
 }
 </style>

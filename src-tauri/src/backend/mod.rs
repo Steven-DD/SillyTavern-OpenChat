@@ -49,6 +49,7 @@ pub mod sync;
 pub mod vertexai_auth;
 pub mod image_gen;
 pub mod mcp;
+pub mod presets;
 
 /// 测试专用：带 TempDir 守卫的 BackendState（仅测试构建编译）
 #[cfg(test)]

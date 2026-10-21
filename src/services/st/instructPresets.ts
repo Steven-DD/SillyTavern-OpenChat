@@ -165,3 +165,122 @@ export const INSTRUCT_PRESETS: InstructPresetItem[] = [
     },
   },
 ]
+
+import { getPreset, listPresets, savePreset, deletePreset } from './presets'
+
+/** 将 ST 原始 instruct JSON 转换为 InstructSettings */
+export function rawToInstructSettings(raw: Record<string, unknown>, name?: string): InstructSettings {
+  return {
+    enabled: true,
+    preset: name || (typeof raw.name === 'string' ? raw.name : 'Custom'),
+    system_sequence: typeof raw.system_sequence === 'string' ? raw.system_sequence : '',
+    system_suffix: typeof raw.system_suffix === 'string' ? raw.system_suffix : '\n',
+    input_sequence: typeof raw.input_sequence === 'string' ? raw.input_sequence : '',
+    input_suffix: typeof raw.input_suffix === 'string' ? raw.input_suffix : '\n',
+    output_sequence: typeof raw.output_sequence === 'string' ? raw.output_sequence : '',
+    output_suffix: typeof raw.output_suffix === 'string' ? raw.output_suffix : '\n',
+    first_input_sequence: typeof raw.first_input_sequence === 'string' ? raw.first_input_sequence : '',
+    last_input_sequence: typeof raw.last_input_sequence === 'string' ? raw.last_input_sequence : '',
+    first_output_sequence: typeof raw.first_output_sequence === 'string' ? raw.first_output_sequence : '',
+    last_output_sequence: typeof raw.last_output_sequence === 'string' ? raw.last_output_sequence : '',
+    stop_sequence: typeof raw.stop_sequence === 'string' ? raw.stop_sequence : '',
+    wrap: typeof raw.wrap === 'boolean' ? raw.wrap : true,
+    macro: typeof raw.macro === 'boolean' ? raw.macro : true,
+    names_behavior: (raw.names_behavior as InstructSettings['names_behavior']) || 'none',
+    system_same_as_user: typeof raw.system_same_as_user === 'boolean' ? raw.system_same_as_user : false,
+  }
+}
+
+/** 读取用户自定义 Instruct 预设（从 default-user/instruct/） */
+export async function loadUserInstructPresets(): Promise<InstructPresetItem[]> {
+  const names = await listPresets('instruct')
+  const items: InstructPresetItem[] = []
+  for (const n of names) {
+    const raw = await getPreset(n, 'instruct')
+    if (raw) {
+      items.push({
+        id: `user_${n}`,
+        name: `${n} (用户预设)`,
+        description: `来自 instruct/${n}.json`,
+        settings: rawToInstructSettings(raw, n),
+      })
+    }
+  }
+  return items
+}
+
+/** 保存自定义 Instruct 预设 */
+export async function saveUserInstructPreset(name: string, settings: InstructSettings): Promise<void> {
+  const payload: Record<string, unknown> = {
+    name,
+    system_sequence: settings.system_sequence,
+    system_suffix: settings.system_suffix,
+    input_sequence: settings.input_sequence,
+    input_suffix: settings.input_suffix,
+    output_sequence: settings.output_sequence,
+    output_suffix: settings.output_suffix,
+    first_input_sequence: settings.first_input_sequence,
+    last_input_sequence: settings.last_input_sequence,
+    first_output_sequence: settings.first_output_sequence,
+    last_output_sequence: settings.last_output_sequence,
+    stop_sequence: settings.stop_sequence,
+    wrap: settings.wrap,
+    macro: settings.macro ?? true,
+    names_behavior: settings.names_behavior,
+    system_same_as_user: settings.system_same_as_user,
+  }
+  await savePreset(name, payload, 'instruct')
+}
+
+/** 删除自定义 Instruct 预设 */
+export async function deleteUserInstructPreset(name: string): Promise<void> {
+  await deletePreset(name, 'instruct')
+}
+
+/** 导入 .json 文件 */
+export async function importInstructPresetFile(file: File): Promise<InstructPresetItem> {
+  const text = await file.text()
+  const raw = JSON.parse(text) as Record<string, unknown>
+  const name = file.name.replace(/\.json$/i, '').trim() || 'Imported_Instruct'
+  const settings = rawToInstructSettings(raw, name)
+  await saveUserInstructPreset(name, settings)
+  return {
+    id: `user_${name}`,
+    name: `${name} (用户预设)`,
+    description: `来自导入文件 ${file.name}`,
+    settings,
+  }
+}
+
+/** 导出 .json 文件 */
+export function exportInstructPresetFile(name: string, settings: InstructSettings): void {
+  const payload = {
+    name,
+    system_sequence: settings.system_sequence,
+    system_suffix: settings.system_suffix,
+    input_sequence: settings.input_sequence,
+    input_suffix: settings.input_suffix,
+    output_sequence: settings.output_sequence,
+    output_suffix: settings.output_suffix,
+    first_input_sequence: settings.first_input_sequence,
+    last_input_sequence: settings.last_input_sequence,
+    first_output_sequence: settings.first_output_sequence,
+    last_output_sequence: settings.last_output_sequence,
+    stop_sequence: settings.stop_sequence,
+    wrap: settings.wrap,
+    macro: settings.macro ?? true,
+    names_behavior: settings.names_behavior,
+    system_same_as_user: settings.system_same_as_user,
+  }
+  const str = JSON.stringify(payload, null, 4)
+  const blob = new Blob([str], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${name.trim() || 'instruct'}.json`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
